@@ -71,6 +71,85 @@ app.get("/api/courses/:id", async (req, res) => {
     }
 });
 
+app.get("/api/courses/:id/channels", async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            "SELECT * FROM channels WHERE course_id = ?",
+            [req.params.id]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching channels:", error);
+
+        res.status(500).json({
+            error: "Failed to fetch channels"
+        });
+    }
+});
+
+app.get("/api/channels/:id/messages", async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `
+            SELECT
+                messages.id,
+                messages.channel_id,
+                messages.user_id,
+                users.name AS user_name,
+                messages.content,
+                messages.created_at
+            FROM messages
+            JOIN users ON messages.user_id = users.id
+            WHERE messages.channel_id = ?
+            ORDER BY messages.created_at ASC
+            `,
+            [req.params.id]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching messages:", error);
+
+        res.status(500).json({
+            error: "Failed to fetch messages"
+        });
+    }
+});
+
+app.post("/api/channels/:id/messages", async (req, res) => {
+    try {
+        const { user_id, content } = req.body;
+
+        if (!user_id || !content) {
+            return res.status(400).json({
+                error: "user_id and content are required"
+            });
+        }
+
+        const [result] = await pool.query(
+            `
+            INSERT INTO messages (channel_id, user_id, content)
+            VALUES (?, ?, ?)
+            `,
+            [req.params.id, user_id, content]
+        );
+
+        res.status(201).json({
+            id: result.insertId,
+            channel_id: Number(req.params.id),
+            user_id,
+            content
+        });
+    } catch (error) {
+        console.error("Error creating message:", error);
+
+        res.status(500).json({
+            error: "Failed to create message"
+        });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
