@@ -229,6 +229,85 @@ app.get("/api/users/:id/assignments", async (req, res) => {
     }
 });
 
+app.post("/api/assignments", async (req, res) => {
+    try {
+        const {
+            course_id,
+            title,
+            description,
+            due_date
+        } = req.body;
+
+        if (!course_id || !title || !due_date) {
+            return res.status(400).json({
+                error: "course_id, title, and due_date are required"
+            });
+        }
+
+        const [result] = await pool.query(
+            `
+            INSERT INTO assignments
+            (course_id, title, description, due_date)
+            VALUES (?, ?, ?, ?)
+            `,
+            [course_id, title, description || null, due_date]
+        );
+
+        res.status(201).json({
+            id: result.insertId,
+            course_id,
+            title,
+            description,
+            due_date,
+            status: "todo"
+        });
+    } catch (error) {
+        console.error("Error creating assignment:", error);
+
+        res.status(500).json({
+            error: "Failed to create assignment"
+        });
+    }
+});
+
+app.patch("/api/assignments/:id/status", async (req, res) => {
+    try {
+        const { status } = req.body;
+
+        if (!status) {
+            return res.status(400).json({
+                error: "status is required"
+            });
+        }
+
+        const [result] = await pool.query(
+            `
+            UPDATE assignments
+            SET status = ?
+            WHERE id = ?
+            `,
+            [status, req.params.id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                error: "Assignment not found"
+            });
+        }
+
+        res.json({
+            id: Number(req.params.id),
+            status
+        });
+    } catch (error) {
+        console.error("Error updating assignment status:", error);
+
+        res.status(500).json({
+            error: "Failed to update assignment status"
+        });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
