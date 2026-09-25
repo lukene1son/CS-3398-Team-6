@@ -150,6 +150,34 @@ app.post("/api/channels/:id/messages", async (req, res) => {
     }
 });
 
+app.get("/api/users/:id/courses", async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `
+            SELECT
+                courses.id,
+                courses.course_code,
+                courses.course_name,
+                courses.professor,
+                courses.university
+            FROM course_members
+            JOIN courses
+                ON course_members.course_id = courses.id
+            WHERE course_members.user_id = ?
+            `,
+            [req.params.id]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching user courses:", error);
+
+        res.status(500).json({
+            error: "Failed to fetch user courses"
+        });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
