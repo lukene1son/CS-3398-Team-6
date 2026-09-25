@@ -178,6 +178,57 @@ app.get("/api/users/:id/courses", async (req, res) => {
     }
 });
 
+app.get("/api/courses/:id/assignments", async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            "SELECT * FROM assignments WHERE course_id = ? ORDER BY due_date ASC",
+            [req.params.id]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching assignments:", error);
+
+        res.status(500).json({
+            error: "Failed to fetch assignments"
+        });
+    }
+});
+
+app.get("/api/users/:id/assignments", async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `
+            SELECT
+                assignments.id,
+                assignments.title,
+                assignments.description,
+                assignments.due_date,
+                assignments.status,
+                courses.id AS course_id,
+                courses.course_code,
+                courses.course_name
+            FROM course_members
+            JOIN courses
+                ON course_members.course_id = courses.id
+            JOIN assignments
+                ON assignments.course_id = courses.id
+            WHERE course_members.user_id = ?
+            ORDER BY assignments.due_date ASC
+            `,
+            [req.params.id]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching user assignments:", error);
+
+        res.status(500).json({
+            error: "Failed to fetch user assignments"
+        });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
