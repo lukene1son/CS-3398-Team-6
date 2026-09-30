@@ -1,4 +1,4 @@
-export default function Navbar() {
+export default function Navbar({ onLoginClick }) {
   return (
     <nav className="navbar">
       <div className="nav-brand">
@@ -15,8 +15,8 @@ export default function Navbar() {
         <li><a href="#features">Features</a></li>
         <li><a href="#about">About</a></li>
         <li><a href="#community">Community</a></li>
-        <li><button className="btn-outline">Log In</button></li>
-        <li><button className="btn-primary">Get Started</button></li>
+        <li><button className="btn-outline" onClick={onLoginClick}>Log In</button></li>
+        <li><button className="btn-primary" onClick={onLoginClick}>Get Started</button></li>
       </ul>
     </nav>
   );
