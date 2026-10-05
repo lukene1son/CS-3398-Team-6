@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Footer from './components/Footer';
 import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
+import Calendar from './pages/Calendar';
 
 // Wrapper for Home to pass navigation to Navbar buttons
 function HomeWrapper() {
@@ -64,6 +65,44 @@ export default function App() {
             )
           } 
         />
+
+        {/* 4. Calendar / Planner */}
+        <Route
+          path="/calendar" element={
+            currentUser ? (
+              <Calendar
+                user={currentUser}
+                onLogout={() => setCurrentUser(null)}
+              />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          } 
+        />
+        {/* 2. Login Page (Fidel's component) */}
+        <Route 
+          path="/login" 
+          element={
+            currentUser ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <LoginWrapper onLogin={(user) => setCurrentUser(user)} />
+            )
+          } 
+        />
+
+        {/* 3. Student Dashboard (Maya Chen screen) */}
+        <Route 
+          path="/dashboard" 
+          element={
+            currentUser ? (
+              <Dashboard user={currentUser} onLogout={() => setCurrentUser(null)} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          } 
+        />
+
       </Routes>
     </Router>
   );

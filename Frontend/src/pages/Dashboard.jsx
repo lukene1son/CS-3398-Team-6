@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
   Search, Bell, FileText, MessageSquare, HelpCircle, 
@@ -8,6 +9,7 @@ import {
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
   const userInitial = displayName.charAt(0).toUpperCase();
+  const navigate = useNavigate();
 
   const [tasks, setTasks] = useState([]);
   const [courses, setCourses] = useState([]);
@@ -125,7 +127,7 @@ export default function Dashboard({ user, onLogout }) {
           <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
             <Users size={18} /> Spaces
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button onClick={() => navigate('/calendar')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
             <Calendar size={18} /> Planner
           </button>
           <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
