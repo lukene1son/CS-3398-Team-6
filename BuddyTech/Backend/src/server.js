@@ -1,18 +1,16 @@
-const path = require("path");
-
 require("dotenv").config({
-    path: path.join(__dirname, "..", "port.env")
+    path: "./src/port.env"
 });
 
 const express = require("express");
 const pool = require("./db");
 
+// console.log(pool);
+// console.log(typeof pool.query);
 
 const app = express();
 
 app.use(express.json());
-
-app.use("/api/auth", require("./routes/auth"));
 
 app.get("/", (req, res) => {
     res.send("BuddyTech backend is running!");
