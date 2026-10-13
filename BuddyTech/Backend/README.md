@@ -4,6 +4,11 @@ Standalone Sprint 1 backend for BuddyTech using Node.js, Express, and MySQL.
 
 Canvas/LTI integration is deferred for this sprint.
 
+- [Configure](#1._Configure_`port.env`)
+- [Install dependencies](#2._Install_dependencies)
+- [Initialize the database](#3._Initialize_the_database)
+- [Run the app](#4._Run_the_app)
+
 ## 1. Configure `port.env`
 
 `BuddyTech/Backend/port.env` holds your local settings. It is git-ignored (`*.env`), so every teammate keeps their own copy.
@@ -76,7 +81,6 @@ Production build of the frontend: `npm run build` (output in `Frontend/dist`).
 |---|---|
 | `ECONNREFUSED 127.0.0.1:3306` | MySQL isn't running — start the `MySQL80` service |
 | `ER_ACCESS_DENIED_ERROR` | Wrong `DB_USER` / `DB_PASSWORD` in `port.env` |
-| `ER_BAD_DB_ERROR: Unknown database 'buddytech'` | Run `npm run db:init` |
 | `EADDRINUSE :3000` | Another backend is already running — close it or change `PORT` (and the proxy target in `Frontend/vite.config.js`) |
 | Frontend shows no data | Backend not running, or check the browser dev tools Network tab for `/api` errors |
 
