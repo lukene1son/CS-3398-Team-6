@@ -5,9 +5,12 @@ import {
   Clock, CheckSquare, Square, ChevronRight, LogOut, FolderPlus
 } from 'lucide-react';
 
+import SpacesChat from "../components/SpacesChat";
+
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
   const userInitial = displayName.charAt(0).toUpperCase();
+  const [activeTab, setActiveTab] = useState('home');
 
   // Neutral, generic placeholder assignments
   const [tasks, setTasks] = useState([
@@ -42,28 +45,128 @@ export default function Dashboard({ user, onLogout }) {
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('home')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '0.75rem 1rem', 
+              background: activeTab === 'home' ? '#eff6ff' : 'transparent', 
+              color: activeTab === 'home' ? '#1d4ed8' : '#64748b', 
+              border: 'none', 
+              borderRadius: '10px', 
+              fontWeight: activeTab === 'home' ? 600 : 400, 
+              cursor: 'pointer', 
+              textAlign: 'left' 
+            }}
+          >
             <Home size={18} /> Home
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('spaces')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '0.75rem 1rem', 
+              background: activeTab === 'spaces' ? '#eff6ff' : 'transparent', 
+              color: activeTab === 'spaces' ? '#1d4ed8' : '#64748b', 
+              border: 'none', 
+              borderRadius: '10px', 
+              fontWeight: activeTab === 'spaces' ? 600 : 400, 
+              cursor: 'pointer', 
+              textAlign: 'left' 
+            }}
+          >
             <Users size={18} /> Spaces
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('planner')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '0.75rem 1rem', 
+              background: activeTab === 'planner' ? '#eff6ff' : 'transparent', 
+              color: activeTab === 'planner' ? '#1d4ed8' : '#64748b', 
+              border: 'none', 
+              borderRadius: '10px', 
+              fontWeight: activeTab === 'planner' ? 600 : 400, 
+              cursor: 'pointer', 
+              textAlign: 'left' 
+            }}
+          >
             <Calendar size={18} /> Planner
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('ai-tools')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '0.75rem 1rem', 
+              background: activeTab === 'ai-tools' ? '#eff6ff' : 'transparent', 
+              color: activeTab === 'ai-tools' ? '#1d4ed8' : '#64748b', 
+              border: 'none', 
+              borderRadius: '10px', 
+              fontWeight: activeTab === 'ai-tools' ? 600 : 400, 
+              cursor: 'pointer', 
+              textAlign: 'left' 
+            }}
+          >
             <Sparkles size={18} /> AI Tools
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('resources')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '0.75rem 1rem', 
+              background: activeTab === 'resources' ? '#eff6ff' : 'transparent', 
+              color: activeTab === 'resources' ? '#1d4ed8' : '#64748b', 
+              border: 'none', 
+              borderRadius: '10px', 
+              fontWeight: activeTab === 'resources' ? 600 : 400, 
+              cursor: 'pointer', 
+              textAlign: 'left' 
+            }}
+          >
             <BookOpen size={18} /> Resources
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('settings')}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              padding: '0.75rem 1rem', 
+              background: activeTab === 'settings' ? '#eff6ff' : 'transparent', 
+              color: activeTab === 'settings' ? '#1d4ed8' : '#64748b', 
+              border: 'none', 
+              borderRadius: '10px', 
+              fontWeight: activeTab === 'settings' ? 600 : 400, 
+              cursor: 'pointer', 
+              textAlign: 'left' 
+            }}
+          >
             <Settings size={18} /> Settings
           </button>
         </nav>
 
         {onLogout && (
-          <button onClick={onLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          <button 
+            type="button"
+            onClick={onLogout} 
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}
+          >
             <LogOut size={16} /> Sign Out
           </button>
         )}
@@ -97,150 +200,154 @@ export default function Dashboard({ user, onLogout }) {
         </header>
 
         {/* Content Body */}
-        <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
-          {/* Main Column */}
-          <div>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a' }}>
-                Welcome back, {displayName} 👋
-              </h1>
-              <p style={{ color: '#64748b', fontSize: '0.95rem' }}>Here is an overview of your active spaces and tasks.</p>
-            </div>
-
-            {/* Planner Section */}
-            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem', marginBottom: '2rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                  <Calendar size={18} color="#2563eb" /> My Planner
-                </h3>
-                <span style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>View all tasks →</span>
+        {activeTab === 'spaces' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <SpacesChat />
+          </div>
+        ) : (
+          <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
+            {/* Main Column */}
+            <div>
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a' }}>
+                  Welcome back, {displayName} 👋
+                </h1>
+                <p style={{ color: '#64748b', fontSize: '0.95rem' }}>Here is an overview of your active spaces and tasks.</p>
               </div>
 
-              {/* Quick Add Demo Input */}
-              <form onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '1rem' }}>
-                <input 
-                  type="text" 
-                  placeholder="+ Add a new assignment or goal..."
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  style={{ flex: 1, padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}
-                />
-                <button type="submit" style={{ padding: '0.5rem 1rem', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
-                  Add
-                </button>
-              </form>
+              {/* Planner Section */}
+              <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem', marginBottom: '2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <Calendar size={18} color="#2563eb" /> My Planner
+                  </h3>
+                  <span style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>View all tasks →</span>
+                </div>
 
-              {/* Tasks List */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {tasks.length === 0 ? (
-                  <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>No pending tasks.</p>
-                ) : (
-                  tasks.map(task => (
-                    <div key={task.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#f8fafc', borderRadius: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span onClick={() => toggleTask(task.id)} style={{ cursor: 'pointer', color: task.completed ? '#10b981' : '#94a3b8' }}>
-                          {task.completed ? <CheckSquare size={18} /> : <Square size={18} />}
+                {/* Quick Add Input */}
+                <form onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '1rem' }}>
+                  <input 
+                    type="text" 
+                    placeholder="+ Add a new assignment or goal..." 
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    style={{ flex: 1, padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}
+                  />
+                  <button type="submit" style={{ padding: '0.5rem 1rem', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+                    Add
+                  </button>
+                </form>
+
+                {/* Tasks List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {tasks.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>No pending tasks.</p>
+                  ) : (
+                    tasks.map(task => (
+                      <div key={task.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#f8fafc', borderRadius: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <span onClick={() => toggleTask(task.id)} style={{ cursor: 'pointer', color: task.completed ? '#10b981' : '#94a3b8' }}>
+                            {task.completed ? <CheckSquare size={18} /> : <Square size={18} />}
+                          </span>
+                          <div>
+                            <p style={{ fontWeight: 600, margin: 0, textDecoration: task.completed ? 'line-through' : 'none', color: task.completed ? '#94a3b8' : '#1e293b' }}>
+                              {task.title}
+                            </p>
+                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>{task.desc}</p>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: task.color, background: `${task.color}15`, padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                          {task.due}
                         </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Connected Spaces Cards */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <Users size={18} color="#2563eb" /> Connected Spaces
+                  </h3>
+                  <span onClick={() => setActiveTab('spaces')} style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>+ Open Spaces Chat →</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  <div onClick={() => setActiveTab('spaces')} style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                    <h4 style={{ margin: '0 0 0.4rem 0', color: '#1e293b' }}>Course Space 01</h4>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 0.8rem 0' }}>Enrolled Course • Active Community</p>
+                    <span style={{ fontSize: '0.75rem', background: '#dbeafe', color: '#1e40af', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>Click to Chat</span>
+                  </div>
+
+                  <div onClick={() => setActiveTab('spaces')} style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                    <h4 style={{ margin: '0 0 0.4rem 0', color: '#1e293b' }}>Collaborative Study Group</h4>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 0.8rem 0' }}>Peer Learning Group • Open to Members</p>
+                    <span style={{ fontSize: '0.75rem', background: '#f3e8ff', color: '#6b21a8', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>Click to Chat</span>
+                  </div>
+
+                  <div onClick={() => setActiveTab('spaces')} style={{ background: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '2px dashed #cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', cursor: 'pointer' }}>
+                    <FolderPlus size={24} color="#94a3b8" style={{ marginBottom: '6px' }} />
+                    <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', margin: 0 }}>Join or create a space</p>
+                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>Syncs with student enrollment</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: AI Quick Actions & Activity */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                    <Sparkles size={16} color="#2563eb" /> AI Quick Actions
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>AI Assistant</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {[
+                    { icon: FileText, title: 'Catch me up', sub: 'Summarize discussions and updates' },
+                    { icon: MessageSquare, title: 'Summarize notes', sub: 'Extract key takeaways from discussions' },
+                    { icon: BookOpen, title: 'Generate study guide', sub: 'Turn course notes into study outlines' },
+                    { icon: HelpCircle, title: 'Practice questions', sub: 'Generate review questions on demand' }
+                  ].map((action, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', borderRadius: '10px', border: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <action.icon size={18} color="#2563eb" />
                         <div>
-                          <p style={{ fontWeight: 600, margin: 0, textDecoration: task.completed ? 'line-through' : 'none', color: task.completed ? '#94a3b8' : '#1e293b' }}>
-                            {task.title}
-                          </p>
-                          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>{task.desc}</p>
+                          <p style={{ fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>{action.title}</p>
+                          <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>{action.sub}</p>
                         </div>
                       </div>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: task.color, background: `${task.color}15`, padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
-                        {task.due}
-                      </span>
+                      <ChevronRight size={16} color="#94a3b8" />
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Neutral Connected Spaces */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                  <Users size={18} color="#2563eb" /> Connected Spaces
-                </h3>
-                <span style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>+ Browse Spaces</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-                <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <h4 style={{ margin: '0 0 0.4rem 0', color: '#1e293b' }}>Course Space 01</h4>
-                  <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 0.8rem 0' }}>Enrolled Course • Active Community</p>
-                  <span style={{ fontSize: '0.75rem', background: '#dbeafe', color: '#1e40af', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>Enrolled</span>
-                </div>
-
-                <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <h4 style={{ margin: '0 0 0.4rem 0', color: '#1e293b' }}>Collaborative Study Group</h4>
-                  <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 0.8rem 0' }}>Peer Learning Group • Open to Members</p>
-                  <span style={{ fontSize: '0.75rem', background: '#f3e8ff', color: '#6b21a8', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>Active</span>
-                </div>
-
-                {/* Empty State / Join Action */}
-                <div style={{ background: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '2px dashed #cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', cursor: 'pointer' }}>
-                  <FolderPlus size={24} color="#94a3b8" style={{ marginBottom: '6px' }} />
-                  <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', margin: 0 }}>Join or create a space</p>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>Syncs with student enrollment</p>
+                  ))}
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Right Column: AI Quick Actions */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <Sparkles size={16} color="#2563eb" /> AI Quick Actions
-                </h3>
-                <span style={{ fontSize: '0.75rem', background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>AI Assistant</span>
-              </div>
+              <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                    <Clock size={16} color="#64748b" /> Recent Activity
+                  </h3>
+                </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {[
-                  { icon: FileText, title: 'Catch me up', sub: 'Summarize discussions and updates' },
-                  { icon: MessageSquare, title: 'Summarize notes', sub: 'Extract key takeaways from discussions' },
-                  { icon: BookOpen, title: 'Generate study guide', sub: 'Turn course notes into study outlines' },
-                  { icon: HelpCircle, title: 'Practice questions', sub: 'Generate review questions on demand' }
-                ].map((action, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', borderRadius: '10px', border: '1px solid #f1f5f9', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <action.icon size={18} color="#2563eb" />
-                      <div>
-                        <p style={{ fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>{action.title}</p>
-                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>{action.sub}</p>
-                      </div>
-                    </div>
-                    <ChevronRight size={16} color="#94a3b8" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.85rem' }}>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 600 }}>Space Discussion Activity</p>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.75rem' }}>New responses in connected space • Recent</p>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Recent Activity */}
-            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <Clock size={16} color="#64748b" /> Recent Activity
-                </h3>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.85rem' }}>
-                <div>
-                  <p style={{ margin: 0, fontWeight: 600 }}>Space Discussion Activity</p>
-                  <p style={{ margin: 0, color: '#64748b', fontSize: '0.75rem' }}>New responses in connected space • Recent</p>
-                </div>
-                <div>
-                  <p style={{ margin: 0, fontWeight: 600 }}>Upcoming Schedule Sync</p>
-                  <p style={{ margin: 0, color: '#64748b', fontSize: '0.75rem' }}>Assignments synced from course schedule</p>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 600 }}>Upcoming Schedule Sync</p>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.75rem' }}>Assignments synced from course schedule</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
