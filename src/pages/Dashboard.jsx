@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 
 import SpacesChat from "../components/SpacesChat";
+import AITools from './AITools';
+import Resources from './Resources';
+import SettingsPage from './SettingsPage';
 
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
@@ -202,7 +205,19 @@ export default function Dashboard({ user, onLogout }) {
         {/* Content Body */}
         {activeTab === 'spaces' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
-            <SpacesChat />
+            <SpacesChat user={user} />
+          </div>
+        ) : activeTab === 'ai-tools' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <AITools />
+          </div>
+        ) : activeTab === 'resources' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <Resources user={user} />
+          </div>
+        ) : activeTab === 'settings' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <SettingsPage user={user} />
           </div>
         ) : (
           <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
