@@ -1,8 +1,8 @@
 USE buddytech;
 
-INSERT INTO users (name, email) VALUES
-('Demo Student', 'student@buddytech.local'),
-('Study Partner', 'partner@buddytech.local');
+INSERT INTO users (name, email, password_hash) VALUES
+('Demo Student', 'student@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner', 'partner@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.');
 
 INSERT INTO courses (course_code, course_name, professor, university) VALUES
 ('CS 3398', 'Software Engineering', 'Rui Wang', 'Texas State University'),

@@ -45,15 +45,14 @@ Make sure the MySQL service is running (Windows: Services → `MySQL80` → Star
 
 | Command | What it does |
 |---|---|
-| `npm run db:init` | Creates the `buddytech` database, all tables, and the demo seed data |
 | `npm run db:schema` | Same, but leaves the tables empty (no seed data) |
 | `npm run db:verify` | Prints row counts and a few sanity queries |
 
-> ⚠️ `schema.sql` **drops and recreates** every table, so `db:init` / `db:schema` wipe existing data. Use them to reset your local DB.
+> ⚠️ `schema.sql` **drops and recreates** every table, so `db:schema` wipe existing data. Use to reset your local DB.
 
 These scripts use Node + `mysql2`, so you don't need the `mysql` command-line client on your PATH. (If you prefer, you can still run `database/schema.sql` then `database/seed.sql` in MySQL Workbench.)
 
-Expected `db:verify` output: users 2, courses 2, course_members 3, channels 4, messages 3, assignments 2.
+Expected `db:verify` (with seed data) output: users 2, courses 2, course_members 3, channels 4, messages 3, assignments 2.
 
 ## 4. Run the app (two terminals)
 

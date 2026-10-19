@@ -6,7 +6,7 @@ require("dotenv").config({
 
 const express = require("express");
 const pool = require("./db");
-
+const requireAuth = require("./middleware/requireAuth");
 
 const app = express();
 
@@ -14,8 +14,48 @@ app.use(express.json());
 
 app.use("/api/auth", require("./routes/auth"));
 
-app.get("/", (req, res) => {
-    res.send("BuddyTech backend is running!");
+// Every /api route registered BELOW this line requires a valid login token.
+app.use("/api", requireAuth);
+
+// ---- Membership helpers: is the logged-in user in this course? ----
+async function isCourseMember(userId, courseId) {
+    const [rows] = await pool.query(
+        "SELECT 1 FROM course_members WHERE user_id = ? AND course_id = ?",
+        [userId, courseId]
+    );
+    return rows.length > 0;
+}
+
+async function canAccessChannel(userId, channelId) {
+    const [rows] = await pool.query(
+        `SELECT 1 FROM channels
+         JOIN course_members ON course_members.course_id = channels.course_id
+         WHERE channels.id = ? AND course_members.user_id = ?`,
+        [channelId, userId]
+    );
+    return rows.length > 0;
+}
+
+async function canAccessAssignment(userId, assignmentId) {
+    const [rows] = await pool.query(
+        `SELECT 1 FROM assignments
+         JOIN course_members ON course_members.course_id = assignments.course_id
+         WHERE assignments.id = ? AND course_members.user_id = ?`,
+        [assignmentId, userId]
+    );
+    return rows.length > 0;
+}
+
+// GET /api/me  -> the logged-in user's profile (used to restore a session on page load)
+app.get("/api/me", async (req, res) => {
+    const [rows] = await pool.query(
+        "SELECT id, name, email, created_at FROM users WHERE id = ?",
+        [req.user.id]
+    );
+    if (rows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+    }
+    res.json(rows[0]);
 });
 
 app.get("/test-db", async (req, res) => {
@@ -75,6 +115,9 @@ app.get("/api/courses/:id", async (req, res) => {
 
 app.get("/api/courses/:id/channels", async (req, res) => {
     try {
+        if (!(await isCourseMember(req.user.id, req.params.id))) {
+        return res.status(403).json({ error: "You are not in this course" });
+        }
         const [rows] = await pool.query(
             "SELECT * FROM channels WHERE course_id = ?",
             [req.params.id]
@@ -92,6 +135,9 @@ app.get("/api/courses/:id/channels", async (req, res) => {
 
 app.get("/api/channels/:id/messages", async (req, res) => {
     try {
+        if (!(await canAccessChannel(req.user.id, req.params.id))) {
+            return res.status(403).json({ error: "You are not in this course" });
+        }
         const [rows] = await pool.query(
             `
             SELECT
@@ -121,12 +167,17 @@ app.get("/api/channels/:id/messages", async (req, res) => {
 
 app.post("/api/channels/:id/messages", async (req, res) => {
     try {
-        const { user_id, content } = req.body;
+        const user_id = req.user.id; // author is whoever is logged in, never the request body
+        const { content } = req.body || {};
 
-        if (!user_id || !content) {
+        if (!content) {
             return res.status(400).json({
-                error: "user_id and content are required"
+                error: "content is required"
             });
+        }
+
+        if (!(await canAccessChannel(user_id, req.params.id))) {
+            return res.status(403).json({ error: "You are not in this course" });
         }
 
         const [result] = await pool.query(
@@ -152,7 +203,7 @@ app.post("/api/channels/:id/messages", async (req, res) => {
     }
 });
 
-app.get("/api/users/:id/courses", async (req, res) => {
+app.get("/api/me/courses", async (req, res) => {
     try {
         const [rows] = await pool.query(
             `
@@ -167,7 +218,7 @@ app.get("/api/users/:id/courses", async (req, res) => {
                 ON course_members.course_id = courses.id
             WHERE course_members.user_id = ?
             `,
-            [req.params.id]
+            [req.user.id]
         );
 
         res.json(rows);
@@ -182,6 +233,9 @@ app.get("/api/users/:id/courses", async (req, res) => {
 
 app.get("/api/courses/:id/assignments", async (req, res) => {
     try {
+        if (!(await isCourseMember(req.user.id, req.params.id))) {
+            return res.status(403).json({ error: "You are not in this course" });
+        }
         const [rows] = await pool.query(
             "SELECT * FROM assignments WHERE course_id = ? ORDER BY due_date ASC",
             [req.params.id]
@@ -197,7 +251,7 @@ app.get("/api/courses/:id/assignments", async (req, res) => {
     }
 });
 
-app.get("/api/users/:id/assignments", async (req, res) => {
+app.get("/api/me/assignments", async (req, res) => {
     try {
         const [rows] = await pool.query(
             `
@@ -218,7 +272,7 @@ app.get("/api/users/:id/assignments", async (req, res) => {
             WHERE course_members.user_id = ?
             ORDER BY assignments.due_date ASC
             `,
-            [req.params.id]
+            [req.user.id]
         );
 
         res.json(rows);
@@ -244,6 +298,10 @@ app.post("/api/assignments", async (req, res) => {
             return res.status(400).json({
                 error: "course_id, title, and due_date are required"
             });
+        }
+
+        if (!(await isCourseMember(req.user.id, course_id))) {
+            return res.status(403).json({ error: "You are not in this course" });
         }
 
         const [result] = await pool.query(
@@ -280,6 +338,10 @@ app.patch("/api/assignments/:id/status", async (req, res) => {
             return res.status(400).json({
                 error: "status is required"
             });
+        }
+        
+        if (!(await canAccessAssignment(req.user.id, req.params.id))) {
+            return res.status(404).json({ error: "Assignment not found" });
         }
 
         const [result] = await pool.query(
