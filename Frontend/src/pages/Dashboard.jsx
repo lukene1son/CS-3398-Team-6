@@ -17,7 +17,27 @@ export default function Dashboard({ user, onLogout }) {
   const [loading, setLoading] = useState(true);
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [activeTab, setActiveTab] = useState('home');
+
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = sessionStorage.getItem('buddytechActiveTab');
+
+    return ['home', 'spaces', 'planner'].includes(savedTab)
+      ? savedTab
+      : 'home';
+  });
+
+  const changeTab = (tab) => {
+    sessionStorage.setItem('buddytechActiveTab', tab);
+    setActiveTab(tab);
+  };
+
+  const handleDashboardLogout = () => {
+    sessionStorage.removeItem('buddytechActiveTab');
+
+    if (onLogout) {
+      onLogout();
+    }
+  };
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -125,7 +145,7 @@ export default function Dashboard({ user, onLogout }) {
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
           <button
             type="button"
-            onClick={() => setActiveTab('home')}
+            onClick={() => changeTab('home')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -144,7 +164,7 @@ export default function Dashboard({ user, onLogout }) {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('spaces')}
+            onClick={() => changeTab('spaces')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -163,7 +183,7 @@ export default function Dashboard({ user, onLogout }) {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('planner')}
+            onClick={() => changeTab('planner')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -192,7 +212,7 @@ export default function Dashboard({ user, onLogout }) {
         </nav>
 
         {onLogout && (
-          <button onClick={onLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          <button onClick={handleDashboardLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
             <LogOut size={16} /> Sign Out
           </button>
         )}
