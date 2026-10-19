@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 
 import SpacesChat from '../components/SpacesChat';
+import CalendarView from './Calendar';
 
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
@@ -160,7 +161,23 @@ export default function Dashboard({ user, onLogout }) {
           >
             <Users size={18} /> Spaces
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('planner')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'planner' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'planner' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'planner' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
             <Calendar size={18} /> Planner
           </button>
           <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
@@ -213,6 +230,8 @@ export default function Dashboard({ user, onLogout }) {
           <div style={{ padding: '2rem', flex: 1 }}>
             <SpacesChat user={user} />
           </div>
+        ) : activeTab === 'planner' ? (
+          <CalendarView />
         ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
           {/* Main Column */}
