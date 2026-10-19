@@ -1,0 +1,43 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: buddytech
+      MYSQL_DATABASE: buddytech
+    volumes:
+      - buddytech_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pbuddytech"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./BuddyTech/Backend
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: buddytech
+      DB_NAME: buddytech
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: sh -c "npm run db:ensure && npm start"
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ./Frontend
+    environment:
+      VITE_API_TARGET: http://backend:3000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+
+volumes:
+  buddytech_mysql_data:
