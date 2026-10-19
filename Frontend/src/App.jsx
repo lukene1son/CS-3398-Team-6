@@ -33,7 +33,24 @@ function LoginWrapper({ onLogin }) {
 }
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('buddytechUser');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleLogin = (user) => {
+    localStorage.setItem('buddytechUser', JSON.stringify(user));
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('buddytechUser');
+    setCurrentUser(null);
+  };
 
   return (
     <Router>
@@ -48,7 +65,7 @@ export default function App() {
             currentUser ? (
               <Navigate to="/dashboard" replace />
             ) : (
-              <LoginWrapper onLogin={(user) => setCurrentUser(user)} />
+              <LoginWrapper onLogin={handleLogin} />
             )
           } 
         />
@@ -58,7 +75,7 @@ export default function App() {
           path="/dashboard" 
           element={
             currentUser ? (
-              <Dashboard user={currentUser} onLogout={() => setCurrentUser(null)} />
+              <Dashboard user={currentUser} onLogout={handleLogout} />
             ) : (
               <Navigate to="/login" replace />
             )
