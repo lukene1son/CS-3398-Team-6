@@ -1,5 +1,3 @@
-USE buddytech;
-
 INSERT INTO users (name, email) VALUES
 ('Demo Student', 'student@buddytech.local'),
 ('Study Partner', 'partner@buddytech.local');
