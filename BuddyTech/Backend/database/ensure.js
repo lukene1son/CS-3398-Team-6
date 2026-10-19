@@ -19,6 +19,15 @@ const baseConfig = {
   password: process.env.DB_PASSWORD || ""
 };
 
+const REQUIRED_TABLES = [
+  "users",
+  "courses",
+  "course_members",
+  "channels",
+  "messages",
+  "assignments"
+];
+
 async function ensureDatabase() {
   let connection;
 
@@ -40,16 +49,22 @@ async function ensureDatabase() {
       multipleStatements: true
     });
 
-    const [tables] = await connection.query(
-      "SHOW TABLES LIKE 'users'"
+    const [rows] = await connection.query("SHOW TABLES");
+
+    const existingTables = new Set(
+      rows.map(row => Object.values(row)[0])
     );
 
-    if (tables.length > 0) {
+    const databaseComplete = REQUIRED_TABLES.every(
+      table => existingTables.has(table)
+    );
+
+    if (databaseComplete) {
       console.log(`Database "${DB_NAME}" already initialized.`);
       return;
     }
 
-    console.log(`Initializing database: ${DB_NAME}`);
+    console.log(`Database "${DB_NAME}" is incomplete. Rebuilding schema...`);
 
     const schema = fs.readFileSync(
       path.join(__dirname, "schema.sql"),
@@ -74,6 +89,6 @@ async function ensureDatabase() {
 
 ensureDatabase().catch((error) => {
   console.error("Database setup failed:");
-  console.error(error.message);
+  console.error(error);
   process.exit(1);
 });
