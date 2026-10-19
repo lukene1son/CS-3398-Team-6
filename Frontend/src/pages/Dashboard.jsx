@@ -5,6 +5,8 @@ import {
   Clock, CheckSquare, Square, ChevronRight, LogOut, FolderPlus
 } from 'lucide-react';
 
+import SpacesChat from '../components/SpacesChat';
+
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
   const userInitial = displayName.charAt(0).toUpperCase();
@@ -14,6 +16,7 @@ export default function Dashboard({ user, onLogout }) {
   const [loading, setLoading] = useState(true);
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [activeTab, setActiveTab] = useState('home');
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -119,10 +122,42 @@ export default function Dashboard({ user, onLogout }) {
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('home')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'home' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'home' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'home' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
             <Home size={18} /> Home
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('spaces')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'spaces' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'spaces' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'spaces' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
             <Users size={18} /> Spaces
           </button>
           <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
@@ -174,6 +209,11 @@ export default function Dashboard({ user, onLogout }) {
         </header>
 
         {/* Content Body */}
+        {activeTab === 'spaces' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <SpacesChat user={user} />
+          </div>
+        ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
           {/* Main Column */}
           <div>
@@ -354,6 +394,7 @@ export default function Dashboard({ user, onLogout }) {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
