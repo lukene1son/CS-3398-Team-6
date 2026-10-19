@@ -17,6 +17,27 @@ export default function Dashboard({ user, onLogout }) {
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
 
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = sessionStorage.getItem('buddytechActiveTab');
+
+    return ['home', 'spaces', 'planner'].includes(savedTab)
+      ? savedTab
+      : 'home';
+  });
+
+  const changeTab = (tab) => {
+    sessionStorage.setItem('buddytechActiveTab', tab);
+    setActiveTab(tab);
+  };
+
+  const handleDashboardLogout = () => {
+    sessionStorage.removeItem('buddytechActiveTab');
+
+    if (onLogout) {
+      onLogout();
+    }
+  };
+
   useEffect(() => {
     async function loadDashboardData() {
       try {
@@ -97,13 +118,61 @@ export default function Dashboard({ user, onLogout }) {
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => changeTab('home')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'home' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'home' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'home' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
             <Home size={18} /> Home
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => changeTab('spaces')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'spaces' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'spaces' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'spaces' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
             <Users size={18} /> Spaces
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => changeTab('planner')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'planner' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'planner' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'planner' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
             <Calendar size={18} /> Planner
           </button>
           <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
@@ -118,7 +187,7 @@ export default function Dashboard({ user, onLogout }) {
         </nav>
 
         {onLogout && (
-          <button onClick={onLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          <button onClick={handleDashboardLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
             <LogOut size={16} /> Sign Out
           </button>
         )}
