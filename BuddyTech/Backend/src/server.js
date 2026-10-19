@@ -1,5 +1,7 @@
+const path = require("path");
+
 require("dotenv").config({
-    path: "./src/port.env"
+    path: path.join(__dirname, "..", ".env")
 });
 
 const express = require("express");
