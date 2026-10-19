@@ -4,6 +4,8 @@ require("dotenv").config({
     path: path.join(__dirname, "..", "port.env")
 });
 
+const ASSIGNMENT_STATUSES = ["todo", "in_progress", "done"];
+
 const express = require("express");
 const pool = require("./db");
 const requireAuth = require("./middleware/requireAuth");
@@ -40,8 +42,9 @@ async function canAccessAssignment(userId, assignmentId) {
     const [rows] = await pool.query(
         `SELECT 1 FROM assignments
          JOIN course_members ON course_members.course_id = assignments.course_id
-         WHERE assignments.id = ? AND course_members.user_id = ?`,
-        [assignmentId, userId]
+         WHERE assignments.id = ? AND course_members.user_id = ?
+           AND (assignments.owner_user_id IS NULL OR assignments.owner_user_id = ?)`,
+        [assignmentId, userId, userId],
     );
     return rows.length > 0;
 }
@@ -236,9 +239,28 @@ app.get("/api/courses/:id/assignments", async (req, res) => {
         if (!(await isCourseMember(req.user.id, req.params.id))) {
             return res.status(403).json({ error: "You are not in this course" });
         }
+
+        // Course assignments + this user's personal tasks in the course,
+        // each with THIS user's status (no progress row yet = 'todo').
         const [rows] = await pool.query(
-            "SELECT * FROM assignments WHERE course_id = ? ORDER BY due_date ASC",
-            [req.params.id]
+            `
+            SELECT
+                assignments.id,
+                assignments.course_id,
+                assignments.title,
+                assignments.description,
+                assignments.due_date,
+                assignments.owner_user_id,
+                COALESCE(assignment_progress.status, 'todo') AS status
+            FROM assignments
+            LEFT JOIN assignment_progress
+                ON assignment_progress.assignment_id = assignments.id
+               AND assignment_progress.user_id = ?
+            WHERE assignments.course_id = ?
+              AND (assignments.owner_user_id IS NULL OR assignments.owner_user_id = ?)
+            ORDER BY assignments.due_date ASC
+            `,
+            [req.user.id, req.params.id, req.user.id]
         );
 
         res.json(rows);
@@ -260,7 +282,8 @@ app.get("/api/me/assignments", async (req, res) => {
                 assignments.title,
                 assignments.description,
                 assignments.due_date,
-                assignments.status,
+                assignments.owner_user_id,
+                COALESCE(assignment_progress.status, 'todo') AS status,
                 courses.id AS course_id,
                 courses.course_code,
                 courses.course_name
@@ -269,7 +292,11 @@ app.get("/api/me/assignments", async (req, res) => {
                 ON course_members.course_id = courses.id
             JOIN assignments
                 ON assignments.course_id = courses.id
+            LEFT JOIN assignment_progress
+                ON assignment_progress.assignment_id = assignments.id
+               AND assignment_progress.user_id = course_members.user_id
             WHERE course_members.user_id = ?
+              AND (assignments.owner_user_id IS NULL OR assignments.owner_user_id = course_members.user_id)
             ORDER BY assignments.due_date ASC
             `,
             [req.user.id]
@@ -285,14 +312,19 @@ app.get("/api/me/assignments", async (req, res) => {
     }
 });
 
+
+// POST /api/assignments  { course_id, title, description?, due_date, personal? }
+// personal defaults to true (a task only you see). Send personal: false to
+// post an assignment for the whole course.
 app.post("/api/assignments", async (req, res) => {
     try {
         const {
             course_id,
             title,
             description,
-            due_date
-        } = req.body;
+            due_date,
+            personal
+        } = req.body || {};
 
         if (!course_id || !title || !due_date) {
             return res.status(400).json({
@@ -304,13 +336,15 @@ app.post("/api/assignments", async (req, res) => {
             return res.status(403).json({ error: "You are not in this course" });
         }
 
+        const ownerUserId = personal === false ? null : req.user.id;
+
         const [result] = await pool.query(
             `
             INSERT INTO assignments
-            (course_id, title, description, due_date)
-            VALUES (?, ?, ?, ?)
+            (course_id, title, description, due_date, owner_user_id)
+            VALUES (?, ?, ?, ?, ?)
             `,
-            [course_id, title, description || null, due_date]
+            [course_id, title, description || null, due_date, ownerUserId]
         );
 
         res.status(201).json({
@@ -319,6 +353,7 @@ app.post("/api/assignments", async (req, res) => {
             title,
             description,
             due_date,
+            owner_user_id: ownerUserId,
             status: "todo"
         });
     } catch (error) {
@@ -330,34 +365,31 @@ app.post("/api/assignments", async (req, res) => {
     }
 });
 
+// PATCH /api/assignments/:id/status  { status }
+// Changes the status for the logged-in user only.
 app.patch("/api/assignments/:id/status", async (req, res) => {
     try {
-        const { status } = req.body;
+        const { status } = req.body || {};
 
-        if (!status) {
+        if (!ASSIGNMENT_STATUSES.includes(status)) {
             return res.status(400).json({
-                error: "status is required"
+                error: `status must be one of: ${ASSIGNMENT_STATUSES.join(", ")}`
             });
         }
-        
+
         if (!(await canAccessAssignment(req.user.id, req.params.id))) {
             return res.status(404).json({ error: "Assignment not found" });
         }
 
-        const [result] = await pool.query(
+        // Insert this user's row the first time, update it after that.
+        await pool.query(
             `
-            UPDATE assignments
-            SET status = ?
-            WHERE id = ?
+            INSERT INTO assignment_progress (user_id, assignment_id, status)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE status = ?
             `,
-            [status, req.params.id]
+            [req.user.id, req.params.id, status, status]
         );
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                error: "Assignment not found"
-            });
-        }
 
         res.json({
             id: Number(req.params.id),

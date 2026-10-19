@@ -24,6 +24,10 @@ INSERT INTO messages (channel_id, user_id, content) VALUES
 (1, 2, 'Yeah, I think we just need a basic progress update.'),
 (2, 1, 'Has anyone started the homework yet?');
 
-INSERT INTO assignments (course_id, title, description, due_date, status) VALUES
-(1, 'Sprint Demo', 'Show current BuddyTech backend progress', '2026-10-01 12:00:00', 'todo'),
-(2, 'Week 6 Worksheet', 'Complete metabolism worksheet', '2026-10-02 23:59:00', 'todo');
+INSERT INTO assignments (course_id, title, description, due_date) VALUES
+(1, 'Sprint Demo', 'Show current BuddyTech backend progress', '2026-10-01 12:00:00'),
+(2, 'Week 6 Worksheet', 'Complete metabolism worksheet', '2026-10-02 23:59:00');
+
+-- Demo Student has finished the Sprint Demo; Study Partner (same course) hasn't.
+INSERT INTO assignment_progress (user_id, assignment_id, status) VALUES
+(1, 1, 'done');

@@ -43,6 +43,9 @@ CREATE TABLE channels (
     name VARCHAR(100) NOT NULL,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 );
+DROP TABLE IF EXISTS assignment_progress;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS assignments;
 
 CREATE TABLE messages (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -60,6 +63,18 @@ CREATE TABLE assignments (
     title VARCHAR(255) NOT NULL,
     description TEXT,
     due_date DATETIME,
-    status VARCHAR(50) DEFAULT 'todo',
-    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+    owner_user_id INT NULL, -- NULL = whole course; set = personal task only this user sees
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+    CONSTRAINT fk_assignments_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Each user's own status for an assignment. No row = 'todo'.
+CREATE TABLE assignment_progress (
+    user_id INT NOT NULL,
+    assignment_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'todo',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, assignment_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
 );
