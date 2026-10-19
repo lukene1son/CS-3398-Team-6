@@ -1,42 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 
 import './Calendar.css';
 
-export default function Calendar() {
-  const [assignments, setAssignments] = useState([]);
-  const [loading, setLoading] = useState(true);
-
+export default function Calendar({
+  assignments = [],
+  courses = [],
+  onTaskCreated
+}) {
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
 
-  useEffect(() => {
-    async function loadAssignments() {
-      try {
-        const response = await fetch('/api/users/1/assignments');
-
-        if (!response.ok) {
-          throw new Error('Failed to load assignments');
-        }
-
-        const data = await response.json();
-        setAssignments(data);
-      } catch (error) {
-        console.error('Failed to load calendar assignments:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadAssignments();
-  }, []);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [title, setTitle] = useState('');
+  const [courseId, setCourseId] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -64,12 +52,12 @@ export default function Calendar() {
     return assignments.filter((assignment) => {
       if (!assignment.due_date) return false;
 
-      const dueDate = new Date(assignment.due_date);
+      const due = new Date(assignment.due_date);
 
       return (
-        dueDate.getFullYear() === year &&
-        dueDate.getMonth() === month &&
-        dueDate.getDate() === day
+        due.getFullYear() === year &&
+        due.getMonth() === month &&
+        due.getDate() === day
       );
     });
   };
@@ -87,6 +75,84 @@ export default function Calendar() {
     .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
     .slice(0, 5);
 
+  const resetForm = () => {
+    setTitle('');
+    setCourseId('');
+    setDueDate('');
+    setFormError('');
+  };
+
+  const closeModal = () => {
+    resetForm();
+    setShowAddTask(false);
+  };
+
+  const handleCreateTask = async (event) => {
+    event.preventDefault();
+
+    if (!title.trim() || !courseId || !dueDate) {
+      setFormError('Course, title, and due date are required.');
+      return;
+    }
+
+    setSaving(true);
+    setFormError('');
+
+    try {
+      const response = await fetch('/api/assignments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          course_id: Number(courseId),
+          title: title.trim(),
+          description: 'Created from BuddyTech Planner',
+          due_date: `${dueDate.replace('T', ' ')}:00`
+        })
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to create assignment');
+      }
+
+      const created = await response.json();
+
+      const selectedCourse = courses.find(
+        (course) => course.id === Number(courseId)
+      );
+
+      const enrichedTask = {
+        ...created,
+        course_code: selectedCourse?.course_code || '',
+        course_name: selectedCourse?.course_name || ''
+      };
+
+      if (onTaskCreated) {
+        onTaskCreated(enrichedTask);
+      }
+
+      const createdDate = new Date(created.due_date);
+
+      if (!Number.isNaN(createdDate.getTime())) {
+        setViewDate(
+          new Date(
+            createdDate.getFullYear(),
+            createdDate.getMonth(),
+            1
+          )
+        );
+      }
+
+      closeModal();
+    } catch (error) {
+      setFormError(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <main className="calendar-content">
       <div className="calendar-page-header">
@@ -100,7 +166,11 @@ export default function Calendar() {
           </p>
         </div>
 
-        <button className="add-task-button" type="button">
+        <button
+          className="add-task-button"
+          type="button"
+          onClick={() => setShowAddTask(true)}
+        >
           <Plus size={17} />
           Add Task
         </button>
@@ -145,41 +215,37 @@ export default function Calendar() {
             <span>Sat</span>
           </div>
 
-          {loading ? (
-            <p className="loading-text">Loading calendar...</p>
-          ) : (
-            <div className="calendar-grid">
-              {calendarCells.map((day, index) => {
-                const dayAssignments = assignmentsForDay(day);
+          <div className="calendar-grid">
+            {calendarCells.map((day, index) => {
+              const dayAssignments = assignmentsForDay(day);
 
-                return (
-                  <div
-                    className={`calendar-day ${day ? '' : 'calendar-day-empty'}`}
-                    key={index}
-                  >
-                    {day && (
-                      <>
-                        <span className="day-number">{day}</span>
+              return (
+                <div
+                  className={`calendar-day ${day ? '' : 'calendar-day-empty'}`}
+                  key={index}
+                >
+                  {day && (
+                    <>
+                      <span className="day-number">{day}</span>
 
-                        {dayAssignments.map((assignment) => (
-                          <div
-                            className="calendar-event"
-                            key={assignment.id}
-                          >
-                            <strong>{assignment.title}</strong>
+                      {dayAssignments.map((assignment) => (
+                        <div
+                          className="calendar-event"
+                          key={assignment.id}
+                        >
+                          <strong>{assignment.title}</strong>
 
-                            {assignment.course_code && (
-                              <span>{assignment.course_code}</span>
-                            )}
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                          {assignment.course_code && (
+                            <span>{assignment.course_code}</span>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </section>
 
         <aside className="calendar-right-column">
@@ -237,6 +303,94 @@ export default function Calendar() {
           </section>
         </aside>
       </div>
+
+      {showAddTask && (
+        <div className="task-modal-backdrop">
+          <div className="task-modal">
+            <div className="task-modal-header">
+              <div>
+                <p className="eyebrow">NEW ASSIGNMENT</p>
+                <h2>Add Task</h2>
+              </div>
+
+              <button
+                type="button"
+                className="task-modal-close"
+                onClick={closeModal}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTask}>
+              <label className="task-field">
+                <span>Course</span>
+
+                <select
+                  value={courseId}
+                  onChange={(event) => setCourseId(event.target.value)}
+                >
+                  <option value="">Select a course</option>
+
+                  {courses.map((course) => (
+                    <option
+                      value={course.id}
+                      key={course.id}
+                    >
+                      {course.course_code} — {course.course_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="task-field">
+                <span>Title</span>
+
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="Assignment title"
+                />
+              </label>
+
+              <label className="task-field">
+                <span>Due date</span>
+
+                <input
+                  type="datetime-local"
+                  value={dueDate}
+                  onChange={(event) => setDueDate(event.target.value)}
+                />
+              </label>
+
+              {formError && (
+                <p className="task-form-error">
+                  {formError}
+                </p>
+              )}
+
+              <div className="task-modal-actions">
+                <button
+                  type="button"
+                  className="task-cancel-button"
+                  onClick={closeModal}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="task-save-button"
+                  disabled={saving}
+                >
+                  {saving ? 'Saving...' : 'Create Task'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

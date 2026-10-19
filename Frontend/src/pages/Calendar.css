@@ -592,3 +592,127 @@
 .calendar-day-empty {
   background: #f8fafc;
 }
+
+/* Add task modal */
+
+.task-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(15 23 42 / 45%);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.task-modal {
+  width: min(480px, 100%);
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 20%);
+  padding: 22px;
+}
+
+.task-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.task-modal-header h2 {
+  margin: 0;
+  font-size: 22px;
+  color: #0f172a;
+}
+
+.task-modal-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.task-modal-close:hover {
+  background: #f1f5f9;
+}
+
+.task-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.task-field span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.task-field input,
+.task-field select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 10px 11px;
+  font-size: 14px;
+  color: #0f172a;
+  outline: none;
+}
+
+.task-field input:focus,
+.task-field select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
+}
+
+.task-form-error {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+.task-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.task-cancel-button,
+.task-save-button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 15px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-cancel-button {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.task-save-button {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.task-save-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

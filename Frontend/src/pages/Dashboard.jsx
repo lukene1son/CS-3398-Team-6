@@ -231,7 +231,13 @@ export default function Dashboard({ user, onLogout }) {
             <SpacesChat user={user} />
           </div>
         ) : activeTab === 'planner' ? (
-          <CalendarView />
+          <CalendarView
+            assignments={tasks}
+            courses={courses}
+            onTaskCreated={(task) =>
+              setTasks((currentTasks) => [...currentTasks, task])
+            }
+          />
         ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
           {/* Main Column */}
