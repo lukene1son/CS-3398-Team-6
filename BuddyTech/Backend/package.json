@@ -4,11 +4,12 @@
   "description": "",
   "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:init": "node database/init.js",
+    "db:schema": "node database/init.js --no-seed",
     "db:verify": "node database/init.js --verify",
+    "db:migrate": "node database/migrate.js",
     "db:ensure": "node database/ensure.js"
   },
   "keywords": [],
@@ -16,8 +17,11 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
+    "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.24.4"
   }
 }

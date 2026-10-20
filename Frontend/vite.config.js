@@ -12,7 +12,9 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           target: env.VITE_API_TARGET || 'http://localhost:3000',
-          changeOrigin: true
+          changeOrigin: true,
+          // Pass the user's real IP to the backend (used by the login rate limits)
+          xfwd: true
         }
       }
     }

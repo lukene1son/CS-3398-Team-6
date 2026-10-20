@@ -1,6 +1,7 @@
 node_modules/
-
+.vs/
 .env
 *.env
 *.crt
 *.csv
+npm-debug.log

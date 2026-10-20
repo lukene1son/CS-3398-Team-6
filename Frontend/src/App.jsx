@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getMe, getToken, logout, onSessionExpired } from './api';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
 
@@ -7,6 +8,7 @@ import Home from './pages/Home';
 import Footer from './components/Footer';
 import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Wrapper for Home to pass navigation to Navbar buttons
 function HomeWrapper() {
@@ -33,26 +35,34 @@ function LoginWrapper({ onLogin }) {
 }
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const savedUser = localStorage.getItem('buddytechUser');
-      return savedUser ? JSON.parse(savedUser) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(() => !!getToken());
 
-  const handleLogin = (user) => {
-    localStorage.setItem('buddytechUser', JSON.stringify(user));
+  // If a token is saved from a previous visit, ask the backend who it belongs to.
+  useEffect(() => {
+    if (!getToken()) return;
+    getMe()
+      .then(setCurrentUser)
+      .catch(() => logout())
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  // If the backend says our token is no longer valid, drop back to the login page.
+  useEffect(() => onSessionExpired(() => setCurrentUser(null)), []);
+
+  function handleLogin(user) {
     setCurrentUser(user);
-  };
+  }
 
-  const handleLogout = () => {
-    localStorage.removeItem('buddytechUser');
+  function handleLogout() {
+    logout();
     setCurrentUser(null);
-  };
+  }
+
+  if (checkingSession) return null; // could show a spinner here
 
   return (
+    <ErrorBoundary>
     <Router>
       <Routes>
         {/* 1. Public Landing Page */}
@@ -81,7 +91,10 @@ export default function App() {
             )
           } 
         />
+        {/* Anything else goes back to the landing page instead of rendering nothing */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
+    </ErrorBoundary>
   );
 }

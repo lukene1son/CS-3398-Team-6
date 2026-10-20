@@ -1,18 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-// Vite proxies /api/* to the backend on port 3000 (see vite.config.js),
-// so we use relative URLs. No CORS problems, no hardcoded localhost.
-const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
+import {
+  getMyCourses,
+  getCourseChannels,
+  getChannelMessages,
+  sendChannelMessage,
+} from "../api";
 
-// Small helper: fetch JSON and throw on non-2xx so callers can use try/catch
-async function api(path, options) {
-  const res = await fetch(path, options);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${res.status})`);
-  }
-  return res.json();
-}
+const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
 
 function formatTime(createdAt) {
   if (!createdAt) return "";
@@ -22,21 +17,20 @@ function formatTime(createdAt) {
 }
 
 /**
- * Spaces = the user's courses. Each course has channels. Each channel has messages.
+ * Spaces = the logged-in user's courses. Each course has channels. Each channel has messages.
  *
- * Backend endpoints used (all from Jack's server.js):
- *   GET  /api/users/:id/courses
- *   GET  /api/courses/:id/channels
- *   GET  /api/channels/:id/messages
- *   POST /api/channels/:id/messages   { user_id, content }
+ * All calls go through api.js, which attaches the login token. The backend
+ * decides who you are from that token, so:
+ *   GET  /api/me/courses                 -> only courses you're a member of
+ *   GET  /api/courses/:id/channels       -> 403 if you're not in the course
+ *   GET  /api/channels/:id/messages      -> 403 if you're not in the course
+ *   POST /api/channels/:id/messages      { content }  (author = you, from the token)
  *
  * Props:
- *   user - the logged-in user. Needs user.id once login talks to the backend.
- *          Until then we fall back to user 1 ("Demo Student" in seed.sql),
- *          same as Jack's Dashboard does.
+ *   user - the logged-in user from /api/me or /api/auth/login ({ id, name, email })
  */
 export default function SpacesChat({ user }) {
-  const userId = user?.id ?? 1;
+  const userId = user?.id;
 
   const [courses, setCourses] = useState([]);
   const [channelsByCourse, setChannelsByCourse] = useState({});
@@ -61,10 +55,11 @@ export default function SpacesChat({ user }) {
 
   // 1. Load the user's courses ("spaces")
   useEffect(() => {
+    if (!userId) return;
     let cancelled = false;
     async function loadCourses() {
       try {
-        const data = await api(`/api/users/${userId}/courses`);
+        const data = await getMyCourses();
         if (cancelled) return;
         setCourses(data);
         setStatus("Connected to Backend");
@@ -88,7 +83,7 @@ export default function SpacesChat({ user }) {
     let cancelled = false;
     async function loadChannels() {
       try {
-        const data = await api(`/api/courses/${courseId}/channels`);
+        const data = await getCourseChannels(courseId);
         if (cancelled) return;
         setChannelsByCourse((prev) => ({ ...prev, [courseId]: data }));
       } catch (err) {
@@ -106,7 +101,7 @@ export default function SpacesChat({ user }) {
   const loadMessages = useCallback(async () => {
     if (!channelId) return;
     try {
-      const data = await api(`/api/channels/${channelId}/messages`);
+      const data = await getChannelMessages(channelId);
       setMessagesByChannel((prev) => ({ ...prev, [channelId]: data }));
       setStatus("Connected to Backend");
       setError("");
@@ -137,11 +132,7 @@ export default function SpacesChat({ user }) {
 
     setSending(true);
     try {
-      await api(`/api/channels/${channelId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, content }),
-      });
+      await sendChannelMessage(channelId, content);
       setInputText("");
       await loadMessages();
     } catch (err) {
