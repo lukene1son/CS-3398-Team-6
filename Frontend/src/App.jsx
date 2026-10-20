@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getMe, getToken, logout } from './api';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
 
@@ -34,6 +35,23 @@ function LoginWrapper({ onLogin }) {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(() => !!getToken());
+
+  // If a token is saved from a previous visit, ask the backend who it belongs to.
+  useEffect(() => {
+    if (!getToken()) return;
+    getMe()
+      .then(setCurrentUser)
+      .catch(() => logout())
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  function handleLogout() {
+    logout();
+    setCurrentUser(null);
+  }
+
+  if (checkingSession) return null; // could show a spinner here
 
   return (
     <Router>
@@ -58,7 +76,7 @@ export default function App() {
           path="/dashboard" 
           element={
             currentUser ? (
-              <Dashboard user={currentUser} onLogout={() => setCurrentUser(null)} />
+              <Dashboard user={currentUser} onLogout={handleLogout} />
             ) : (
               <Navigate to="/login" replace />
             )

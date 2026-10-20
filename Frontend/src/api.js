@@ -13,9 +13,27 @@ export const USE_MOCK = {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-async function request(path, options) {
-  const res = await fetch(path, options);
+const TOKEN_KEY = "buddytech-token";
+
+export function getToken() {
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+function setToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* storage unavailable */ }
+}
+
+async function request(path, options = {}) {
+  const token = getToken();
+  const headers = { ...(options.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(path, { ...options, headers });
   if (!res.ok) {
+    if (res.status === 401) setToken(null); // token missing/expired
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed (${res.status})`);
   }
@@ -24,9 +42,63 @@ async function request(path, options) {
 
 const delay = (ms = 400) => new Promise((r) => setTimeout(r, ms));
 
-/* ---------- Courses (REAL: backend already has this) ---------- */
-export function getUserCourses(userId) {
-  return request(`/api/users/${userId}/courses`);
+/* ---------- Auth ---------- */
+export async function login({ email, password }) {
+  const { token, user } = await request("/api/auth/login", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ email, password }),
+  });
+  setToken(token);
+  return user;
+}
+
+export async function register({ name, email, password }) {
+  const { token, user } = await request("/api/auth/register", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ name, email, password }),
+  });
+  setToken(token);
+  return user;
+}
+
+export function logout() {
+  setToken(null);
+}
+
+export function getMe() {
+  return request("/api/me");
+}
+
+/* ---------- Courses & assignments (for the logged-in user) ---------- */
+export function getMyCourses() {
+  return request("/api/me/courses");
+}
+
+// Kept so Resources.jsx keeps working; the userId argument is ignored now.
+export function getUserCourses() {
+  return getMyCourses();
+}
+
+export function getMyAssignments() {
+  return request("/api/me/assignments");
+}
+
+export function updateAssignmentStatus(id, status) {
+  return request(`/api/assignments/${id}/status`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function createAssignment(data) {
+  return request("/api/assignments", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
 }
 
 /* ---------- Resources ---------- */

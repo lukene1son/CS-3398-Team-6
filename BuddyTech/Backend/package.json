@@ -10,8 +10,7 @@
     "db:schema": "node database/init.js --no-seed",
     "db:verify": "node database/init.js --verify",
     "db:migrate": "node database/migrate.js",
-    "db:ensure": "node database/ensure.js",
-    "test:isolation": "node tests/isolation-check.js"
+    "db:ensure": "node database/ensure.js"
   },
   "keywords": [],
   "author": "",

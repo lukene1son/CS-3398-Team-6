@@ -4,6 +4,7 @@ import {
   Search, Bell, FileText, MessageSquare, HelpCircle, 
   Clock, CheckSquare, Square, ChevronRight, LogOut, FolderPlus
 } from 'lucide-react';
+import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignment } from '../api';
 
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
@@ -12,24 +13,24 @@ export default function Dashboard({ user, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
 
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const [assignmentRes, courseRes] = await Promise.all([
-          fetch('/api/users/1/assignments'),
-          fetch('/api/users/1/courses')
+        const [assignments, userCourses] = await Promise.all([
+          getMyAssignments(),
+          getMyCourses()
         ]);
-
-        const assignments = await assignmentRes.json();
-        const userCourses = await courseRes.json();
 
         setTasks(assignments);
         setCourses(userCourses);
       } catch (error) {
+        // Keep tasks/courses as empty arrays so the page still renders.
         console.error('Failed to load dashboard data:', error);
+        setLoadError(error.message);
       } finally {
         setLoading(false);
       }
@@ -42,19 +43,7 @@ export default function Dashboard({ user, onLogout }) {
     const newStatus = currentStatus === 'done' ? 'todo' : 'done';
 
     try {
-      const response = await fetch(`/api/assignments/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          status: newStatus
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update assignment');
-      }
+      await updateAssignmentStatus(id, newStatus);
 
       setTasks(tasks.map(task =>
         task.id === id
@@ -71,34 +60,23 @@ export default function Dashboard({ user, onLogout }) {
 
     if (!newTaskTitle.trim()) return;
 
+    const course = courses[0];
+    if (!course) return; // user isn't in any course yet
+
     try {
-      const response = await fetch('/api/assignments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          course_id: 1,
-          title: newTaskTitle,
-          description: 'Created from BuddyTech dashboard',
-          due_date: '2026-10-01 23:59:00'
-        })
+      const created = await createAssignment({
+        course_id: course.id,
+        title: newTaskTitle,
+        description: 'Created from BuddyTech dashboard',
+        due_date: '2026-10-01 23:59:00'
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to create assignment');
-      }
-
-      const created = await response.json();
 
       setTasks([
         ...tasks,
         {
           ...created,
-          course_id: 1,
-          course_code: 'CS 3398',
-          course_name: 'Software Engineering',
-          description: 'Created from BuddyTech dashboard',
+          course_code: course.course_code,
+          course_name: course.course_name,
           due_date: '2026-10-01T23:59:00.000Z'
         }
       ]);
@@ -182,6 +160,9 @@ export default function Dashboard({ user, onLogout }) {
                 Welcome back, {displayName} 👋
               </h1>
               <p style={{ color: '#64748b', fontSize: '0.95rem' }}>Here is an overview of your active spaces and tasks.</p>
+              {loadError && (
+                <p role="alert" style={{ color: '#dc2626', fontSize: '0.9rem' }}>Couldn't load your data: {loadError}</p>
+              )}
             </div>
 
             {/* Planner Section */}
