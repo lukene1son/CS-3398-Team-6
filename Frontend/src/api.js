@@ -26,6 +26,14 @@ function setToken(token) {
   } catch { /* storage unavailable */ }
 }
 
+// App.jsx registers a callback here so an expired/invalid token sends the user
+// back to the login page instead of leaving them on a broken dashboard.
+const sessionExpiredListeners = new Set();
+export function onSessionExpired(fn) {
+  sessionExpiredListeners.add(fn);
+  return () => sessionExpiredListeners.delete(fn);
+}
+
 async function request(path, options = {}) {
   const token = getToken();
   const headers = { ...(options.headers || {}) };
@@ -33,7 +41,12 @@ async function request(path, options = {}) {
 
   const res = await fetch(path, { ...options, headers });
   if (!res.ok) {
-    if (res.status === 401) setToken(null); // token missing/expired
+    // 401 on a protected route = token missing/expired. (Not on /api/auth: a wrong
+    // password is also a 401 and should just show the error on the login form.)
+    if (res.status === 401 && !path.startsWith("/api/auth/")) {
+      setToken(null);
+      sessionExpiredListeners.forEach((fn) => fn());
+    }
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed (${res.status})`);
   }
@@ -93,11 +106,32 @@ export function updateAssignmentStatus(id, status) {
   });
 }
 
+// data: { course_id, title, description?, due_date, personal? }
+// personal defaults to true on the backend (only you see it). Teachers/TAs can
+// send personal: false to post it for the whole course.
 export function createAssignment(data) {
   return request("/api/assignments", {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(data),
+  });
+}
+
+/* ---------- Spaces (message board) ---------- */
+export function getCourseChannels(courseId) {
+  return request(`/api/courses/${courseId}/channels`);
+}
+
+export function getChannelMessages(channelId) {
+  return request(`/api/channels/${channelId}/messages`);
+}
+
+// The backend takes the author from the login token, so no user id is sent.
+export function sendChannelMessage(channelId, content) {
+  return request(`/api/channels/${channelId}/messages`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ content }),
   });
 }
 

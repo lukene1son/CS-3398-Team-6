@@ -7,7 +7,10 @@ import {
   X
 } from 'lucide-react';
 
+import { createAssignment } from '../api';
 import './Calendar.css';
+
+const STAFF_ROLES = ['teacher', 'ta'];
 
 export default function Calendar({
   assignments = [],
@@ -23,6 +26,7 @@ export default function Calendar({
   const [title, setTitle] = useState('');
   const [courseId, setCourseId] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [forWholeCourse, setForWholeCourse] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -79,8 +83,13 @@ export default function Calendar({
     setTitle('');
     setCourseId('');
     setDueDate('');
+    setForWholeCourse(false);
     setFormError('');
   };
+
+  // Only teachers/TAs of the chosen course may post a course-wide assignment.
+  const selectedCourseForForm = courses.find((course) => course.id === Number(courseId));
+  const canPostForCourse = STAFF_ROLES.includes(selectedCourseForForm?.role);
 
   const closeModal = () => {
     resetForm();
@@ -99,25 +108,15 @@ export default function Calendar({
     setFormError('');
 
     try {
-      const response = await fetch('/api/assignments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          course_id: Number(courseId),
-          title: title.trim(),
-          description: 'Created from BuddyTech Planner',
-          due_date: `${dueDate.replace('T', ' ')}:00`
-        })
+      // api.js attaches the login token; without it the backend returns 401.
+      // personal: true -> only this user sees it. false -> whole course (staff only).
+      const created = await createAssignment({
+        course_id: Number(courseId),
+        title: title.trim(),
+        description: 'Created from BuddyTech Planner',
+        due_date: `${dueDate.replace('T', ' ')}:00`,
+        personal: !(canPostForCourse && forWholeCourse)
       });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || 'Failed to create assignment');
-      }
-
-      const created = await response.json();
 
       const selectedCourse = courses.find(
         (course) => course.id === Number(courseId)
@@ -328,7 +327,10 @@ export default function Calendar({
 
                 <select
                   value={courseId}
-                  onChange={(event) => setCourseId(event.target.value)}
+                  onChange={(event) => {
+                    setCourseId(event.target.value);
+                    setForWholeCourse(false);
+                  }}
                 >
                   <option value="">Select a course</option>
 
@@ -363,6 +365,18 @@ export default function Calendar({
                   onChange={(event) => setDueDate(event.target.value)}
                 />
               </label>
+
+              {canPostForCourse && (
+                <label className="task-field" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    checked={forWholeCourse}
+                    onChange={(event) => setForWholeCourse(event.target.checked)}
+                    style={{ width: 'auto' }}
+                  />
+                  <span>Post to the whole course (everyone enrolled will see it)</span>
+                </label>
+              )}
 
               {formError && (
                 <p className="task-form-error">

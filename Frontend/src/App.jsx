@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMe, getToken, logout } from './api';
+import { getMe, getToken, logout, onSessionExpired } from './api';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
 
@@ -8,6 +8,7 @@ import Home from './pages/Home';
 import Footer from './components/Footer';
 import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Wrapper for Home to pass navigation to Navbar buttons
 function HomeWrapper() {
@@ -46,6 +47,13 @@ export default function App() {
       .finally(() => setCheckingSession(false));
   }, []);
 
+  // If the backend says our token is no longer valid, drop back to the login page.
+  useEffect(() => onSessionExpired(() => setCurrentUser(null)), []);
+
+  function handleLogin(user) {
+    setCurrentUser(user);
+  }
+
   function handleLogout() {
     logout();
     setCurrentUser(null);
@@ -54,6 +62,7 @@ export default function App() {
   if (checkingSession) return null; // could show a spinner here
 
   return (
+    <ErrorBoundary>
     <Router>
       <Routes>
         {/* 1. Public Landing Page */}
@@ -82,7 +91,10 @@ export default function App() {
             )
           } 
         />
+        {/* Anything else goes back to the landing page instead of rendering nothing */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
+    </ErrorBoundary>
   );
 }

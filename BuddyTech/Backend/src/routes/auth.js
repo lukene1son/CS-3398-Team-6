@@ -2,14 +2,18 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const pool = require("../db");
 const jwt = require("jsonwebtoken");
+const { authIpLimiter, loginAccountLimiter, registerLimiter } = require("../middleware/rateLimits");
 
 const router = express.Router();
+
+// Every auth route shares a per-IP cap; login and register add their own limits below.
+router.use(authIpLimiter);
 
 function makeToken(userId) {
     return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
 }
 // POST /api/auth/register  { email, password }
-router.post("/register", async (req, res) => {
+router.post("/register", registerLimiter, async (req, res) => {
     const body = req.body || {};
     const name = (body.name || "").trim();
     const email = (body.email || "").trim().toLowerCase();
@@ -45,7 +49,7 @@ router.post("/register", async (req, res) => {
 });
 
 // POST /api/auth/login  { email, password }
-router.post("/login", async (req, res) => {
+router.post("/login", loginAccountLimiter, async (req, res) => {
     const body = req.body || {};
     const email = (body.email || "").trim().toLowerCase();
     const password = body.password || "";

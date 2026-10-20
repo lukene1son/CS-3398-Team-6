@@ -13,6 +13,12 @@ const requireAuth = require("./middleware/requireAuth");
 
 const app = express();
 
+// Requests reach us through a proxy (the Vite dev server, Docker, or the host's
+// load balancer), so the real client IP is in X-Forwarded-For. Only trust that
+// header when it comes from a local/private address, so internet clients can't
+// fake their IP to dodge the rate limits. Override with TRUST_PROXY if a host needs it.
+app.set("trust proxy", process.env.TRUST_PROXY || "loopback, linklocal, uniquelocal");
+
 app.use(express.json());
 
 app.use("/api/auth", require("./routes/auth"));
