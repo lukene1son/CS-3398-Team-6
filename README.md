@@ -169,7 +169,6 @@ Known limitations:
   - Docker uses the MySQL root user with a weak password
 - **Resources and Settings pages use placeholder data.** Their backend routes don't exist yet (see `USE_MOCK` in `Frontend/src/api.js`).
 - **AI tools are not connected to a live model yet.** They return a demo response.
-- **Some feature branches haven't been merged into `main`**, including `bianca-calendar-ui` and `feature/fidel/login-page`.
 
 ## Technology Stack
 
