@@ -2,16 +2,18 @@ USE buddytech;
 
 INSERT INTO users (name, email, password_hash) VALUES
 ('Demo Student', 'student@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
-('Study Partner', 'partner@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.');
+('Study Partner', 'partner@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Demo Teacher', 'teacher@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.');
 
 INSERT INTO courses (course_code, course_name, professor, university) VALUES
 ('CS 3398', 'Software Engineering', 'Rui Wang', 'Texas State University'),
 ('BIO 1330', 'Functional Biology', 'Joel Bergh', 'Texas State University');
 
-INSERT INTO course_members (user_id, course_id) VALUES
-(1, 1),
-(1, 2),
-(2, 1);
+INSERT INTO course_members (user_id, course_id, role) VALUES
+(1, 1, 'student'),
+(1, 2, 'student'),
+(2, 1, 'student'),
+(3, 1, 'teacher');
 
 INSERT INTO channels (course_id, name) VALUES
 (1, 'general'),

@@ -21,9 +21,23 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your-mysql-root-password
 DB_NAME=buddytech
+
+JWT_SECRET=change-me-to-a-long-random-string
 ```
 
 Set `DB_PASSWORD` to the root password you chose when installing MySQL.
+
+Set `JWT_SECRET` to any long random string. The backend uses it to sign login tokens, so:
+
+- **It is required.** Without it, sign-in and registration fail and every protected `/api` route returns 401.
+- **Keep it secret.** Anyone who knows it can create a valid login token for any user. Never commit it (`port.env` is already git-ignored).
+- **Changing it signs everyone out**, since existing tokens stop verifying.
+
+To generate one:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
 
 ## 2. Install dependencies
 

@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npm run db:ensure && npm start"]
+CMD ["sh", "-c", "npm run db:ensure && npm run db:migrate && npm start"]

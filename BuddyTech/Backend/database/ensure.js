@@ -1,94 +1,52 @@
+// Makes sure the database exists and is up to date. Safe to run on every start
+// (the Dockerfile runs it before `npm start`).
+//   - Empty database      -> runs schema.sql + seed.sql
+//   - Existing database   -> leaves the data alone
+// Either way, `npm run db:migrate` runs next and applies any new migrations.
+
 const fs = require("fs");
 const path = require("path");
-const mysql = require("mysql2/promise");
 
-require("dotenv").config({
-  path: path.join(__dirname, "..", ".env")
-});
+require("dotenv").config({ path: path.join(__dirname, "..", "port.env"), quiet: true });
+
+const mysql = require("mysql2/promise");
+const dbConfig = require("../src/dbConfig");
 
 const DB_NAME = process.env.DB_NAME || "buddytech";
 
 if (!/^[a-zA-Z0-9_]+$/.test(DB_NAME)) {
-  throw new Error("DB_NAME may only contain letters, numbers, and underscores.");
+    throw new Error("DB_NAME may only contain letters, numbers, and underscores.");
 }
 
-const baseConfig = {
-  host: process.env.DB_HOST || "127.0.0.1",
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || ""
-};
-
-const REQUIRED_TABLES = [
-  "users",
-  "courses",
-  "course_members",
-  "channels",
-  "messages",
-  "assignments"
-];
-
 async function ensureDatabase() {
-  let connection;
+    // Connect without a database first so we can create it (uses SSL settings from dbConfig).
+    let connection = await mysql.createConnection(dbConfig({ withDatabase: false }));
 
-  try {
-    connection = await mysql.createConnection({
-      ...baseConfig,
-      multipleStatements: true
-    });
+    try {
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
+        await connection.end();
 
-    await connection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``
-    );
+        connection = await mysql.createConnection({ ...dbConfig(), multipleStatements: true });
 
-    await connection.end();
+        const [rows] = await connection.query("SHOW TABLES LIKE 'users'");
+        if (rows.length > 0) {
+            console.log(`Database "${DB_NAME}" already initialized.`);
+            return;
+        }
 
-    connection = await mysql.createConnection({
-      ...baseConfig,
-      database: DB_NAME,
-      multipleStatements: true
-    });
-
-    const [rows] = await connection.query("SHOW TABLES");
-
-    const existingTables = new Set(
-      rows.map(row => Object.values(row)[0])
-    );
-
-    const databaseComplete = REQUIRED_TABLES.every(
-      table => existingTables.has(table)
-    );
-
-    if (databaseComplete) {
-      console.log(`Database "${DB_NAME}" already initialized.`);
-      return;
+        console.log(`Database "${DB_NAME}" is empty. Creating tables and seed data...`);
+        const schema = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
+        const seed = fs.readFileSync(path.join(__dirname, "seed.sql"), "utf8");
+        await connection.query(schema);
+        await connection.query(seed);
+        console.log("Database initialized successfully.");
+    } finally {
+        await connection.end().catch(() => {});
     }
-
-    console.log(`Database "${DB_NAME}" is incomplete. Rebuilding schema...`);
-
-    const schema = fs.readFileSync(
-      path.join(__dirname, "schema.sql"),
-      "utf8"
-    );
-
-    const seed = fs.readFileSync(
-      path.join(__dirname, "seed.sql"),
-      "utf8"
-    );
-
-    await connection.query(schema);
-    await connection.query(seed);
-
-    console.log("Database initialized successfully.");
-  } finally {
-    if (connection) {
-      await connection.end().catch(() => {});
-    }
-  }
 }
 
 ensureDatabase().catch((error) => {
-  console.error("Database setup failed:");
-  console.error(error);
-  process.exit(1);
+    console.error("Database setup failed:");
+    console.error(error);
+    process.exit(1);
 });

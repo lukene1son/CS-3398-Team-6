@@ -9,6 +9,7 @@ DROP TABLE IF EXISTS channels;
 DROP TABLE IF EXISTS course_members;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS courses;
+DROP TABLE IF EXISTS assignment_progress;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -32,6 +33,8 @@ CREATE TABLE course_members (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     course_id INT NOT NULL,
+    -- only ta/teacher can post course-wide assignments
+    role ENUM('student', 'ta', 'teacher') NOT NULL DEFAULT 'student',
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
     UNIQUE (user_id, course_id)
@@ -43,9 +46,6 @@ CREATE TABLE channels (
     name VARCHAR(100) NOT NULL,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 );
-DROP TABLE IF EXISTS assignment_progress;
-DROP TABLE IF EXISTS messages;
-DROP TABLE IF EXISTS assignments;
 
 CREATE TABLE messages (
     id INT AUTO_INCREMENT PRIMARY KEY,

@@ -17,7 +17,8 @@ SELECT 'assignment_progress', COUNT(*) FROM assignment_progress;
 SELECT
     u.name AS user_name,
     c.course_code,
-    c.course_name
+    c.course_name,
+    cm.role
 FROM course_members cm
 JOIN users u ON u.id = cm.user_id
 JOIN courses c ON c.id = cm.course_id

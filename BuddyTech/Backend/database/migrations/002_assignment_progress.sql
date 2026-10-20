@@ -1,7 +1,6 @@
 -- Per-user assignment status + personal tasks.
--- Before: assignments.status was ONE value shared by everyone in the course.
--- After:  each user's status lives in assignment_progress (no row = 'todo'),
---         and assignments.owner_user_id marks a personal task (NULL = whole course).
+--    Each user's status lives in assignment_progress (no row = 'todo'),
+--    and assignments.owner_user_id marks a personal task (NULL = whole course).
 -- Run with: npm run db:migrate
 
 CREATE TABLE assignment_progress (

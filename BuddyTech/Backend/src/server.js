@@ -5,6 +5,7 @@ require("dotenv").config({
 });
 
 const ASSIGNMENT_STATUSES = ["todo", "in_progress", "done"];
+const STAFF_ROLES = ["teacher", "ta"];
 
 const express = require("express");
 const pool = require("./db");
@@ -20,12 +21,16 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api", requireAuth);
 
 // ---- Membership helpers: is the logged-in user in this course? ----
-async function isCourseMember(userId, courseId) {
+async function getCourseRole(userId, courseId) {
     const [rows] = await pool.query(
-        "SELECT 1 FROM course_members WHERE user_id = ? AND course_id = ?",
+        "SELECT role FROM course_members WHERE user_id = ? AND course_id = ?",
         [userId, courseId]
     );
-    return rows.length > 0;
+    return rows.length > 0 ? rows[0].role : null;
+}
+
+async function isCourseMember(userId, courseId) {
+    return (await getCourseRole(userId, courseId)) !== null;
 }
 
 async function canAccessChannel(userId, channelId) {
@@ -215,7 +220,8 @@ app.get("/api/me/courses", async (req, res) => {
                 courses.course_code,
                 courses.course_name,
                 courses.professor,
-                courses.university
+                courses.university,
+                course_members.role
             FROM course_members
             JOIN courses
                 ON course_members.course_id = courses.id
@@ -315,7 +321,7 @@ app.get("/api/me/assignments", async (req, res) => {
 
 // POST /api/assignments  { course_id, title, description?, due_date, personal? }
 // personal defaults to true (a task only you see). Send personal: false to
-// post an assignment for the whole course.
+// post an assignment for the whole course (teachers and TAs only).
 app.post("/api/assignments", async (req, res) => {
     try {
         const {
@@ -332,11 +338,19 @@ app.post("/api/assignments", async (req, res) => {
             });
         }
 
-        if (!(await isCourseMember(req.user.id, course_id))) {
+        const role = await getCourseRole(req.user.id, course_id);
+        if (!role) {
             return res.status(403).json({ error: "You are not in this course" });
         }
 
-        const ownerUserId = personal === false ? null : req.user.id;
+        const courseWide = personal === false;
+        if (courseWide && !STAFF_ROLES.includes(role)) {
+            return res.status(403).json({
+                error: "Only teachers and TAs can post assignments for the whole course"
+            });
+        }
+
+        const ownerUserId = courseWide ? null : req.user.id;
 
         const [result] = await pool.query(
             `
