@@ -140,12 +140,36 @@ Warning: `db:init` deletes existing BuddyTech table data.
 
 BuddyTech is under active development.
 
+Working now:
+
+- **Accounts:** sign up and sign in with an email and password. Passwords are hashed with bcrypt, and the backend issues a login token that lasts 7 days, so you stay signed in after a browser refresh.
+- **Private data:** every `/api` route (except sign-in and sign-up) requires a login token. Users only see courses they belong to, plus their own personal tasks and task status.
+- **Course roles:** each course member is a student, TA, or teacher. Only TAs and teachers can post assignments for the whole course; students can add personal tasks.
+- **Message board (Spaces):** members of a course can chat in its channels. Messages show up for other users within about 3 seconds.
+- **Calendar and dashboard:** show the signed-in user's assignments and tasks. Tasks can be checked off on the dashboard, and each user's check-offs are saved separately.
+- **Sign-in rate limiting:** after 5 wrong passwords for one email, sign-in for that account is blocked for 15 minutes. Each IP address can create at most 10 accounts per hour.
+
+Demo accounts (created with the seed data, password `password123`):
+
+- `student@buddytech.local`
+- `partner@buddytech.local`
+- `teacher@buddytech.local`
+
 Known limitations:
 
-- authentication is still a prototype
-- login state is lost after a browser refresh
-- some Sprint 2 features still exist on separate branches and have not yet been integrated
-- AI functionality is not connected to a live model yet
+- **New accounts can't join a course yet.** Signing up doesn't add the user to any course, and there is no "join course" feature, so a new account sees no channels or course assignments. For testing, use the demo accounts or add a row to `course_members` by hand.
+- **`JWT_SECRET` must be set.** The backend reads it from `BuddyTech/Backend/port.env`, which is not in Git. Without it, sign-in and sign-up fail with a server error, including under Docker, because `docker-compose.yml` doesn't set it.
+- **Chat is not real-time.** The message board checks for new messages every 3 seconds instead of using WebSockets.
+- **Signing out only affects this browser.** A login token stays valid until it expires (7 days); the server can't cancel it early.
+- **Rate-limit counts reset on restart.** They are kept in the backend's memory, which only works while a single backend server is running.
+- **Not ready for public hosting yet:**
+  - the frontend runs on the Vite development server instead of a production build
+  - the site needs HTTPS
+  - the demo accounts use a password that is published in this repository
+  - Docker uses the MySQL root user with a weak password
+- **Resources and Settings pages use placeholder data.** Their backend routes don't exist yet (see `USE_MOCK` in `Frontend/src/api.js`).
+- **AI tools are not connected to a live model yet.** They return a demo response.
+- **Some feature branches haven't been merged into `main`**, including `bianca-calendar-ui` and `feature/fidel/login-page`.
 
 ## Technology Stack
 

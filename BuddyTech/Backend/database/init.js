@@ -49,9 +49,11 @@ async function markMigrationsApplied(db) {
 }
 
 async function main() {
-    // No database selected: schema.sql creates it and switches to it itself.
+    // Reset: connect with no database selected, because schema.sql creates it
+    // and switches to it itself. Verify: connect straight to the existing
+    // database, since verify.sql has no USE statement.
     const db = await mysql.createConnection({
-        ...dbConfig({ withDatabase: false }),
+        ...dbConfig({ withDatabase: VERIFY_ONLY }),
         multipleStatements: true
     });
 
