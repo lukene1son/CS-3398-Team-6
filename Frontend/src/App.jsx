@@ -66,7 +66,7 @@ export default function App() {
             currentUser ? (
               <Navigate to="/dashboard" replace />
             ) : (
-              <LoginWrapper onLogin={(user) => setCurrentUser(user)} />
+              <LoginWrapper onLogin={handleLogin} />
             )
           } 
         />

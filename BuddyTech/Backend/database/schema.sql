@@ -1,6 +1,3 @@
-CREATE DATABASE IF NOT EXISTS buddytech;
-USE buddytech;
-
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS messages;

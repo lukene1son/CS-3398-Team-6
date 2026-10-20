@@ -1,5 +1,3 @@
-USE buddytech;
-
 SELECT 'users' AS table_name, COUNT(*) AS row_count FROM users
 UNION ALL
 SELECT 'courses', COUNT(*) FROM courses

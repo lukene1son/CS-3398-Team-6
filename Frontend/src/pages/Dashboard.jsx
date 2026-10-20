@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignment } from '../api';
 
+import SpacesChat from '../components/SpacesChat';
+import CalendarView from './Calendar';
+
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
   const userInitial = displayName.charAt(0).toUpperCase();
@@ -221,6 +224,19 @@ export default function Dashboard({ user, onLogout }) {
         </header>
 
         {/* Content Body */}
+        {activeTab === 'spaces' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <SpacesChat user={user} />
+          </div>
+        ) : activeTab === 'planner' ? (
+          <CalendarView
+            assignments={tasks}
+            courses={courses}
+            onTaskCreated={(task) =>
+              setTasks((currentTasks) => [...currentTasks, task])
+            }
+          />
+        ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
           {/* Main Column */}
           <div>
@@ -404,6 +420,7 @@ export default function Dashboard({ user, onLogout }) {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
