@@ -8,7 +8,7 @@
 export const USE_MOCK = {
   resources: true, // needs: GET/POST /api/courses/:id/resources
   settings: true,  // needs: GET/PUT  /api/users/:id/settings
-  ai: true,        // needs: POST     /api/ai/chat
+  ai: false,       // live: POST     /api/ai/chat
 };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
