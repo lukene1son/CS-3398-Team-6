@@ -26,6 +26,9 @@ app.use("/api/auth", require("./routes/auth"));
 // Every /api route registered BELOW this line requires a valid login token.
 app.use("/api", requireAuth);
 
+// Authenticated AI study helpers.
+app.use("/api/ai", require("./routes/ai"));
+
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {
     const [rows] = await pool.query(
