@@ -10,13 +10,26 @@ import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
 import ErrorBoundary from './components/ErrorBoundary';
 
+const STORAGE_KEY = 'buddytech-user';
+
+// Keep the user logged in across page refreshes
+function loadSavedUser() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Wrapper for Home to pass navigation to Navbar buttons
-function HomeWrapper() {
+function HomeWrapper({ isLoggedIn }) {
   const navigate = useNavigate();
+  const goToApp = () => navigate(isLoggedIn ? '/dashboard' : '/login');
   return (
     <div className="app-container">
-      <Navbar onLoginClick={() => navigate('/login')} />
-      <Home onGetStarted={() => navigate('/login')} />
+      <Navbar onLoginClick={goToApp} isLoggedIn={isLoggedIn} />
+      <Home onGetStarted={goToApp} isLoggedIn={isLoggedIn} />
       <Footer />
     </div>
   );
@@ -35,63 +48,58 @@ function LoginWrapper({ onLogin }) {
 }
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [checkingSession, setCheckingSession] = useState(() => !!getToken());
+  const [currentUser, setCurrentUser] = useState(loadSavedUser);
 
-  // If a token is saved from a previous visit, ask the backend who it belongs to.
-  useEffect(() => {
-    if (!getToken()) return;
-    getMe()
-      .then(setCurrentUser)
-      .catch(() => logout())
-      .finally(() => setCheckingSession(false));
-  }, []);
-
-  // If the backend says our token is no longer valid, drop back to the login page.
-  useEffect(() => onSessionExpired(() => setCurrentUser(null)), []);
-
-  function handleLogin(user) {
+  const handleLogin = (user) => {
     setCurrentUser(user);
-  }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+    } catch {
+      /* storage unavailable; user just won't persist */
+    }
+  };
 
-  function handleLogout() {
-    logout();
+  const handleLogout = () => {
     setCurrentUser(null);
-  }
-
-  if (checkingSession) return null; // could show a spinner here
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
     <ErrorBoundary>
     <Router>
       <Routes>
         {/* 1. Public Landing Page */}
-        <Route path="/" element={<HomeWrapper />} />
+        <Route path="/" element={<HomeWrapper isLoggedIn={!!currentUser} />} />
 
-        {/* 2. Login Page (Fidel's component) */}
-        <Route 
-          path="/login" 
+        {/* 2. Login Page */}
+        <Route
+          path="/login"
           element={
             currentUser ? (
               <Navigate to="/dashboard" replace />
             ) : (
               <LoginWrapper onLogin={handleLogin} />
             )
-          } 
+          }
         />
 
-        {/* 3. Student Dashboard (Maya Chen screen) */}
-        <Route 
-          path="/dashboard" 
+        {/* 3. Student Dashboard */}
+        <Route
+          path="/dashboard"
           element={
             currentUser ? (
               <Dashboard user={currentUser} onLogout={handleLogout} />
             ) : (
               <Navigate to="/login" replace />
             )
-          } 
+          }
         />
-        {/* Anything else goes back to the landing page instead of rendering nothing */}
+
+        {/* Anything else goes back to the landing page */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
