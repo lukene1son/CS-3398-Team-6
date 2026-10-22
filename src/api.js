@@ -14,15 +14,32 @@ export const USE_MOCK = {
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 async function request(path, options) {
-  const res = await fetch(path, options);
+  let res;
+  try {
+    res = await fetch(path, options);
+  } catch {
+    throw new Error("Could not reach the server. Is the backend running?");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${res.status})`);
+    if (body.error) throw new Error(body.error);
+    // The Vite proxy returns an empty 5xx when the backend isn't running
+    if (res.status >= 500) throw new Error("Server error. Is the backend running?");
+    throw new Error(`Request failed (${res.status})`);
   }
   return res.json();
 }
 
 const delay = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+
+/* ---------- Auth (REAL: POST /api/auth/register exists; login does not yet) ---------- */
+export function registerUser({ name, email, password }) {
+  return request(`/api/auth/register`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ name, email, password }),
+  });
+}
 
 /* ---------- Courses (REAL: backend already has this) ---------- */
 export function getUserCourses(userId) {
