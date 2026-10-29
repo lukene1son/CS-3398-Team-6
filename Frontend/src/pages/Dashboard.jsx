@@ -9,6 +9,8 @@ import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignmen
 import SpacesChat from '../components/SpacesChat';
 import CalendarView from './Calendar';
 import AITools from './AITools';
+import Resources from './Resources';
+import SettingsPage from './SettingsPage';
 
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
@@ -24,7 +26,7 @@ export default function Dashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = sessionStorage.getItem('buddytechActiveTab');
 
-    return ['home', 'spaces', 'planner', 'ai'].includes(savedTab)
+    return ['home', 'spaces', 'planner', 'ai', 'resources', 'settings'].includes(savedTab)
       ? savedTab
       : 'home';
   });
@@ -196,14 +198,22 @@ export default function Dashboard({ user, onLogout }) {
               textAlign: 'left'
             }}
           >
-            <Sparkles size={18} /> AI Tools
+              <Sparkles size={18} /> AI Tools
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => changeTab('resources')}
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: activeTab === 'resources' ? '#eff6ff' : 'transparent', color: activeTab === 'resources' ? '#1d4ed8' : '#64748b', border: 'none', borderRadius: '10px', fontWeight: activeTab === 'resources' ? 600 : 400, cursor: 'pointer', textAlign: 'left' }}
+        >
             <BookOpen size={18} /> Resources
-          </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+        </button>
+        <button
+            type="button"
+            onClick={() => changeTab('settings')}
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: activeTab === 'settings' ? '#eff6ff' : 'transparent', color: activeTab === 'settings' ? '#1d4ed8' : '#64748b', border: 'none', borderRadius: '10px', fontWeight: activeTab === 'settings' ? 600 : 400, cursor: 'pointer', textAlign: 'left' }}
+        >
             <Settings size={18} /> Settings
-          </button>
+        </button>
         </nav>
 
         {onLogout && (
@@ -256,6 +266,14 @@ export default function Dashboard({ user, onLogout }) {
         ) : activeTab === 'ai' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
             <AITools />
+          </div>
+        ) : activeTab === 'resources' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <Resources user={user} />
+          </div>
+        ) : activeTab === 'settings' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <SettingsPage user={user} />
           </div>
         ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>

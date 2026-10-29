@@ -5,7 +5,7 @@ const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "1
 const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none", width: "100%" };
 
 export default function SettingsPage({ user }) {
-  const userId = user?.id ?? 1;
+  const userId = user?.id;
 
   const [form, setForm] = useState(null); // null = still loading
   const [saving, setSaving] = useState(false);

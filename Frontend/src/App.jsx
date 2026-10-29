@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMe, getToken, logout, onSessionExpired } from './api';
+import {getToken, logout, onSessionExpired } from './api';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
 
@@ -14,6 +14,7 @@ const STORAGE_KEY = 'buddytech-user';
 
 // Keep the user logged in across page refreshes
 function loadSavedUser() {
+    if (!getToken()) return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -50,6 +51,20 @@ function LoginWrapper({ onLogin }) {
 export default function App() {
   const [currentUser, setCurrentUser] = useState(loadSavedUser);
 
+  // If the backend rejects the login token (expired or invalid),
+  // sign the user out so they land back on the login page.
+  useEffect(() => {
+    const stopListening = onSessionExpired(() => {
+      setCurrentUser(null);
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    });
+    return stopListening;
+  }, []);
+
   const handleLogin = (user) => {
     setCurrentUser(user);
     try {
@@ -60,6 +75,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    logout();
     setCurrentUser(null);
     try {
       localStorage.removeItem(STORAGE_KEY);

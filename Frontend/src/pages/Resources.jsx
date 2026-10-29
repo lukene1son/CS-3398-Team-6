@@ -5,7 +5,7 @@ const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "1
 const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none" };
 
 export default function Resources({ user }) {
-  const userId = user?.id ?? 1;
+  const userId = user?.id;
 
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState(null);
