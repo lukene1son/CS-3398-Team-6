@@ -8,6 +8,9 @@ import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignmen
 
 import SpacesChat from '../components/SpacesChat';
 import CalendarView from './Calendar';
+import AITools from './AITools';
+import Resources from './Resources';
+import SettingsPage from './SettingsPage';
 
 export default function Dashboard({ user, onLogout }) {
   const displayName = user?.name || "Student";
@@ -23,7 +26,7 @@ export default function Dashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = sessionStorage.getItem('buddytechActiveTab');
 
-    return ['home', 'spaces', 'planner'].includes(savedTab)
+    return ['home', 'spaces', 'planner', 'ai', 'resources', 'settings'].includes(savedTab)
       ? savedTab
       : 'home';
   });
@@ -178,15 +181,39 @@ export default function Dashboard({ user, onLogout }) {
           >
             <Calendar size={18} /> Planner
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
-            <Sparkles size={18} /> AI Tools
+          <button
+            type="button"
+            onClick={() => changeTab('ai')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0.75rem 1rem',
+              background: activeTab === 'ai' ? '#eff6ff' : 'transparent',
+              color: activeTab === 'ai' ? '#1d4ed8' : '#64748b',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: activeTab === 'ai' ? 600 : 400,
+              cursor: 'pointer',
+              textAlign: 'left'
+            }}
+          >
+              <Sparkles size={18} /> AI Tools
           </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+          <button
+            type="button"
+            onClick={() => changeTab('resources')}
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: activeTab === 'resources' ? '#eff6ff' : 'transparent', color: activeTab === 'resources' ? '#1d4ed8' : '#64748b', border: 'none', borderRadius: '10px', fontWeight: activeTab === 'resources' ? 600 : 400, cursor: 'pointer', textAlign: 'left' }}
+        >
             <BookOpen size={18} /> Resources
-          </button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: 'transparent', color: '#64748b', border: 'none', borderRadius: '10px', cursor: 'pointer', textAlign: 'left' }}>
+        </button>
+        <button
+            type="button"
+            onClick={() => changeTab('settings')}
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem 1rem', background: activeTab === 'settings' ? '#eff6ff' : 'transparent', color: activeTab === 'settings' ? '#1d4ed8' : '#64748b', border: 'none', borderRadius: '10px', fontWeight: activeTab === 'settings' ? 600 : 400, cursor: 'pointer', textAlign: 'left' }}
+        >
             <Settings size={18} /> Settings
-          </button>
+        </button>
         </nav>
 
         {onLogout && (
@@ -236,6 +263,18 @@ export default function Dashboard({ user, onLogout }) {
               setTasks((currentTasks) => [...currentTasks, task])
             }
           />
+        ) : activeTab === 'ai' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <AITools />
+          </div>
+        ) : activeTab === 'resources' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <Resources user={user} />
+          </div>
+        ) : activeTab === 'settings' ? (
+          <div style={{ padding: '2rem', flex: 1 }}>
+            <SettingsPage user={user} />
+          </div>
         ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
           {/* Main Column */}
@@ -385,7 +424,11 @@ export default function Dashboard({ user, onLogout }) {
                   { icon: BookOpen, title: 'Generate study guide', sub: 'Turn course notes into study outlines' },
                   { icon: HelpCircle, title: 'Practice questions', sub: 'Generate review questions on demand' }
                 ].map((action, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', borderRadius: '10px', border: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                  <div
+                    key={i}
+                    onClick={() => changeTab('ai')}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', borderRadius: '10px', border: '1px solid #f1f5f9', cursor: 'pointer' }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <action.icon size={18} color="#2563eb" />
                       <div>

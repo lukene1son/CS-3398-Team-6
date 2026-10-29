@@ -22,10 +22,13 @@ services:
       DB_USER: root
       DB_PASSWORD: buddytech
       DB_NAME: buddytech
+      JWT_SECRET: ${JWT_SECRET:-buddytech-local-development-secret-change-me}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
     depends_on:
       mysql:
         condition: service_healthy
-    command: sh -c "npm run db:ensure && npm start"
+    command: sh -c "npm run db:ensure && npm run db:migrate && npm start"
     ports:
       - "3000:3000"
 
