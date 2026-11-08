@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS course_members;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS courses;
 DROP TABLE IF EXISTS assignment_progress;
+DROP TABLE IF EXISTS friend_requests;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -77,4 +78,16 @@ CREATE TABLE assignment_progress (
     PRIMARY KEY (user_id, assignment_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE friend_requests (
+id INT AUTO_INCREMENT PRIMARY KEY,
+sender_id INT NOT NULL,
+receiver_id INT NOT NULL,
+status ENUM('pending', 'accepted', 'declined') NOT NULL DEFAULT 'pending',
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+responded_at TIMESTAMP NULL,
+FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+UNIQUE (sender_id, receiver_id)
 );

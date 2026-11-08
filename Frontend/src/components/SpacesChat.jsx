@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage } from "../api";
+
+import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners, 
+sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend } from "../api";
+
+const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
 const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
+const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" };
+const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
+const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
+
 
 function formatTime(createdAt) {
   if (!createdAt) return "";
@@ -40,10 +48,19 @@ export default function SpacesChat({
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("chat");
   const [partnerView, setPartnerView] = useState("suggested");
-  const [requestedPartners, setRequestedPartners] = useState([]);
   const bottomRef = useRef(null);
   const [partnerSearch, setPartnerSearch] = useState("");
   const [partnerCourse, setPartnerCourse] = useState("all");
+  const [suggestedPartners, setSuggestedPartners] = useState([]);
+  const [partnersLoading, setPartnersLoading] = useState(false);
+  const [partnersError, setPartnersError] = useState("");
+  const [connectStatus, setConnectStatus] = useState({});
+  const [friends, setFriends] = useState([]);
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [outgoingRequests, setOutgoingRequests] = useState([]);
+  const [listsLoading, setListsLoading] = useState(false);
+  const [listsError, setListsError] = useState("");
+  const [busyRequestId, setBusyRequestId] = useState(null); // disables buttons while a click is in flight
   const [groupView, setGroupView] = useState("discover");
   const [joinedGroups, setJoinedGroups] = useState([]);
   const [groupInvites, setGroupInvites] = useState(["calcStudy", "architectureReview"]);
@@ -67,6 +84,71 @@ export default function SpacesChat({
     setOpenGroup(group);
     setGroupChannel("general");
     setGroupMessage("");
+  }
+
+  const loadSuggested = useCallback(async () => {
+    setSuggestedPartners(await getSuggestedPartners());
+  }, []);
+
+  async function handleConnect(partnerId) {
+    setConnectStatus(prev => ({ ...prev, [partnerId]: "sending" }));
+    try {
+      await sendFriendRequest(partnerId);
+      setPartnersError("");
+    } catch (err) {
+      // 409 = a request or friendship already exists; the reload below shows which.
+      if (!/already/i.test(err.message)) setPartnersError(err.message);
+    } finally {
+      setConnectStatus(prev => {
+        const next = { ...prev };
+        delete next[partnerId];
+        return next;
+      });
+      await Promise.all([loadSuggested(), loadRequests()]).catch(() => {});
+    }
+  }
+
+
+  const loadFriends = useCallback(async () => {
+    setFriends(await getFriends());
+  }, []);
+
+  const loadRequests = useCallback(async () => {
+    const [incoming, outgoing] = await Promise.all([
+      getFriendRequests("incoming"),
+      getFriendRequests("outgoing"),
+    ]);
+    setIncomingRequests(incoming);
+    setOutgoingRequests(outgoing);
+  }, []);
+
+  // Accept / decline a request sent to you, or cancel one you sent, then refresh
+  // the Find view (requests + suggestions).
+  async function handleRequestAction(requestId, action) {
+    setBusyRequestId(requestId);
+    try {
+      if (action === "cancel") await cancelFriendRequest(requestId);
+      else await respondToFriendRequest(requestId, action);
+      setPartnersError("");
+    } catch (err) {
+      setPartnersError(err.message);
+    } finally {
+      // Reload either way: on a 404 (they cancelled first) the stale row disappears.
+      await Promise.all([loadSuggested(), loadRequests()]).catch(() => {});
+      setBusyRequestId(null);
+    }
+  }
+
+  async function handleRemoveFriend(friend) {
+    if (!window.confirm(`Remove ${friend.name} from your connections?`)) return;
+    try {
+      await removeFriend(friend.id);
+      if (selectedConnection === friend.name) setSelectedConnection(null);
+      await loadFriends();
+      setListsError("");
+    } catch (err) {
+      setListsError(err.message);
+    }
   }
 
   function changeGroupView(view) {
@@ -144,6 +226,55 @@ export default function SpacesChat({
       setError(err.message);
     }
   }, [channelId]);
+
+    // 4. Load the Find Study Partners view (pending requests + suggestions) when it's
+  //    opened, and re-check every PARTNER_POLL_MS so the other person's actions show up
+  useEffect(() => {
+    if (!userId || activeTab !== "partners" || partnerView !== "suggested") return;
+    let cancelled = false;
+    async function refresh(showSpinner) {
+      if (showSpinner) setPartnersLoading(true);
+      try {
+        await Promise.all([loadSuggested(), loadRequests()]);
+        if (!cancelled) setPartnersError("");
+      } catch (err) {
+        if (!cancelled) setPartnersError(err.message);
+      } finally {
+        if (!cancelled && showSpinner) setPartnersLoading(false);
+      }
+    }
+    refresh(true);
+    const timer = setInterval(() => refresh(false), PARTNER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [userId, activeTab, partnerView, loadSuggested, loadRequests]);
+
+  // 5. Load friends when the Connections view is opened, and re-check every
+  //    PARTNER_POLL_MS so a newly accepted friend shows up for both people
+  useEffect(() => {
+    if (!userId || activeTab !== "partners" || partnerView !== "connections") return;
+    let cancelled = false;
+    async function refresh(showSpinner) {
+      if (showSpinner) setListsLoading(true);
+      try {
+        await loadFriends();
+        if (!cancelled) setListsError("");
+      } catch (err) {
+        if (!cancelled) setListsError(err.message);
+      } finally {
+        if (!cancelled && showSpinner) setListsLoading(false);
+      }
+    }
+    refresh(true);
+    const timer = setInterval(() => refresh(false), PARTNER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [userId, activeTab, partnerView, loadFriends]);
+
 
   // Load on channel change + poll so messages from other users appear
   useEffect(() => {
@@ -430,7 +561,7 @@ export default function SpacesChat({
             fontWeight: partnerView === "suggested" ? "600" : "400",
             cursor: "pointer"
           }}>
-            Suggested
+            Find Study Partners
           </button>
 
           <button onClick={() => setPartnerView("connections")} style={{
@@ -444,19 +575,6 @@ export default function SpacesChat({
             cursor: "pointer"
           }}>
             My Connections
-          </button>
-
-          <button onClick={() => setPartnerView("requests")} style={{
-            textAlign: "left",
-            padding: "0.6rem 0.8rem",
-            border: "none",
-            borderRadius: "8px",
-            background: partnerView === "requests" ? "#e0e7ff" : "transparent",
-            color: partnerView === "requests" ? "#4338ca" : "#64748b",
-            fontWeight: partnerView === "requests" ? "600" : "400",
-            cursor: "pointer"
-          }}>
-            Requests
           </button>
         </div>
       </div>
@@ -484,6 +602,80 @@ export default function SpacesChat({
               Connect with classmates in your courses.
             </p>
           </div>
+           {partnersError && (
+            <p style={{ color: "#dc2626", fontSize: "0.9rem", marginBottom: "1rem" 
+}}>{partnersError}</p>
+          )}
+
+          {incomingRequests.length > 0 && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
+                Requests for you
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {incomingRequests.map(r => (
+                  <div key={r.id} style={partnerCardStyle}>
+                    <div>
+                      <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
+                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                        Sent {new Date(r.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button
+                        onClick={() => handleRequestAction(r.id, "accept")}
+                        disabled={busyRequestId === r.id}
+                        style={primaryButtonStyle}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => handleRequestAction(r.id, "decline")}
+                        disabled={busyRequestId === r.id}
+                        style={secondaryButtonStyle}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {outgoingRequests.length > 0 && (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
+                Requests you sent
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {outgoingRequests.map(r => (
+                  <div key={r.id} style={partnerCardStyle}>
+                    <div>
+                      <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
+                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                        Requested {new Date(r.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleRequestAction(r.id, "cancel")}
+                      disabled={busyRequestId === r.id}
+                      style={secondaryButtonStyle}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
+            Suggested Study Partners
+          </h3>
+
 
           <div style={{
             display: "flex",
@@ -515,9 +707,9 @@ export default function SpacesChat({
               }}
             >
               <option value="all">All Courses</option>
-              <option value="CS 3398">CS 3398</option>
-              <option value="CS 3360">CS 3360</option>
-              <option value="EE 2120">EE 2120</option>
+              {courses.map(c => (
+                <option key={c.id} value={c.course_code}>{c.course_code}</option>
+              ))}
             </select>
           </div>
 
@@ -527,215 +719,47 @@ export default function SpacesChat({
             gap: "0.75rem"
           }}>
 
-            {/* Partner 1 */}
-            <div style={{
-              display:
-                "maya chen".includes(partnerSearch.toLowerCase()) &&
-                (partnerCourse === "all" || partnerCourse === "CS 3398")
-                  ? "flex"
-                  : "none",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "1rem",
-              border: "1px solid #e2e8f0",
-              borderRadius: "10px"
-            }}>
-              <div>
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  marginBottom: "0.3rem"
-                }}>
-                  <span style={{
-                    width: "9px",
-                    height: "9px",
-                    background: "#22c55e",
-                    borderRadius: "50%",
-                    display: "inline-block"
-                  }}></span>
-                  <strong style={{
-                    color: "#1e293b"
-                  }}>Maya Chen</strong>
-                </div>
+                      {partnersLoading && (
+              <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>Loading classmates...</p>
+            )}
 
-                <div style={{
-                  fontSize: "0.85rem",
-                  color: "#64748b"
-                }}>
-                  CS 3398 • Group Study
-                </div>
+            {!partnersLoading && !partnersError && suggestedPartners.length === 0 && (
+              <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+                No suggestions right now. Classmates from your courses will show up here.
+              </p>
+            )}
 
-                <div style={{
-                  fontSize: "0.8rem",
-                  color: "#94a3b8",
-                  marginTop: "0.2rem"
-                }}>
-                  Available Tue / Thu
-                </div>
-              </div>
+            {suggestedPartners
+              .filter(p =>
+                p.name.toLowerCase().includes(partnerSearch.toLowerCase()) &&
+                (partnerCourse === "all" || p.shared_courses.includes(partnerCourse))
+              )
+              .map(p => {
+                const sending = connectStatus[p.id] === "sending";
+                return (
+                  <div key={p.id} style={partnerCardStyle}>
+                    <div>
+                      <strong style={{ color: "#1e293b" }}>{p.name}</strong>
+                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
+                        {p.shared_courses.join(" • ")}
+                      </div>
+                    </div>
 
-              <button
-                onClick={() =>
-                  setRequestedPartners((prev) =>
-                    prev.includes("maya")
-                      ? prev.filter((id) => id !== "maya")
-                      : [...prev, "maya"]
-                  )
-                }
-                style={{
-                  padding: "0.6rem 1rem",
-                  background: requestedPartners.includes("maya") ? "#e2e8f0" : "#2563eb",
-                  color: requestedPartners.includes("maya") ? "#475569" : "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                {requestedPartners.includes("maya") ? "Requested ✓" : "Connect"}
-              </button>
-            </div>
-
-            {/* Partner 2 */}
-            <div style={{
-              display:
-                "david olajide".includes(partnerSearch.toLowerCase()) &&
-                (partnerCourse === "all" || partnerCourse === "CS 3398")
-                  ? "flex"
-                  : "none",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "1rem",
-              border: "1px solid #e2e8f0",
-              borderRadius: "10px"
-            }}>
-              <div>
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  marginBottom: "0.3rem"
-                }}>
-                  <span style={{
-                    width: "9px",
-                    height: "9px",
-                    background: "#eab308",
-                    borderRadius: "50%",
-                    display: "inline-block"
-                  }}></span>
-                  <strong style={{
-                    color: "#1e293b"
-                  }}>David Olajide</strong>
-                </div>
-
-                <div style={{
-                  fontSize: "0.85rem",
-                  color: "#64748b"
-                }}>
-                  CS 3398 • Exam Prep
-                </div>
-
-                <div style={{
-                  fontSize: "0.8rem",
-                  color: "#94a3b8",
-                  marginTop: "0.2rem"
-                }}>
-                  Available Wednesday evenings
-                </div>
-              </div>
-
-              <button
-                onClick={() =>
-                  setRequestedPartners((prev) =>
-                    prev.includes("david")
-                      ? prev.filter((id) => id !== "david")
-                      : [...prev, "david"]
-                  )
-                }
-                style={{
-                  padding: "0.6rem 1rem",
-                  background: requestedPartners.includes("david") ? "#e2e8f0" : "#2563eb",
-                  color: requestedPartners.includes("david") ? "#475569" : "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                {requestedPartners.includes("david") ? "Requested ✓" : "Connect"}
-              </button>
-            </div>
-
-            {/* Partner 3 */}
-            <div style={{
-              display:
-                "fidel ramirez".includes(partnerSearch.toLowerCase()) &&
-                (partnerCourse === "all" || partnerCourse === "CS 3360")
-                  ? "flex"
-                  : "none",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "1rem",
-              border: "1px solid #e2e8f0",
-              borderRadius: "10px"
-            }}>
-              <div>
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  marginBottom: "0.3rem"
-                }}>
-                  <span style={{
-                    width: "9px",
-                    height: "9px",
-                    background: "#94a3b8",
-                    borderRadius: "50%",
-                    display: "inline-block"
-                  }}></span>
-                  <strong style={{
-                    color: "#1e293b"
-                  }}>Fidel Ramirez</strong>
-                </div>
-
-                <div style={{
-                  fontSize: "0.85rem",
-                  color: "#64748b"
-                }}>
-                  CS 3360 • Homework Help
-                </div>
-
-                <div style={{
-                  fontSize: "0.8rem",
-                  color: "#94a3b8",
-                  marginTop: "0.2rem"
-                }}>
-                  Available Mon / Wed
-                </div>
-              </div>
-
-              <button
-                onClick={() =>
-                  setRequestedPartners((prev) =>
-                    prev.includes("fidel")
-                      ? prev.filter((id) => id !== "fidel")
-                      : [...prev, "fidel"]
-                  )
-                }
-                style={{
-                  padding: "0.6rem 1rem",
-                  background: requestedPartners.includes("fidel") ? "#e2e8f0" : "#2563eb",
-                  color: requestedPartners.includes("fidel") ? "#475569" : "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                {requestedPartners.includes("fidel") ? "Requested ✓" : "Connect"}
-              </button>
-            </div>
+                    <button
+                      onClick={() => handleConnect(p.id)}
+                      disabled={sending}
+                      style={{
+                        ...primaryButtonStyle,
+                        background: sending ? "#e2e8f0" : "#2563eb",
+                        color: sending ? "#475569" : "#fff",
+                        cursor: sending ? "default" : "pointer",
+                      }}
+                    >
+                      {sending ? "Sending..." : "Request"}
+                    </button>
+                  </div>
+                );
+              })}
           </div>
         </>}
 
@@ -752,12 +776,9 @@ export default function SpacesChat({
             {selectedConnection && (
               <div style={{ marginBottom: "1.5rem", border: "1px solid #e2e8f0", borderRadius: "10px", overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", borderBottom: "1px solid #e2e8f0", background: "#f8fafc" }}>
-                  <div>
-                    <strong style={{ color: "#1e293b" }}>
-                      {selectedConnection}
-                    </strong>
-                    <span style={{ color: "#22c55e", marginLeft: "0.5rem" }}>●</span>
-                  </div>
+                  <strong style={{ color: "#1e293b" }}>
+                    {selectedConnection}
+                  </strong>
 
                   <button
                     onClick={() => setSelectedConnection(null)}
@@ -829,15 +850,7 @@ export default function SpacesChat({
 
                       setDirectMessage("");
                     }}
-                    style={{
-                      padding: "0.7rem 1.2rem",
-                      background: "#2563eb",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: "8px",
-                      fontWeight: "600",
-                      cursor: "pointer",
-                    }}
+                    style={{ ...primaryButtonStyle, padding: "0.7rem 1.2rem" }}
                   >
                     Send
                   </button>
@@ -845,150 +858,48 @@ export default function SpacesChat({
               </div>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                    <span style={{ width: "9px", height: "9px", background: "#22c55e", borderRadius: "50%", display: "inline-block" }}></span>
-                    <strong style={{ color: "#1e293b" }}>Luke Nelson</strong>
-                  </div>
+            {listsLoading && (
+              <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>Loading connections...</p>
+            )}
 
-                  <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                    CS 3398 • Project Work
-                  </div>
+            {listsError && (
+              <p style={{ color: "#dc2626", fontSize: "0.9rem" }}>{listsError}</p>
+            )}
 
-                  <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                    Available Tue / Thu
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setSelectedConnection("Luke Nelson")}
-                  style={{
-                    padding: "0.6rem 1rem",
-                    background: "#f1f5f9",
-                    color: "#475569",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "8px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Message
-                </button>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                    <span style={{ width: "9px", height: "9px", background: "#94a3b8", borderRadius: "50%", display: "inline-block" }}></span>
-                    <strong style={{ color: "#1e293b" }}>Jack Wilson</strong>
-                  </div>
-
-                  <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                    CS 3360 • Homework Help
-                  </div>
-
-                  <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                    Available Mon / Wed
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setSelectedConnection("Jack Wilson")}
-                  style={{
-                    padding: "0.6rem 1rem",
-                    background: "#f1f5f9",
-                    color: "#475569",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "8px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Message
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {partnerView === "requests" && (
-          <div>
-            <h2 style={{ color: "#1e293b", marginBottom: "0.3rem" }}>
-              Requests
-            </h2>
-
-            <p style={{ color: "#64748b", marginBottom: "1rem" }}>
-              Pending study partner requests.
-            </p>
-
-            {requestedPartners.length === 0 && (
+            {!listsLoading && !listsError && friends.length === 0 && (
               <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                You haven't sent any requests yet.
+                No connections yet. Send a request from Suggested to get started.
               </p>
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {requestedPartners.includes("maya") && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
+              {friends.map(f => (
+                <div key={f.id} style={partnerCardStyle}>
                   <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                      <span style={{ width: "9px", height: "9px", background: "#22c55e", borderRadius: "50%", display: "inline-block" }}></span>
-                      <strong style={{ color: "#1e293b" }}>Maya Chen</strong>
-                    </div>
-
-                    <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                      CS 3398 • Group Study
-                    </div>
+                    <strong style={{ color: "#1e293b" }}>{f.name}</strong>
+                    {f.friends_since && (
+                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                        Connected since {new Date(f.friends_since).toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
 
-                  <span style={{ color: "#64748b", fontSize: "0.85rem", fontWeight: "600" }}>
-                    Requested ✓
-                  </span>
-                </div>
-              )}
-
-              {requestedPartners.includes("david") && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                      <span style={{ width: "9px", height: "9px", background: "#eab308", borderRadius: "50%", display: "inline-block" }}></span>
-                      <strong style={{ color: "#1e293b" }}>David Olajide</strong>
-                    </div>
-
-                    <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                      CS 3398 • Exam Prep
-                    </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button onClick={() => setSelectedConnection(f.name)} style={secondaryButtonStyle}>
+                      Message
+                    </button>
+                    <button
+                      onClick={() => handleRemoveFriend(f)}
+                      style={{ ...secondaryButtonStyle, color: "#dc2626" }}
+                    >
+                      Remove
+                    </button>
                   </div>
-
-                  <span style={{ color: "#64748b", fontSize: "0.85rem", fontWeight: "600" }}>
-                    Requested ✓
-                  </span>
                 </div>
-              )}
-
-              {requestedPartners.includes("fidel") && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                      <span style={{ width: "9px", height: "9px", background: "#94a3b8", borderRadius: "50%", display: "inline-block" }}></span>
-                      <strong style={{ color: "#1e293b" }}>Fidel Ramirez</strong>
-                    </div>
-
-                    <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                      CS 3360 • Homework Help
-                    </div>
-                  </div>
-
-                  <span style={{ color: "#64748b", fontSize: "0.85rem", fontWeight: "600" }}>
-                    Requested ✓
-                  </span>
-                </div>
-              )}
+              ))}
             </div>
           </div>
-        )}
+        )}  
       </div>
     </div>}
 

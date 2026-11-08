@@ -29,6 +29,8 @@ app.use("/api", requireAuth);
 // Authenticated AI study helpers.
 app.use("/api/ai", require("./routes/ai"));
 
+app.use("/api", require("./routes/friends"));
+
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {
     const [rows] = await pool.query(
