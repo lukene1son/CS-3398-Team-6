@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS study_group_members;
 DROP TABLE IF EXISTS study_groups;
 DROP TABLE IF EXISTS study_group_invites;
 DROP TABLE IF EXISTS direct_messages;
+DROP TABLE IF EXISTS course_resources;
 
 
 SET FOREIGN_KEY_CHECKS = 1;
@@ -61,7 +62,8 @@ CREATE TABLE messages (
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_messages_channel_time (channel_id, created_at)
 );
 
 CREATE TABLE assignments (
@@ -155,4 +157,21 @@ CREATE TABLE direct_messages (
     FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_dm_sender (sender_id, receiver_id, created_at),
     INDEX idx_dm_receiver (receiver_id, sender_id, created_at)
+);
+
+CREATE TABLE course_resources (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    course_id INT NOT NULL,
+    uploaded_by INT NOT NULL,
+    type ENUM('link', 'file') NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    url VARCHAR(2048) NULL,          -- links only
+    file_name VARCHAR(255) NULL,     -- files only: the name the teacher uploaded
+    stored_name VARCHAR(64) NULL,    -- files only: random name on disk, never sent to the browser
+    mime_type VARCHAR(100) NULL,
+    size_bytes INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_resources_course_time (course_id, created_at)
 );

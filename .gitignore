@@ -5,3 +5,4 @@ node_modules/
 *.crt
 *.csv
 npm-debug.log
+BuddyTech/Backend/uploads/

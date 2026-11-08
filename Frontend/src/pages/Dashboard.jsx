@@ -18,7 +18,6 @@ export default function Dashboard({ user, onLogout }) {
 
   const [tasks, setTasks] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -58,8 +57,6 @@ export default function Dashboard({ user, onLogout }) {
         // Keep tasks/courses as empty arrays so the page still renders.
         console.error('Failed to load dashboard data:', error);
         setLoadError(error.message);
-      } finally {
-        setLoading(false);
       }
     }
 

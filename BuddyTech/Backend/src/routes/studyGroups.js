@@ -15,6 +15,7 @@ const router = express.Router();
 const STAFF_ROLES = ["teacher", "ta"]; // same as server.js
 const GROUP_CHANNELS = ["general", "homework", "meetups"]; // same as the ENUM in schema.sql
 const MAX_MESSAGE_LENGTH = 2000;
+const MESSAGE_HISTORY_LIMIT = 200; // same as server.js
 
 // Turns a route param / body value into a positive integer id, or null.
 function toId(value) {
@@ -334,11 +335,13 @@ router.get("/study-groups/:id/messages", async (req, res) => {
             FROM study_group_messages
             JOIN users ON users.id = study_group_messages.user_id
             WHERE study_group_messages.group_id = ? AND study_group_messages.channel = ?
-            ORDER BY study_group_messages.created_at ASC, study_group_messages.id ASC
+            ORDER BY study_group_messages.created_at DESC, study_group_messages.id DESC
+            LIMIT ?
             `,
-            [groupId, channel]
+            [groupId, channel, MESSAGE_HISTORY_LIMIT]
         );
-        res.json(rows);
+        // Fetched newest-first so LIMIT keeps the latest ones; send them oldest-first.
+        res.json(rows.reverse());
     } catch (error) {
         console.error("Error fetching study group messages:", error);
         res.status(500).json({ error: "Failed to fetch messages" });
@@ -372,7 +375,23 @@ router.post("/study-groups/:id/messages", async (req, res) => {
             "INSERT INTO study_group_messages (group_id, channel, user_id, content) VALUES (?, ?, ?, ?)",
             [groupId, channel, req.user.id, content]
         );
-        res.status(201).json({ id: result.insertId, group_id: groupId, channel, user_id: req.user.id, content });
+       const [rows] = await pool.query(
+            `
+            SELECT
+                study_group_messages.id,
+                study_group_messages.group_id,
+                study_group_messages.channel,
+                study_group_messages.user_id,
+                users.name AS user_name,
+                study_group_messages.content,
+                study_group_messages.created_at
+            FROM study_group_messages
+            JOIN users ON users.id = study_group_messages.user_id
+            WHERE study_group_messages.id = ?
+            `,
+            [result.insertId]
+        );
+       res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending study group message:", error);
         res.status(500).json({ error: "Failed to send message" });

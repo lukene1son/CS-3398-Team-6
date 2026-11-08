@@ -14,6 +14,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", "port.env"), quiet: 
 
 const mysql = require("mysql2/promise");
 const dbConfig = require("../src/dbConfig");
+const copySeedFiles = require("./seedFiles");
 
 const args = process.argv.slice(2);
 const VERIFY_ONLY = args.includes("--verify");
@@ -73,6 +74,7 @@ async function main() {
         if (!NO_SEED) {
             await db.query(readSql("seed.sql"));
             console.log("  seed.sql    done");
+            console.log(`  seed files  ${copySeedFiles()} copied to uploads/`);
         }
 
         console.log("Done. Run `npm run db:verify` to check the data.");

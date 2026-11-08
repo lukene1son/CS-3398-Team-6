@@ -345,10 +345,15 @@ export default function SpacesChat({
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState("Connecting...");
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
+  const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
   const [activeTab, setActiveTab] = useState("chat");
   const [partnerView, setPartnerView] = useState("connections");
   const bottomRef = useRef(null);
+  const messageListRef = useRef(null);           // the scrolling message area
+  const lastScrolledTitleRef = useRef(null);     // chat we last auto-scrolled in
+  const lastMessageCountRef = useRef(0);
+  const connectingRef = useRef(new Set());       // partner ids with a request in flight (a ref, so a fast double click can't slip past)
   const [partnerSearch, setPartnerSearch] = useState("");
   const [partnerCourse, setPartnerCourse] = useState("all");
   const [suggestedPartners, setSuggestedPartners] = useState([]);
@@ -361,6 +366,7 @@ export default function SpacesChat({
   const [listsLoading, setListsLoading] = useState(false);
   const [listsError, setListsError] = useState("");
   const [busyRequestId, setBusyRequestId] = useState(null); // disables buttons while a click is in flight
+  const [removingFriendId, setRemovingFriendId] = useState(null); // remove-connection in flight
   const [groupView, setGroupView] = useState("discover");
   const [groupInvites, setGroupInvites] = useState([]);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -389,6 +395,11 @@ export default function SpacesChat({
   // What the Chat tab is showing: a course channel, a study group, or a DM.
   //   { type: "channel" } | { type: "group", id } | { type: "dm", id: friendUserId }
   const [chatTarget, setChatTarget] = useState({ type: "channel" });
+  
+  // Set (or clear, with "") the Chat-tab error for one source.
+  const setErrorFor = useCallback((source, message) => {
+    setErrors(prev => (prev[source] || "") === message ? prev : { ...prev, [source]: message });
+  }, []);
 
     // Which Chat-tab sidebar sections are collapsed (all open by default).
   const [collapsed, setCollapsed] = useState({ spaces: false, groups: false, dms: false });
@@ -424,15 +435,19 @@ export default function SpacesChat({
     setSuggestedPartners(await getSuggestedPartners());
   }, []);
 
-  async function handleConnect(partnerId) {
+  async function handleConnect(partnerId, showError = setPartnersError) {
+    if (connectingRef.current.has(partnerId)) return;
+    connectingRef.current.add(partnerId);
     setConnectStatus(prev => ({ ...prev, [partnerId]: "sending" }));
     try {
       await sendFriendRequest(partnerId);
-      setPartnersError("");
+      showError("");
     } catch (err) {
       // 409 = a request or friendship already exists; the reload below shows which.
-      if (!/already/i.test(err.message)) setPartnersError(err.message);
+      // Anything else (like a 429 rate limit) is a real error the user should see.
+      if (err.status !== 409) showError(err.message);
     } finally {
+      connectingRef.current.delete(partnerId);
       setConnectStatus(prev => {
         const next = { ...prev };
         delete next[partnerId];
@@ -645,7 +660,7 @@ export default function SpacesChat({
       {!isMe && !friend && (
         received ? (
           <button
-            onClick={() => handleRequestAction(received.id, "accept")}
+            onClick={() => handleRequestAction(received.id, "accept", (msg) => setErrorFor("request", msg))}
             disabled={busyRequestId === received.id}
             style={{ ...primaryButtonStyle, ...smallButton }}
           >
@@ -657,7 +672,7 @@ export default function SpacesChat({
           </button>
         ) : (
           <button
-            onClick={() => handleConnect(member.id)}
+            onClick={() => handleConnect(member.id, (msg) => setErrorFor("request", msg))}
             disabled={sending}
             style={{ ...primaryButtonStyle, ...smallButton }}
           >
@@ -684,8 +699,7 @@ export default function SpacesChat({
   // Accept / decline a request sent to you, or cancel one you sent, then refresh
   // requests, suggestions and connections (an accept makes them a connection).
   // Show errors on the tab the request is on: Connections (requests for you) or Find Study Partners (sent).
-  async function handleRequestAction(requestId, action) {
-    const showError = partnerView === "connections" ? setListsError : setPartnersError;
+  async function handleRequestAction(requestId, action, showError = partnerView === "connections" ? setListsError : setPartnersError) {
     setBusyRequestId(requestId);
     try {
       if (action === "cancel") await cancelFriendRequest(requestId);
@@ -701,13 +715,17 @@ export default function SpacesChat({
   }
 
   async function handleRemoveFriend(friend) {
+    if (removingFriendId) return;
     if (!window.confirm(`Remove ${friend.name} from your connections?`)) return;
+    setRemovingFriendId(friend.id);
     try {
       await removeFriend(friend.id);
       await loadFriends();
       setListsError("");
     } catch (err) {
       setListsError(err.message);
+    } finally {
+      setRemovingFriendId(null);
     }
   }
 
@@ -755,6 +773,19 @@ export default function SpacesChat({
     messages;
   const canSend = Boolean(activeGroup || activeFriend || channel);
 
+  // Chat-tab banner: sidebar errors always, plus the errors for whatever chat is open.
+  const visibleErrors = [
+    errors.courses,
+    errors.channels,
+    errors.conversations,
+    errors.groups,
+    errors.request,
+    showingChannel ? errors.channel : "",
+    activeFriend ? errors.dm : "",
+    activeGroup ? errors.groupMessages : "",
+    sendError?.target === chatTitle ? sendError.text : "",
+  ].filter(Boolean);
+
   const headerMembers =
     activeGroup ? membersByGroup[activeGroup.id] ?? [] :
     showingChannel && course ? membersByCourse[course.id] ?? [] :
@@ -770,18 +801,18 @@ export default function SpacesChat({
         if (cancelled) return;
         setCourses(data);
         setStatus("Connected to Backend");
-        setError("");
+        setErrorFor("courses", "");
       } catch (err) {
         if (cancelled) return;
         setStatus("Backend offline");
-        setError(err.message);
+        setErrorFor("courses", err.message);
       }
     }
     loadCourses();
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, setErrorFor]);
 
   // 2. Load channels whenever the selected course changes
   const courseId = course?.id;
@@ -796,33 +827,28 @@ export default function SpacesChat({
           ...prev,
           [courseId]: data
         }));
+        setErrorFor("channels", "");
       } catch (err) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setErrorFor("channels", err.message);
       }
     }
     loadChannels();
     return () => {
       cancelled = true;
     };
-  }, [courseId]);
+  }, [courseId, setErrorFor]);
 
   // 3. Fetch messages for the open channel
   const channelId = channel?.id;
   const loadMessages = useCallback(async () => {
     if (!channelId) return;
-    try {
-      const data = await getChannelMessages(channelId);
-      setMessagesByChannel(prev => ({
-        ...prev,
-        [channelId]: data
-      }));
-      setStatus("Connected to Backend");
-      setError("");
-    } catch (err) {
-      setStatus("Backend offline");
-      setError(err.message);
-    }
+    const data = await getChannelMessages(channelId);
+    setMessagesByChannel(prev => ({
+      ...prev,
+      [channelId]: data
+    }));
   }, [channelId]);
+
 
     // 4. Load the Find Study Partners view (pending requests + suggestions) when it's
   //    opened, and re-check every PARTNER_POLL_MS so the other person's actions show up
@@ -876,12 +902,29 @@ export default function SpacesChat({
 
 
   // Load on channel change + poll so messages from other users appear
+  // only while a course channel is actually on screen (not a DM, group, or other tab).
   useEffect(() => {
-    if (!channelId) return;
-    loadMessages();
-    const timer = setInterval(loadMessages, POLL_MS);
-    return () => clearInterval(timer);
-  }, [channelId, loadMessages]);
+    if (!channelId || activeTab !== "chat" || !showingChannel) return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await loadMessages();
+        if (cancelled) return;
+        setStatus("Connected to Backend");
+        setErrorFor("channel", "");
+      } catch (err) {
+        if (cancelled) return;
+        setStatus("Backend offline");
+        setErrorFor("channel", err.message);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [channelId, activeTab, showingChannel, loadMessages, setErrorFor]);
 
   // 6. Load your DM conversations while the Chat tab is open, re-checking every
   //    PARTNER_POLL_MS so a chat someone starts with you shows up in your sidebar.
@@ -891,8 +934,9 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadConversations();
+        if (!cancelled) setErrorFor("conversations", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load direct messages: ${err.message}`);
+        if (!cancelled) setErrorFor("conversations", `Couldn't load direct messages: ${err.message}`);
       }
     }
     refresh();
@@ -901,7 +945,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [userId, activeTab, loadConversations]);
+  }, [userId, activeTab, loadConversations, setErrorFor]);
 
   // 7. Load the open DM from the database and poll it like a course channel,
   //    so the other person's replies appear.
@@ -911,8 +955,9 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadDirectMessages(activeFriendId);
+        if (!cancelled) setErrorFor("dm", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load messages: ${err.message}`);
+        if (!cancelled) setErrorFor("dm", `Couldn't load messages: ${err.message}`);
       }
     }
     refresh();
@@ -921,7 +966,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeFriendId, loadDirectMessages]);
+  }, [activeFriendId, loadDirectMessages, setErrorFor]);
   
   // 8. Load the groups whose chat you can open (yours + ones you teach) for the
   //    Chat tab's sidebar, re-checking every PARTNER_POLL_MS.
@@ -932,8 +977,9 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadMyGroups();
+        if (!cancelled) setErrorFor("groups", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load study groups: ${err.message}`);
+        if (!cancelled) setErrorFor("groups", `Couldn't load study groups: ${err.message}`);
       }
     }
     refresh();
@@ -942,7 +988,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [userId, activeTab, partnerView, loadMyGroups]);
+  }, [userId, activeTab, partnerView, loadMyGroups, setErrorFor]);
 
   // 9. Load the open group channel from the database and poll it like a course
   //    channel, so other members' messages appear.
@@ -952,8 +998,9 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadGroupMessages(activeGroupId, groupChannel);
+        if (!cancelled) setErrorFor("groupMessages", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load messages: ${err.message}`);
+        if (!cancelled) setErrorFor("groupMessages", `Couldn't load messages: ${err.message}`);
       }
     }
     refresh();
@@ -962,7 +1009,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeGroupId, groupChannel, loadGroupMessages]);
+  }, [activeGroupId, groupChannel, loadGroupMessages, setErrorFor]);
 
   // 10. Load Discover and your invites while the Study Groups tab is open,
   //     re-checking every PARTNER_POLL_MS so new groups and invites show up.
@@ -1012,10 +1059,18 @@ export default function SpacesChat({
   }, [activeTab, activeGroupId, showingChannel, courseId, loadGroupMembers, loadCourseMembers]);
 
   // Auto-scroll when a new message arrives or the channel changes
+  //    Always on a chat switch or first load; otherwise only if you're already near the
+  //    bottom, so reading older messages doesn't get interrupted.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: "smooth"
-    });
+    const box = messageListRef.current;
+    const switchedChat = lastScrolledTitleRef.current !== chatTitle;
+    const firstLoad = lastMessageCountRef.current === 0;
+    lastScrolledTitleRef.current = chatTitle;
+    lastMessageCountRef.current = visibleMessages.length;
+    const nearBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 200;
+    if (switchedChat || firstLoad || nearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [visibleMessages.length, chatTitle]);
 
    // 4. Send a message. Course channels, study groups and DMs are all saved to the
@@ -1039,10 +1094,11 @@ export default function SpacesChat({
       } else {
         await sendChannelMessage(channelId, content);
         setInputText("");
-        await loadMessages();
+        await loadMessages().catch(() => {});
       }
+      setSendError(null);
     } catch (err) {
-      setError(`Message not sent: ${err.message}`);
+      setSendError({ target: chatTitle, text: `Message not sent: ${err.message}` });
     } finally {
       setSending(false);
     }
@@ -1117,10 +1173,9 @@ export default function SpacesChat({
           first
         />
         {!collapsed.spaces && <>
-          {courses.length === 0 && status === "Connected to Backend" && <p style={{
-            fontSize: "0.85rem",
-            color: "#64748b"
-          }}>You aren't in any courses yet.</p>}
+          {courses.length === 0 && status === "Connected to Backend" && (
+            <p style={sidebarHintStyle}>You aren't in any courses yet.</p>
+          )}
 
           <ul style={sidebarListStyle}>
             {courses.map(c => {
@@ -1236,12 +1291,12 @@ export default function SpacesChat({
           )}
         </div>
 
-        {error && <div style={{
+        {visibleErrors.length > 0 && <div style={{
           padding: "0.5rem 1rem",
           background: "#fef2f2",
           color: "#b91c1c",
           fontSize: "0.8rem"
-        }}>{error}</div>}
+        }}>{visibleErrors.map(text => <div key={text}>{text}</div>)}</div>}
 
         <div style={{
           flex: 1,
@@ -1580,9 +1635,10 @@ export default function SpacesChat({
                       </button>
                       <button
                         onClick={() => handleRemoveFriend(f)}
+                        disabled={removingFriendId === f.id}
                         style={{ ...secondaryButtonStyle, color: "#dc2626" }}
                       >
-                        Remove
+                        {removingFriendId === f.id ? "Removing..." : "Remove"}
                       </button>
                     </div>
                   </div>

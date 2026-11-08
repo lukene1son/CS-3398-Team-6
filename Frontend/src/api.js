@@ -6,7 +6,6 @@
 // When a teammate finishes a route, flip that one flag to false. Nothing else changes.
 
 export const USE_MOCK = {
-  resources: true, // needs: GET/POST /api/courses/:id/resources
   settings: true,  // needs: GET/PUT  /api/users/:id/settings
   ai: false,       // live: POST     /api/ai/chat
 };
@@ -34,7 +33,9 @@ export function onSessionExpired(fn) {
   return () => sessionExpiredListeners.delete(fn);
 }
 
-async function request(path, options = {}) {
+// fetch() with the login token. Throws (with err.status) on any non-2xx response.
+// Use request() for JSON; use this directly for anything else (like file downloads).
+async function authFetch(path, options = {}) {
   const token = getToken();
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -48,8 +49,15 @@ async function request(path, options = {}) {
       sessionExpiredListeners.forEach((fn) => fn());
     }
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${res.status})`);
+    const error = new Error(body.error || `Request failed (${res.status})`);
+    error.status = res.status; // lets callers tell a 409 from a 429 without matching the message text
+    throw error;
   }
+  return res;
+}
+
+async function request(path, options = {}) {
+  const res = await authFetch(path, options);
   return res.json();
 }
 
@@ -87,11 +95,6 @@ export function getMe() {
 /* ---------- Courses & assignments (for the logged-in user) ---------- */
 export function getMyCourses() {
   return request("/api/me/courses");
-}
-
-// Kept so Resources.jsx keeps working; the userId argument is ignored now.
-export function getUserCourses() {
-  return getMyCourses();
 }
 
 export function getMyAssignments() {
@@ -283,34 +286,57 @@ export function getGroupMembers(groupId) {
   return request(`/api/study-groups/${groupId}/members`);
 }
 
-/* ---------- Resources ---------- */
-let mockResources = [
-  { id: 1, course_id: 1, title: "Course syllabus", url: "https://example.com/syllabus", type: "link" },
-  { id: 2, course_id: 1, title: "Sprint planning guide", url: "https://example.com/sprint", type: "link" },
-  { id: 3, course_id: 2, title: "Metabolism study sheet", url: "https://example.com/metabolism", type: "link" },
-];
-let nextMockId = 100;
-
-export async function getResources(courseId) {
-  if (USE_MOCK.resources) {
-    await delay();
-    return mockResources.filter((r) => r.course_id === courseId);
-  }
+/* ---------- Resources (teachers add/delete; everyone in the course can view) ---------- */
+export function getResources(courseId) {
   return request(`/api/courses/${courseId}/resources`);
 }
 
-export async function addResource(courseId, userId, { title, url, type = "link" }) {
-  if (USE_MOCK.resources) {
-    await delay();
-    const created = { id: nextMockId++, course_id: courseId, title, url, type };
-    mockResources = [...mockResources, created];
-    return created;
-  }
+export function addResourceLink(courseId, { title, url }) {
   return request(`/api/courses/${courseId}/resources`, {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ user_id: userId, title, url, type }),
+    body: JSON.stringify({ title, url }),
   });
+}
+
+// No Content-Type header here: the browser sets multipart/form-data (with its boundary) itself.
+export function uploadResourceFile(courseId, file, title) {
+  const form = new FormData();
+  if (title) form.append("title", title);
+  form.append("file", file);
+  return request(`/api/courses/${courseId}/resources/file`, { method: "POST", body: form });
+}
+
+export function deleteResource(resourceId) {
+  return request(`/api/resources/${resourceId}`, { method: "DELETE" });
+}
+
+// Downloads need the login token, which a plain <a href> can't send, so fetch the
+// file with it and hand the browser a temporary link to save it from.
+export async function downloadResourceFile(resource) {
+  const res = await authFetch(`/api/resources/${resource.id}/file`);
+  const blobUrl = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = resource.file_name || resource.title;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+export const VIEWABLE_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain"];
+
+// Shows a file in a tab the caller already opened. (The tab has to be opened by the
+// click itself, before any await, or the browser's pop-up blocker stops it.)
+export async function viewResourceFile(resource, tab) {
+  const res = await authFetch(`/api/resources/${resource.id}/file`);
+  // The server sends every file as a generic download; re-label it with its real
+  // type so the browser displays it instead of saving it.
+  const blob = new Blob([await res.blob()], { type: resource.mime_type });
+  const blobUrl = URL.createObjectURL(blob);
+  tab.location.href = blobUrl;
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60 * 1000);
 }
 
 /* ---------- Settings ---------- */

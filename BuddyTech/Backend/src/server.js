@@ -32,6 +32,7 @@ app.use("/api/ai", require("./routes/ai"));
 app.use("/api", require("./routes/friends"));
 app.use("/api", require("./routes/studyGroups"));
 app.use("/api", require("./routes/directMessages"));
+app.use("/api", require("./routes/resources"));
 
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {

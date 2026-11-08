@@ -46,7 +46,7 @@ const loginAccountLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req) => {
         const email = req.body && typeof req.body.email === "string"
-            ? req.body.email.trim().toLowerCase()
+            ? req.body.email.trim().toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
             : "";
         return email ? `email:${email}` : `ip:${ipKeyGenerator(req.ip)}`;
     },
