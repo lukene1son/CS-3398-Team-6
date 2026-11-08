@@ -23,6 +23,18 @@ const authIpLimiter = rateLimit({
     handler: tooMany("Too many requests. Please wait a few minutes and try again."),
 });
 
+// Per user: caps how many study group invites one account can send.
+// Failed attempts (already invited, not in the course, ...) don't count.
+const groupInviteLimiter = rateLimit({
+    windowMs: ONE_HOUR,
+    limit: 30,
+    skipFailedRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're sending study group invites too quickly. Please try again later."),
+});
+
 // Per email: 5 wrong passwords for one account locks sign-in for that account
 // for 15 minutes, even if the attacker switches IP addresses.
 // Successful logins don't count toward the limit.
@@ -103,4 +115,5 @@ module.exports = {
     friendRequestLimiter,
     friendRequestPairLimiter,
     userSearchLimiter,
+    groupInviteLimiter,
 };

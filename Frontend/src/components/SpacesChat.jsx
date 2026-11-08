@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
 import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners, 
-sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend } from "../api";
+sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend,
+getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
+joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
+getCourseMembers, getGroupMembers } from "../api";
 
 const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
 const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
@@ -9,6 +12,303 @@ const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent
 const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 
+const GROUP_CHANNELS = ["general", "homework", "meetups"];
+
+// Chat-tab sidebar styles, matching the existing course and channel rows.
+function sidebarItemStyle(active) {
+  return {
+    padding: "0.6rem 0.8rem",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "0.9rem",
+    fontWeight: active ? "600" : "400",
+    background: active ? "#e0e7ff" : "transparent",
+    color: active ? "#4338ca" : "#475569",
+  };
+}
+function sidebarChannelStyle(active) {
+  return {
+    padding: "0.4rem 0.8rem",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.85rem",
+    background: active ? "#c7d2fe" : "transparent",
+    color: active ? "#3730a3" : "#64748b",
+  };
+}
+
+const sidebarHeadingStyle = { fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
+const sidebarHintStyle = { fontSize: "0.8rem", color: "#94a3b8" };
+const sidebarListStyle = { listStyle: "none", padding: 0, margin: 0 };
+
+// First letter of the first and last name, e.g. "Maya Chen" -> "MC", "Maya" -> "M".
+function getInitials(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0];
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
+}
+
+// Dark enough for white initials to stay readable.
+const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#c2410c", "#15803d", "#0e7490"];
+
+// Placeholder profile picture: a colored circle with the person's initials.
+// The color comes from their user id, so each person always gets the same one.
+function Avatar({ name, userId, size = 28 }) {
+  const color = AVATAR_COLORS[Math.abs(Number(userId) || 0) % AVATAR_COLORS.length];
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: color,
+        color: "#fff",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: Math.round(size * 0.4),
+        fontWeight: "600",
+        flexShrink: 0,
+      }}
+    >
+      {getInitials(name)}
+    </span>
+  );
+}
+
+// Chat-sidebar heading that collapses/expands the section under it.
+// Shows how many items are hidden while collapsed.
+function SectionHeader({ title, count, collapsed, onToggle, first = false }) {
+  return (
+    <h3 style={{ ...sidebarHeadingStyle, ...(first ? { marginTop: 0 } : {}) }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.4rem",
+          width: "100%",
+          padding: 0,
+          background: "none",
+          border: "none",
+          font: "inherit",
+          color: "inherit",
+          textAlign: "left",
+          cursor: "pointer",
+        }}
+      >
+        <span aria-hidden="true" style={{ width: "0.8rem", fontSize: "0.8rem", color: "#64748b" }}>
+          {collapsed ? "▸" : "▾"}
+        </span>
+        <span style={{ flex: 1 }}>{title}</span>
+        {collapsed && count > 0 && (
+          <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "#475569", background: "#e2e8f0", borderRadius: "999px", padding: "0.05rem 0.5rem" }}>
+            {count}
+          </span>
+        )}
+      </button>
+    </h3>
+  );
+}
+
+const MEMBER_STRIP_MAX = 6; // pictures shown before the "…" button (the Chat header passes 15)
+const ROLE_LABELS = { teacher: "Teacher", ta: "TA" };
+
+// The row of profile pictures for a space or group (Chat header, Discover and invite cards).
+// Shows the first few people; the "…" button opens a list of everyone else.
+// If renderCard is given, clicking a person shows their options card:
+//   - a picture in the strip opens the card in a popover under the strip;
+//   - a name in the "…" list opens the card right under that name, and the list stays open.
+// Both close when you click anywhere outside the strip (or press Escape).
+function MemberStrip({ members, max = MEMBER_STRIP_MAX, renderCard }) {
+  const [listOpen, setListOpen] = useState(false);
+  // { id, from: "strip" | "list" } - whose card is open, and where it was opened from.
+  const [selected, setSelected] = useState(null);
+  const rootRef = useRef(null);
+
+  // Close the list and any open card on a click outside the strip, or on Escape.
+  const anythingOpen = listOpen || selected !== null;
+  useEffect(() => {
+    if (!anythingOpen) return;
+    function onPointerDown(e) {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setListOpen(false);
+        setSelected(null);
+      }
+    }
+    function onKeyDown(e) {
+      if (e.key === "Escape") {
+        setListOpen(false);
+        setSelected(null);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [anythingOpen]);
+
+  if (!members || members.length === 0) return null;
+
+  const shown = members.slice(0, max);
+  const hidden = members.slice(max);
+  const selectedMember = renderCard && selected ? members.find(m => m.id === selected.id) ?? null : null;
+  const labelFor = (m) => (ROLE_LABELS[m.role] ? `${m.name} (${ROLE_LABELS[m.role]})` : m.name);
+  const closeCard = () => setSelected(null);
+
+  // A picture in the strip: closes the "…" list and opens that person's card under the strip.
+  function selectFromStrip(id) {
+    setListOpen(false);
+    setSelected(prev => (prev?.id === id && prev.from === "strip" ? null : { id, from: "strip" }));
+  }
+
+  // A name in the "…" list: the list stays open and the card opens under that name.
+  function selectFromList(id) {
+    setSelected(prev => (prev?.id === id && prev.from === "list" ? null : { id, from: "list" }));
+  }
+
+  const popoverStyle = {
+    position: "absolute",
+    top: "calc(100% + 0.5rem)",
+    left: 0,
+    zIndex: 10,
+    background: "#fff",
+    border: "1px solid #e2e8f0",
+    borderRadius: "10px",
+    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+    fontWeight: "400",
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: "0.3rem" }}>
+      {shown.map((m, i) => {
+        const isSelected = selected?.id === m.id && selected.from === "strip";
+        const ring = {
+          display: "inline-flex",
+          marginLeft: i === 0 ? 0 : "-6px",
+          borderRadius: "50%",
+          boxShadow: isSelected ? "0 0 0 2px #2563eb" : "0 0 0 2px #fff",
+        };
+        const pic = <Avatar name={m.name} userId={m.id} size={28} />;
+        return renderCard ? (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => selectFromStrip(m.id)}
+            title={labelFor(m)}
+            aria-label={labelFor(m)}
+            aria-expanded={isSelected}
+            style={{ ...ring, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+          >
+            {pic}
+          </button>
+        ) : (
+          <span key={m.id} title={labelFor(m)} style={ring}>
+            {pic}
+          </span>
+        );
+      })}
+
+      {hidden.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setSelected(null);
+            setListOpen(o => !o);
+          }}
+          aria-expanded={listOpen}
+          aria-label={`Show ${hidden.length} more`}
+          title={`${hidden.length} more`}
+          style={{
+            marginLeft: "-6px",
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            border: "none",
+            boxShadow: "0 0 0 2px #fff",
+            background: listOpen ? "#c7d2fe" : "#e2e8f0",
+            color: "#475569",
+            fontSize: "0.85rem",
+            fontWeight: "700",
+            lineHeight: 1,
+            cursor: "pointer",
+          }}
+        >
+          …
+        </button>
+      )}
+
+      {listOpen && (
+        <div style={{ ...popoverStyle, width: "16rem", maxHeight: "22rem", overflowY: "auto", padding: "0.5rem" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: "600", color: "#64748b", padding: "0.25rem 0.4rem 0.5rem" }}>
+            {hidden.length} more
+          </div>
+          {hidden.map(m => {
+            const isSelected = selected?.id === m.id && selected.from === "list";
+            const rowStyle = { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.4rem", color: "#1e293b", fontSize: "0.9rem" };
+            const row = <>
+              <Avatar name={m.name} userId={m.id} size={24} />
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {m.name}
+              </span>
+              {ROLE_LABELS[m.role] && (
+                <span style={{ fontSize: "0.7rem", fontWeight: "600", color: "#4338ca", background: "#e0e7ff", borderRadius: "999px", padding: "0.05rem 0.45rem" }}>
+                  {ROLE_LABELS[m.role]}
+                </span>
+              )}
+            </>;
+            if (!renderCard) {
+              return (
+                <div key={m.id} style={rowStyle}>
+                  {row}
+                </div>
+              );
+            }
+            return (
+              <div key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => selectFromList(m.id)}
+                  aria-expanded={isSelected}
+                  style={{
+                    ...rowStyle,
+                    width: "100%",
+                    border: "none",
+                    borderRadius: "6px",
+                    background: isSelected ? "#eef2ff" : "none",
+                    font: "inherit",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  {row}
+                </button>
+                {isSelected && selectedMember && (
+                  <div style={{ margin: "0.25rem 0.25rem 0.5rem", padding: "0.75rem", border: "1px solid #e2e8f0", borderRadius: "8px", background: "#f8fafc" }}>
+                    {renderCard(selectedMember, closeCard)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedMember && selected.from === "strip" && (
+        <div style={{ ...popoverStyle, width: "16rem", padding: "0.75rem" }}>
+          {renderCard(selectedMember, closeCard)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatTime(createdAt) {
   if (!createdAt) return "";
@@ -47,7 +347,7 @@ export default function SpacesChat({
   const [status, setStatus] = useState("Connecting...");
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("chat");
-  const [partnerView, setPartnerView] = useState("suggested");
+  const [partnerView, setPartnerView] = useState("connections");
   const bottomRef = useRef(null);
   const [partnerSearch, setPartnerSearch] = useState("");
   const [partnerCourse, setPartnerCourse] = useState("all");
@@ -62,28 +362,62 @@ export default function SpacesChat({
   const [listsError, setListsError] = useState("");
   const [busyRequestId, setBusyRequestId] = useState(null); // disables buttons while a click is in flight
   const [groupView, setGroupView] = useState("discover");
-  const [joinedGroups, setJoinedGroups] = useState([]);
-  const [groupInvites, setGroupInvites] = useState(["calcStudy", "architectureReview"]);
+  const [groupInvites, setGroupInvites] = useState([]);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupCourse, setNewGroupCourse] = useState("CS 3398");
+  const [newGroupCourse, setNewGroupCourse] = useState("");
   const [newGroupTime, setNewGroupTime] = useState("");
-  const [createdGroups, setCreatedGroups] = useState([]);
   const [groupSearch, setGroupSearch] = useState("");
   const [groupCourse, setGroupCourse] = useState("all");
-  const [openGroup, setOpenGroup] = useState(null);
   const [groupChannel, setGroupChannel] = useState("general");
-  const [groupMessage, setGroupMessage] = useState("");
-  const [selectedConnection, setSelectedConnection] = useState(null);
-  const [directMessage, setDirectMessage] = useState("");
   const [directMessages, setDirectMessages] = useState({});
-
+  const [conversations, setConversations] = useState([]);
+  const [startedDmIds, setStartedDmIds] = useState([]);
   const [groupMessages, setGroupMessages] = useState({});
+  const [myGroups, setMyGroups] = useState([]);             // chatable: yours + ones you teach
+  const [discoverGroups, setDiscoverGroups] = useState([]); // every group in your courses
+  const [groupsError, setGroupsError] = useState("");
+  const [busyGroupId, setBusyGroupId] = useState(null);     // join/leave in flight
+  const [busyInviteId, setBusyInviteId] = useState(null);   // accept/decline in flight
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [groupInvite, setGroupInvite] = useState({ friendId: null, groupId: "" }); // whose picker is open + chosen group
+  const [connectionNotice, setConnectionNotice] = useState(null);                // { friendId, ok, text }
+  const [membersByCourse, setMembersByCourse] = useState({});
+  const [membersByGroup, setMembersByGroup] = useState({});
 
-  function openStudyGroup(group) {
-    setOpenGroup(group);
-    setGroupChannel("general");
-    setGroupMessage("");
+  // What the Chat tab is showing: a course channel, a study group, or a DM.
+  //   { type: "channel" } | { type: "group", id } | { type: "dm", id: friendUserId }
+  const [chatTarget, setChatTarget] = useState({ type: "channel" });
+
+    // Which Chat-tab sidebar sections are collapsed (all open by default).
+  const [collapsed, setCollapsed] = useState({ spaces: false, groups: false, dms: false });
+
+  function toggleSection(key) {
+    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  // Show a study group's chat in the Chat tab.
+  function openGroupChat(groupId) {
+    if (chatTarget.type !== "group" || chatTarget.id !== groupId) setGroupChannel("general");
+    setChatTarget({ type: "group", id: groupId });
+    setActiveTab("chat");
+  }
+
+  // "Message" on a connection: open the DM with them in the Chat tab. A chat you've
+  // never sent anything in shows in your sidebar right away, and is saved (and
+  // appears for them) when you send the first message.
+  function openDirectMessage(friend) {
+    setStartedDmIds(prev => (prev.includes(friend.id) ? prev : [...prev, friend.id]));
+    setChatTarget({ type: "dm", id: friend.id });
+    setActiveTab("chat");
+  }
+
+  // Course/channel clicks in the Chat sidebar.
+  function openChannel(courseId, channelId) {
+    setChatTarget({ type: "channel" });
+    setSelectedCourseId(courseId);
+    setSelectedChannelId(channelId);
   }
 
   const loadSuggested = useCallback(async () => {
@@ -113,6 +447,15 @@ export default function SpacesChat({
     setFriends(await getFriends());
   }, []);
 
+  const loadConversations = useCallback(async () => {
+    setConversations(await getConversations());
+  }, []);
+
+  const loadDirectMessages = useCallback(async (friendId) => {
+    const data = await getDirectMessages(friendId);
+    setDirectMessages(prev => ({ ...prev, [friendId]: data }));
+  }, []);
+
   const loadRequests = useCallback(async () => {
     const [incoming, outgoing] = await Promise.all([
       getFriendRequests("incoming"),
@@ -122,19 +465,237 @@ export default function SpacesChat({
     setOutgoingRequests(outgoing);
   }, []);
 
+  const loadMyGroups = useCallback(async () => {
+    setMyGroups(await getMyStudyGroups());
+  }, []);
+
+  const loadDiscoverGroups = useCallback(async () => {
+    setDiscoverGroups(await getDiscoverGroups());
+  }, []);
+
+  const loadGroupInvites = useCallback(async () => {
+    setGroupInvites(await getGroupInvites("incoming"));
+  }, []);
+
+  const loadGroupMessages = useCallback(async (groupId, channel) => {
+    const data = await getGroupMessages(groupId, channel);
+    setGroupMessages(prev => ({ ...prev, [groupId]: { ...prev[groupId], [channel]: data } }));
+  }, []);
+
+  const loadCourseMembers = useCallback(async (id) => {
+    const data = await getCourseMembers(id);
+    setMembersByCourse(prev => ({ ...prev, [id]: data }));
+  }, []);
+
+  const loadGroupMembers = useCallback(async (id) => {
+    const data = await getGroupMembers(id);
+    setMembersByGroup(prev => ({ ...prev, [id]: data }));
+  }, []);
+
+  // Join or leave a group from Discover, then refresh everything that shows it.
+  // (Joining also settles any pending invite to that group, so invites reload too.)
+  async function handleJoinToggle(group) {
+    setBusyGroupId(group.id);
+    try {
+      if (group.is_member) await leaveStudyGroup(group.id);
+      else await joinStudyGroup(group.id);
+      setGroupsError("");
+    } catch (err) {
+      setGroupsError(err.message);
+    } finally {
+      await Promise.all([loadDiscoverGroups(), loadMyGroups(), loadGroupInvites()]).catch(() => {});
+      setBusyGroupId(null);
+    }
+  }
+
+  async function handleCreateGroup() {
+    const name = newGroupName.trim();
+    const courseId = Number(newGroupCourse) || studentCourses[0]?.id;
+    if (!name || !courseId || creatingGroup) return;
+    setCreatingGroup(true);
+    try {
+      await createStudyGroup({ course_id: courseId, name, meeting_time: newGroupTime.trim() });
+      setShowCreateGroup(false);
+      setNewGroupName("");
+      setNewGroupTime("");
+      setGroupsError("");
+       await Promise.all([loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
+    } catch (err) {
+      setGroupsError(`Group not created: ${err.message}`);
+    } finally {
+      setCreatingGroup(false);
+    }
+  }
+
+  // Accept / decline an invite, then refresh invites, Discover and your groups.
+  async function handleInviteResponse(inviteId, action) {
+    setBusyInviteId(inviteId);
+    try {
+      await respondToGroupInvite(inviteId, action);
+      setGroupsError("");
+    } catch (err) {
+      setGroupsError(err.message);
+    } finally {
+      await Promise.all([loadGroupInvites(), loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
+      setBusyInviteId(null);
+    }
+  }
+
+  function toggleGroupInvite(friend) {
+    setConnectionNotice(null);
+    setGroupInvite(prev => (
+      prev.friendId === friend.id ? { friendId: null, groupId: "" } : { friendId: friend.id, groupId: "" }
+    ));
+  }
+
+  // Send the invite chosen in a Connections card's picker.
+  async function handleConnectionInvite(e, friend) {
+    e.preventDefault();
+    const groupId = Number(groupInvite.groupId);
+    if (!groupId || inviting) return;
+    const group = myGroups.find(g => g.id === groupId);
+    setInviting(true);
+    try {
+      await inviteToGroup(groupId, friend.id);
+      setConnectionNotice({ friendId: friend.id, ok: true, text: `Invited ${friend.name} to ${group?.name ?? "the group"}.` });
+      setGroupInvite({ friendId: null, groupId: "" });
+    } catch (err) {
+      setConnectionNotice({ friendId: friend.id, ok: false, text: `Invite not sent: ${err.message}` });
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  // The card that opens when you click someone's picture in the Chat header.
+  // It offers the same options as the Connections tab, based on where you stand:
+  // connected -> Message / Invite to group; not connected -> Request / Requested / Accept.
+  function renderMemberCard(member, close) {
+    const isMe = member.id === userId;
+    const friend = friends.find(f => f.id === member.id);
+    const sent = outgoingRequests.find(r => r.other_user_id === member.id);
+    const received = incomingRequests.find(r => r.other_user_id === member.id);
+    const sending = connectStatus[member.id] === "sending";
+    const pickerOpen = Boolean(friend) && groupInvite.friendId === member.id;
+    const notice = connectionNotice?.friendId === member.id ? connectionNotice : null;
+    const smallButton = { padding: "0.45rem 0.8rem" };
+
+    return <>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: isMe ? 0 : "0.75rem" }}>
+        <Avatar name={member.name} userId={member.id} size={36} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: "600", color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {member.name}
+          </div>
+          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+            {isMe ? "This is you" : ROLE_LABELS[member.role] ?? "Student"}
+          </div>
+        </div>
+      </div>
+
+      {!isMe && friend && (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button
+            onClick={() => {
+              close();
+              openDirectMessage(friend);
+            }}
+            style={{ ...primaryButtonStyle, ...smallButton }}
+          >
+            Message
+          </button>
+          <button onClick={() => toggleGroupInvite(friend)} style={{ ...secondaryButtonStyle, ...smallButton }}>
+            {pickerOpen ? "Close" : "Invite to group"}
+          </button>
+        </div>
+      )}
+
+      {pickerOpen && (
+        <form
+          onSubmit={(e) => handleConnectionInvite(e, friend)}
+          style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.6rem" }}
+        >
+          {myGroups.length === 0 ? (
+            <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+              You're not in any study groups yet.
+            </span>
+          ) : (
+            <>
+              <select
+                value={groupInvite.groupId}
+                onChange={(e) => setGroupInvite(prev => ({ ...prev, groupId: e.target.value }))}
+                style={{ padding: "0.45rem 0.6rem", border: "1px solid #cbd5e1", borderRadius: "8px", background: "#fff", color: "#475569" }}
+              >
+                <option value="">Choose a study group...</option>
+                {myGroups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name} ({g.course_code})</option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                disabled={!groupInvite.groupId || inviting}
+                style={{ ...primaryButtonStyle, ...smallButton }}
+              >
+                {inviting ? "Sending..." : "Send invite"}
+              </button>
+            </>
+          )}
+        </form>
+      )}
+
+      {!isMe && !friend && (
+        received ? (
+          <button
+            onClick={() => handleRequestAction(received.id, "accept")}
+            disabled={busyRequestId === received.id}
+            style={{ ...primaryButtonStyle, ...smallButton }}
+          >
+            Accept request
+          </button>
+        ) : sent ? (
+          <button disabled style={{ ...secondaryButtonStyle, ...smallButton, cursor: "default" }}>
+            Requested ✓
+          </button>
+        ) : (
+          <button
+            onClick={() => handleConnect(member.id)}
+            disabled={sending}
+            style={{ ...primaryButtonStyle, ...smallButton }}
+          >
+            {sending ? "Sending..." : "Request"}
+          </button>
+        )
+      )}
+
+      {notice && (
+        <div style={{
+          marginTop: "0.6rem",
+          padding: "0.45rem 0.6rem",
+          borderRadius: "6px",
+          fontSize: "0.8rem",
+          background: notice.ok ? "#f0fdf4" : "#fef2f2",
+          color: notice.ok ? "#166534" : "#b91c1c"
+        }}>
+          {notice.text}
+        </div>
+      )}
+    </>;
+  }
+
   // Accept / decline a request sent to you, or cancel one you sent, then refresh
-  // the Find view (requests + suggestions).
+  // requests, suggestions and connections (an accept makes them a connection).
+  // Show errors on the tab the request is on: Connections (requests for you) or Find Study Partners (sent).
   async function handleRequestAction(requestId, action) {
+    const showError = partnerView === "connections" ? setListsError : setPartnersError;
     setBusyRequestId(requestId);
     try {
       if (action === "cancel") await cancelFriendRequest(requestId);
       else await respondToFriendRequest(requestId, action);
-      setPartnersError("");
+      showError("");
     } catch (err) {
-      setPartnersError(err.message);
+      showError(err.message);
     } finally {
       // Reload either way: on a 404 (they cancelled first) the stale row disappears.
-      await Promise.all([loadSuggested(), loadRequests()]).catch(() => {});
+      await Promise.all([loadSuggested(), loadRequests(), loadFriends()]).catch(() => {});
       setBusyRequestId(null);
     }
   }
@@ -143,7 +704,6 @@ export default function SpacesChat({
     if (!window.confirm(`Remove ${friend.name} from your connections?`)) return;
     try {
       await removeFriend(friend.id);
-      if (selectedConnection === friend.name) setSelectedConnection(null);
       await loadFriends();
       setListsError("");
     } catch (err) {
@@ -152,7 +712,6 @@ export default function SpacesChat({
   }
 
   function changeGroupView(view) {
-    setOpenGroup(null);
     setGroupView(view);
   }
 
@@ -162,6 +721,44 @@ export default function SpacesChat({
   const channels = course ? channelsByCourse[course.id] ?? [] : [];
   const channel = channels.find(c => c.id === selectedChannelId) ?? channels[0];
   const messages = channel ? messagesByChannel[channel.id] ?? [] : [];
+  const studentCourses = courses.filter(c => c.role === "student");
+
+  // DMs in the sidebar: saved conversations (newest first, including ones the other
+  // person started), then ones you've opened but haven't sent anything in yet.
+  // Only current connections are listed.
+  const dmFriends = [
+    ...conversations.map(c => friends.find(f => f.id === c.id)).filter(Boolean),
+    ...friends.filter(f => startedDmIds.includes(f.id) && !conversations.some(c => c.id === f.id)),
+  ];
+
+  // If the chosen group/DM no longer exists (left the group, removed the friend),
+  // these come out null and the Chat tab falls back to the course channel.
+  const activeGroup = chatTarget.type === "group" ? myGroups.find(g => g.id === chatTarget.id) ?? null : null;
+  const activeGroupId = activeGroup?.id;
+  const activeFriend = chatTarget.type === "dm" ? friends.find(f => f.id === chatTarget.id) ?? null : null;
+  const activeFriendId = activeFriend?.id;
+  const showingChannel = !activeGroup && !activeFriend;
+
+  const chatTitle =
+    activeGroup ? `${activeGroup.name} › #${groupChannel}` :
+    activeFriend ? activeFriend.name :
+    channel ? `${course.course_code} › #${channel.name}` :
+    "Select a space";
+  const chatPlaceholder =
+    activeGroup ? `Message #${groupChannel}...` :
+    activeFriend ? `Message ${activeFriend.name}...` :
+    channel ? `Message #${channel.name}...` :
+    "Select a channel";
+  const visibleMessages =
+    activeGroup ? groupMessages[activeGroup.id]?.[groupChannel] ?? [] :
+    activeFriend ? directMessages[activeFriend.id] ?? [] :
+    messages;
+  const canSend = Boolean(activeGroup || activeFriend || channel);
+
+  const headerMembers =
+    activeGroup ? membersByGroup[activeGroup.id] ?? [] :
+    showingChannel && course ? membersByCourse[course.id] ?? [] :
+    [];
 
   // 1. Load the user's courses ("spaces")
   useEffect(() => {
@@ -251,15 +848,17 @@ export default function SpacesChat({
     };
   }, [userId, activeTab, partnerView, loadSuggested, loadRequests]);
 
-  // 5. Load friends when the Connections view is opened, and re-check every
-  //    PARTNER_POLL_MS so a newly accepted friend shows up for both people
+  // 5. Load friends and friend requests for the Connections view (incoming requests are listed
+  //    there), the Chat tab's Direct Messages and the header member cards, re-checking every PARTNER_POLL_MS.
   useEffect(() => {
-    if (!userId || activeTab !== "partners" || partnerView !== "connections") return;
+    const wantsFriends = activeTab === "chat" || (activeTab === "partners" && partnerView === "connections");
+    if (!userId || !wantsFriends) return;
     let cancelled = false;
     async function refresh(showSpinner) {
       if (showSpinner) setListsLoading(true);
       try {
-        await loadFriends();
+        // On the Chat tab, requests are needed too: the header member cards show Request / Requested.
+        await Promise.all([loadFriends(), loadRequests()]);
         if (!cancelled) setListsError("");
       } catch (err) {
         if (!cancelled) setListsError(err.message);
@@ -273,7 +872,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [userId, activeTab, partnerView, loadFriends]);
+  }, [userId, activeTab, partnerView, loadFriends, loadRequests]);
 
 
   // Load on channel change + poll so messages from other users appear
@@ -284,23 +883,164 @@ export default function SpacesChat({
     return () => clearInterval(timer);
   }, [channelId, loadMessages]);
 
+  // 6. Load your DM conversations while the Chat tab is open, re-checking every
+  //    PARTNER_POLL_MS so a chat someone starts with you shows up in your sidebar.
+   useEffect(() => {
+    if (!userId || activeTab !== "chat") return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await loadConversations();
+      } catch (err) {
+        if (!cancelled) setError(`Couldn't load direct messages: ${err.message}`);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, PARTNER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [userId, activeTab, loadConversations]);
+
+  // 7. Load the open DM from the database and poll it like a course channel,
+  //    so the other person's replies appear.
+  useEffect(() => {
+    if (!activeFriendId) return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await loadDirectMessages(activeFriendId);
+      } catch (err) {
+        if (!cancelled) setError(`Couldn't load messages: ${err.message}`);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeFriendId, loadDirectMessages]);
+  
+  // 8. Load the groups whose chat you can open (yours + ones you teach) for the
+  //    Chat tab's sidebar, re-checking every PARTNER_POLL_MS.
+  useEffect(() => {
+    const wantsGroups = activeTab === "chat" || (activeTab === "partners" && partnerView === "connections");
+    if (!userId || !wantsGroups) return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await loadMyGroups();
+      } catch (err) {
+        if (!cancelled) setError(`Couldn't load study groups: ${err.message}`);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, PARTNER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [userId, activeTab, partnerView, loadMyGroups]);
+
+  // 9. Load the open group channel from the database and poll it like a course
+  //    channel, so other members' messages appear.
+  useEffect(() => {
+    if (!activeGroupId) return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await loadGroupMessages(activeGroupId, groupChannel);
+      } catch (err) {
+        if (!cancelled) setError(`Couldn't load messages: ${err.message}`);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeGroupId, groupChannel, loadGroupMessages]);
+
+  // 10. Load Discover and your invites while the Study Groups tab is open,
+  //     re-checking every PARTNER_POLL_MS so new groups and invites show up.
+  useEffect(() => {
+    if (!userId || activeTab !== "groups") return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await Promise.all([loadDiscoverGroups(), loadGroupInvites()]);
+        if (!cancelled) setGroupsError("");
+      } catch (err) {
+        if (!cancelled) setGroupsError(err.message);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, PARTNER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [userId, activeTab, loadDiscoverGroups, loadGroupInvites]);
+
+  // 11. Load the people in the open space or group for the Chat header, and
+  //     re-check every PARTNER_POLL_MS so people joining or leaving show up.
+  useEffect(() => {
+    if (activeTab !== "chat") return;
+    const load =
+      activeGroupId ? () => loadGroupMembers(activeGroupId) :
+      showingChannel && courseId ? () => loadCourseMembers(courseId) :
+      null;
+    if (!load) return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await load();
+      } catch (err) {
+        // The strip is extra info, so don't cover the chat with an error banner.
+        if (!cancelled) console.error("Couldn't load members:", err);
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, PARTNER_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeTab, activeGroupId, showingChannel, courseId, loadGroupMembers, loadCourseMembers]);
+
   // Auto-scroll when a new message arrives or the channel changes
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
       behavior: "smooth"
     });
-  }, [messages.length, channelId]);
+  }, [visibleMessages.length, chatTitle]);
 
-  // 4. Send a message to the backend, then re-fetch so what you see == the DB
+   // 4. Send a message. Course channels, study groups and DMs are all saved to the
+  //    backend, then re-fetched so what you see == the DB.
   async function handleSendMessage(e) {
     e.preventDefault();
     const content = inputText.trim();
-    if (!content || !channelId || sending) return;
+    if (!content || sending || !canSend) return;
+
     setSending(true);
     try {
-      await sendChannelMessage(channelId, content);
-      setInputText("");
-      await loadMessages();
+      if (activeGroup) {
+        await sendGroupMessage(activeGroup.id, groupChannel, content);
+        setInputText("");
+        // A failed reload isn't a failed send; the poll will catch up.
+        await loadGroupMessages(activeGroup.id, groupChannel).catch(() => {});
+      } else if (activeFriend) {
+        await sendDirectMessage(activeFriend.id, content);
+        setInputText("");
+        await Promise.all([loadDirectMessages(activeFriend.id), loadConversations()]).catch(() => {});
+      } else {
+        await sendChannelMessage(channelId, content);
+        setInputText("");
+        await loadMessages();
+      }
     } catch (err) {
       setError(`Message not sent: ${err.message}`);
     } finally {
@@ -369,67 +1109,95 @@ export default function SpacesChat({
         padding: "1rem",
         overflowY: "auto"
       }}>
-        <h3 style={{
-          fontSize: "1rem",
-          fontWeight: "700",
-          color: "#1e293b",
-          marginBottom: "0.5rem"
-        }}>Study Spaces</h3>
-        <p style={{
-          fontSize: "0.75rem",
-          color: "#64748b",
-          marginBottom: "1rem"
-        }}>Status: {status}</p>
+        <SectionHeader
+          title="Study Spaces"
+          count={courses.length}
+          collapsed={collapsed.spaces}
+          onToggle={() => toggleSection("spaces")}
+          first
+        />
+        {!collapsed.spaces && <>
+          {courses.length === 0 && status === "Connected to Backend" && <p style={{
+            fontSize: "0.85rem",
+            color: "#64748b"
+          }}>You aren't in any courses yet.</p>}
 
-        {courses.length === 0 && status === "Connected to Backend" && <p style={{
-          fontSize: "0.85rem",
-          color: "#64748b"
-        }}>You aren't in any courses yet.</p>}
-
-        <ul style={{
-          listStyle: "none",
-          padding: 0,
-          margin: 0
-        }}>
-          {courses.map(c => {
-            const isOpen = course?.id === c.id;
-            return <li key={c.id} style={{
-              marginBottom: "0.4rem"
-            }}>
-              <div onClick={() => {
-                setSelectedCourseId(c.id);
-                setSelectedChannelId(null); // default to first channel of that course
-              }} style={{
-                padding: "0.6rem 0.8rem",
-                borderRadius: "8px",
-                cursor: "pointer",
-                fontSize: "0.9rem",
-                fontWeight: isOpen ? "600" : "400",
-                background: isOpen ? "#e0e7ff" : "transparent",
-                color: isOpen ? "#4338ca" : "#475569"
+          <ul style={sidebarListStyle}>
+            {courses.map(c => {
+              const isOpen = course?.id === c.id;
+              return <li key={c.id} style={{
+                marginBottom: "0.4rem"
               }}>
-                {c.course_code} {c.course_name}
-              </div>
+                <div onClick={() => openChannel(c.id, null)} style={sidebarItemStyle(isOpen && showingChannel)}>
+                  {c.course_code} {c.course_name}
+                </div>
 
-              {isOpen && <ul style={{
-                listStyle: "none",
-                padding: "0.3rem 0 0 0.8rem",
-                margin: 0
-              }}>
-                {channels.map(ch => <li key={ch.id} onClick={() => setSelectedChannelId(ch.id)} style={{
-                  padding: "0.4rem 0.8rem",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontSize: "0.85rem",
-                  background: channel?.id === ch.id ? "#c7d2fe" : "transparent",
-                  color: channel?.id === ch.id ? "#3730a3" : "#64748b"
+                {isOpen && <ul style={{
+                  listStyle: "none",
+                  padding: "0.3rem 0 0 0.8rem",
+                  margin: 0
                 }}>
-                        # {ch.name}
-                </li>)}
-              </ul>}
-            </li>;
-          })}
-        </ul>
+                  {channels.map(ch => <li key={ch.id} onClick={() => openChannel(c.id, ch.id)} style={sidebarChannelStyle(showingChannel && channel?.id === ch.id)}>
+                    # {ch.name}
+                  </li>)}
+                </ul>}
+              </li>;
+            })}
+          </ul>
+        </>}
+
+        {/* Study groups you belong to, each with its channels */}
+        <SectionHeader
+          title="Study Groups"
+          count={myGroups.length}
+          collapsed={collapsed.groups}
+          onToggle={() => toggleSection("groups")}
+        />
+        {!collapsed.groups && <>
+          {myGroups.length === 0 && <p style={sidebarHintStyle}>Join a group from the Study Groups tab.</p>}
+          <ul style={sidebarListStyle}>
+            {myGroups.map(g => {
+              const isOpen = activeGroup?.id === g.id;
+              return <li key={g.id} style={{ marginBottom: "0.4rem" }}>
+                <div onClick={() => openGroupChat(g.id)} style={sidebarItemStyle(isOpen)}>
+                  {g.name}
+                  {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
+                </div>
+
+                {isOpen && <ul style={{ listStyle: "none", padding: "0.3rem 0 0 0.8rem", margin: 0 }}>
+                  {GROUP_CHANNELS.map(name => <li key={name} onClick={() => setGroupChannel(name)} style={sidebarChannelStyle(groupChannel === name)}>
+                    # {name}
+                  </li>)}
+                </ul>}
+              </li>;
+            })}
+          </ul>
+        </>}
+
+        {/* DMs you've started with your connections */}
+        <SectionHeader
+          title="Direct Messages"
+          count={dmFriends.length}
+          collapsed={collapsed.dms}
+          onToggle={() => toggleSection("dms")}
+        />
+        {!collapsed.dms && <>
+          {dmFriends.length === 0 && <p style={sidebarHintStyle}>Click "Message" on a connection to start a chat.</p>}
+          <ul style={sidebarListStyle}>
+            {dmFriends.map(f => <li key={f.id} onClick={() => openDirectMessage(f)} style={{
+              ...sidebarItemStyle(activeFriend?.id === f.id),
+              marginBottom: "0.4rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem"
+            }}>
+              <Avatar name={f.name} userId={f.id} size={24} />
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {f.name}
+              </span>
+            </li>)}
+          </ul>
+        </>}
       </div>
 
       {/* Main chat area */}
@@ -443,9 +1211,29 @@ export default function SpacesChat({
           padding: "1rem",
           borderBottom: "1px solid #e2e8f0",
           fontWeight: "600",
-          color: "#0f172a"
+          color: "#0f172a",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "0.75rem",
+          flexWrap: "wrap"
         }}>
-          {channel ? `${course.course_code} › #${channel.name}` : "Select a space"}
+          {activeFriend ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
+              <Avatar name={activeFriend.name} userId={activeFriend.id} size={32} />
+              {chatTitle}
+            </span>
+          ) : (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", minWidth: 0 }}>
+              <span>
+                {chatTitle}
+                {activeGroup?.access === "staff" && (
+                  <span style={{ fontWeight: "400", color: "#64748b", fontSize: "0.85rem" }}> · Teaching</span>
+                )}
+              </span>
+              <MemberStrip key={chatTitle} members={headerMembers} max={15} renderCard={renderMemberCard} />
+            </span>
+          )}
         </div>
 
         {error && <div style={{
@@ -463,32 +1251,41 @@ export default function SpacesChat({
           flexDirection: "column",
           gap: "0.75rem"
         }}>
-          {channel && messages.length === 0 && <p style={{
-            color: "#94a3b8",
-            fontSize: "0.9rem"
-          }}>No messages yet. Say hi!</p>}
-          {messages.map(msg => {
+           {canSend && visibleMessages.length === 0 && <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+            {activeFriend ? `This is the beginning of your conversation with ${activeFriend.name}.` : "No messages yet. Say hi!"}
+          </p>}
+          {visibleMessages.map(msg => {
             const mine = msg.user_id === userId;
+            const senderName = mine ? user?.name : msg.user_name ?? activeFriend?.name;
             return <div key={msg.id} style={{
+              display: "flex",
+              alignItems: "flex-end",
+              gap: "0.5rem",
+              flexDirection: mine ? "row-reverse" : "row",
               alignSelf: mine ? "flex-end" : "flex-start",
-              maxWidth: "70%",
-                        overflowWrap: "anywhere",
-              background: mine ? "#2563eb" : "#f1f5f9",
-              color: mine ? "#ffffff" : "#0f172a",
-              padding: "0.6rem 0.9rem",
-              borderRadius: "10px"
+              maxWidth: "70%"
             }}>
+              <Avatar name={senderName} userId={msg.user_id} />
               <div style={{
-                fontSize: "0.75rem",
-                opacity: 0.8,
-                marginBottom: "0.2rem"
+                minWidth: 0,
+                overflowWrap: "anywhere",
+                background: mine ? "#2563eb" : "#f1f5f9",
+                color: mine ? "#ffffff" : "#0f172a",
+                padding: "0.6rem 0.9rem",
+                borderRadius: "10px"
               }}>
-                {mine ? "You" : msg.user_name} • {formatTime(msg.created_at)}
+                <div style={{
+                  fontSize: "0.75rem",
+                  opacity: 0.8,
+                  marginBottom: "0.2rem"
+                }}>
+                  {mine ? "You" : senderName} • {formatTime(msg.created_at)}
+                </div>
+                <div style={{
+                  fontSize: "0.95rem",
+                  overflowWrap: "anywhere"
+                }}>{msg.content}</div>
               </div>
-              <div style={{
-                fontSize: "0.95rem",
-                overflowWrap: "anywhere"
-              }}>{msg.content}</div>
             </div>;
           })}
           <div ref={bottomRef} />
@@ -500,14 +1297,14 @@ export default function SpacesChat({
           borderTop: "1px solid #e2e8f0",
           gap: "0.5rem"
         }}>
-          <input type="text" placeholder={channel ? `Message #${channel.name}...` : "Select a channel"} value={inputText} onChange={e => setInputText(e.target.value)} disabled={!channel} style={{
+          <input type="text" placeholder={chatPlaceholder} value={inputText} onChange={e => setInputText(e.target.value)} disabled={!canSend} style={{
             flex: 1,
             padding: "0.7rem 1rem",
             border: "1px solid #cbd5e1",
             borderRadius: "8px",
             outline: "none"
           }} />
-          <button type="submit" disabled={!channel || sending} style={{
+          <button type="submit" disabled={!canSend || sending} style={{
             padding: "0.7rem 1.2rem",
             background: sending ? "#93c5fd" : "#2563eb",
             color: "#fff",
@@ -551,18 +1348,6 @@ export default function SpacesChat({
           flexDirection: "column",
           gap: "0.4rem"
         }}>
-          <button onClick={() => setPartnerView("suggested")} style={{
-            textAlign: "left",
-            padding: "0.6rem 0.8rem",
-            border: "none",
-            borderRadius: "8px",
-            background: partnerView === "suggested" ? "#e0e7ff" : "transparent",
-            color: partnerView === "suggested" ? "#4338ca" : "#64748b",
-            fontWeight: partnerView === "suggested" ? "600" : "400",
-            cursor: "pointer"
-          }}>
-            Find Study Partners
-          </button>
 
           <button onClick={() => setPartnerView("connections")} style={{
             textAlign: "left",
@@ -576,6 +1361,20 @@ export default function SpacesChat({
           }}>
             My Connections
           </button>
+
+          <button onClick={() => setPartnerView("suggested")} style={{
+            textAlign: "left",
+            padding: "0.6rem 0.8rem",
+            border: "none",
+            borderRadius: "8px",
+            background: partnerView === "suggested" ? "#e0e7ff" : "transparent",
+            color: partnerView === "suggested" ? "#4338ca" : "#64748b",
+            fontWeight: partnerView === "suggested" ? "600" : "400",
+            cursor: "pointer"
+          }}>
+            Find Study Partners
+          </button>
+
         </div>
       </div>
 
@@ -607,55 +1406,21 @@ export default function SpacesChat({
 }}>{partnersError}</p>
           )}
 
-          {incomingRequests.length > 0 && (
-            <div style={{ marginBottom: "1.5rem" }}>
-              <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
-                Requests for you
-              </h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {incomingRequests.map(r => (
-                  <div key={r.id} style={partnerCardStyle}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Sent {new Date(r.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <button
-                        onClick={() => handleRequestAction(r.id, "accept")}
-                        disabled={busyRequestId === r.id}
-                        style={primaryButtonStyle}
-                      >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => handleRequestAction(r.id, "decline")}
-                        disabled={busyRequestId === r.id}
-                        style={secondaryButtonStyle}
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {outgoingRequests.length > 0 && (
             <div style={{ marginBottom: "1.5rem" }}>
               <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
-                Requests you sent
+                Study Partner Requests
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 {outgoingRequests.map(r => (
                   <div key={r.id} style={partnerCardStyle}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Requested {new Date(r.created_at).toLocaleDateString()}
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+                      <Avatar name={r.other_user_name} userId={r.other_user_id} size={36} />
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
+                        <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                          Requested {new Date(r.created_at).toLocaleDateString()}
+                        </div>
                       </div>
                     </div>
 
@@ -738,10 +1503,13 @@ export default function SpacesChat({
                 const sending = connectStatus[p.id] === "sending";
                 return (
                   <div key={p.id} style={partnerCardStyle}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>{p.name}</strong>
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        {p.shared_courses.join(" • ")}
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+                      <Avatar name={p.name} userId={p.id} size={36} />
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ color: "#1e293b" }}>{p.name}</strong>
+                        <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
+                          {p.shared_courses.join(" • ")}
+                        </div>
                       </div>
                     </div>
 
@@ -773,91 +1541,6 @@ export default function SpacesChat({
               Students you've connected with for studying.
             </p>
 
-            {selectedConnection && (
-              <div style={{ marginBottom: "1.5rem", border: "1px solid #e2e8f0", borderRadius: "10px", overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", borderBottom: "1px solid #e2e8f0", background: "#f8fafc" }}>
-                  <strong style={{ color: "#1e293b" }}>
-                    {selectedConnection}
-                  </strong>
-
-                  <button
-                    onClick={() => setSelectedConnection(null)}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      color: "#64748b",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Close
-                  </button>
-                </div>
-
-                <div style={{ minHeight: "220px", padding: "1rem" }}>
-                  <p style={{ color: "#94a3b8", fontSize: "0.85rem" }}>
-                    This is the beginning of your conversation with {selectedConnection}.
-                  </p>
-
-                  {(directMessages[selectedConnection] || []).map((msg) => (
-                    <div
-                      key={msg.id}
-                      style={{
-                        marginTop: "0.75rem",
-                        marginLeft: "auto",
-                        maxWidth: "70%",
-                        overflowWrap: "anywhere",
-                        padding: "0.6rem 0.9rem",
-                        background: "#2563eb",
-                        color: "#fff",
-                        borderRadius: "10px",
-                      }}
-                    >
-                      {msg.content}
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: "flex", gap: "0.5rem", padding: "1rem", borderTop: "1px solid #e2e8f0" }}>
-                  <input
-                    type="text"
-                    value={directMessage}
-                    onChange={(e) => setDirectMessage(e.target.value)}
-                    placeholder={`Message ${selectedConnection}...`}
-                    style={{
-                      flex: 1,
-                      padding: "0.7rem 1rem",
-                      border: "1px solid #cbd5e1",
-                      borderRadius: "8px",
-                      outline: "none",
-                    }}
-                  />
-
-                  <button
-                    onClick={() => {
-                      const message = directMessage.trim();
-                      if (!message) return;
-
-                      setDirectMessages((prev) => ({
-                        ...prev,
-                        [selectedConnection]: [
-                          ...(prev[selectedConnection] || []),
-                          {
-                            id: Date.now(),
-                            content: message,
-                          },
-                        ],
-                      }));
-
-                      setDirectMessage("");
-                    }}
-                    style={{ ...primaryButtonStyle, padding: "0.7rem 1.2rem" }}
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
-            )}
-
             {listsLoading && (
               <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>Loading connections...</p>
             )}
@@ -868,38 +1551,131 @@ export default function SpacesChat({
 
             {!listsLoading && !listsError && friends.length === 0 && (
               <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                No connections yet. Send a request from Suggested to get started.
+                No connections yet. Send a request from "Find Study Partners" to get started.
               </p>
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
               {friends.map(f => (
-                <div key={f.id} style={partnerCardStyle}>
-                  <div>
-                    <strong style={{ color: "#1e293b" }}>{f.name}</strong>
-                    {f.friends_since && (
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Connected since {new Date(f.friends_since).toLocaleDateString()}
+                <div key={f.id} style={{ border: "1px solid #e2e8f0", borderRadius: "10px" }}>
+                  <div style={{ ...partnerCardStyle, border: "none" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+                      <Avatar name={f.name} userId={f.id} size={36} />
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ color: "#1e293b" }}>{f.name}</strong>
+                        {f.friends_since && (
+                          <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                            Connected since {new Date(f.friends_since).toLocaleDateString()}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button onClick={() => openDirectMessage(f)} style={secondaryButtonStyle}>
+                        Message
+                      </button>
+                      <button onClick={() => toggleGroupInvite(f)} style={secondaryButtonStyle}>
+                        {groupInvite.friendId === f.id ? "Close" : "Invite to group"}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveFriend(f)}
+                        style={{ ...secondaryButtonStyle, color: "#dc2626" }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button onClick={() => setSelectedConnection(f.name)} style={secondaryButtonStyle}>
-                      Message
-                    </button>
-                    <button
-                      onClick={() => handleRemoveFriend(f)}
-                      style={{ ...secondaryButtonStyle, color: "#dc2626" }}
+                  {groupInvite.friendId === f.id && (
+                    <form
+                      onSubmit={(e) => handleConnectionInvite(e, f)}
+                      style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", padding: "0 1rem 1rem" }}
                     >
-                      Remove
-                    </button>
-                  </div>
+                      {myGroups.length === 0 ? (
+                        <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+                          You're not in any study groups yet. Join or create one in the Study Groups tab.
+                        </span>
+                      ) : (
+                        <>
+                          <select
+                            value={groupInvite.groupId}
+                            onChange={(e) => setGroupInvite(prev => ({ ...prev, groupId: e.target.value }))}
+                            style={{ flex: 1, minWidth: "12rem", padding: "0.5rem 0.75rem", border: "1px solid #cbd5e1", borderRadius: "8px", background: "#fff", color: "#475569" }}
+                          >
+                            <option value="">Choose a study group...</option>
+                            {myGroups.map(g => (
+                              <option key={g.id} value={g.id}>{g.name} ({g.course_code})</option>
+                            ))}
+                          </select>
+                          <button
+                            type="submit"
+                            disabled={!groupInvite.groupId || inviting}
+                            style={{ ...primaryButtonStyle, padding: "0.5rem 0.9rem" }}
+                          >
+                            {inviting ? "Sending..." : "Send invite"}
+                          </button>
+                        </>
+                      )}
+                    </form>
+                  )}
+
+                  {connectionNotice?.friendId === f.id && (
+                    <div style={{
+                      margin: "0 1rem 1rem",
+                      padding: "0.5rem 0.75rem",
+                      borderRadius: "6px",
+                      fontSize: "0.8rem",
+                      background: connectionNotice.ok ? "#f0fdf4" : "#fef2f2",
+                      color: connectionNotice.ok ? "#166534" : "#b91c1c"
+                    }}>
+                      {connectionNotice.text}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
+          {incomingRequests.length > 0 && (
+              <div style={{ marginTop: "2rem" }}>
+                <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
+                  Study Partner Invites
+                </h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {incomingRequests.map(r => (
+                    <div key={r.id} style={partnerCardStyle}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+                        <Avatar name={r.other_user_name} userId={r.other_user_id} size={36} />
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
+                          <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                            Sent {new Date(r.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button
+                          onClick={() => handleRequestAction(r.id, "accept")}
+                          disabled={busyRequestId === r.id}
+                          style={primaryButtonStyle}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => handleRequestAction(r.id, "decline")}
+                          disabled={busyRequestId === r.id}
+                          style={secondaryButtonStyle}
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        )}  
+        )}
       </div>
     </div>}
 
@@ -930,22 +1706,6 @@ export default function SpacesChat({
             </button>
 
             <button
-              onClick={() => changeGroupView("myGroups")}
-              style={{
-                textAlign: "left",
-                padding: "0.6rem 0.8rem",
-                border: "none",
-                borderRadius: "8px",
-                background: groupView === "myGroups" ? "#e0e7ff" : "transparent",
-                color: groupView === "myGroups" ? "#4338ca" : "#64748b",
-                fontWeight: groupView === "myGroups" ? "600" : "400",
-                cursor: "pointer",
-              }}
-            >
-              My Groups
-            </button>
-
-            <button
               onClick={() => changeGroupView("invites")}
               style={{
                 textAlign: "left",
@@ -965,165 +1725,10 @@ export default function SpacesChat({
 
         {/* Study Groups Main Area */}
         <div style={{ flex: 1, minWidth: 0, padding: "1.5rem", overflowY: "auto" }}>
-          {openGroup && (
-            <div style={{ display: "flex", height: "100%", minHeight: "320px" }}>
-              <div style={{ width: "220px", flexShrink: 0, overflowY: "auto", borderRight: "1px solid #e2e8f0", background: "#f8fafc", padding: "1rem" }}>
-                <button
-                  onClick={() => setOpenGroup(null)}
-                  style={{
-                    marginBottom: "1rem",
-                    border: "none",
-                    background: "transparent",
-                    color: "#2563eb",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                  }}
-                >
-                  ← Back to Groups
-                </button>
-
-                <h3 style={{ color: "#1e293b", marginBottom: "0.5rem" }}>
-                  {openGroup.name}
-                </h3>
-
-                <p style={{ fontSize: "0.8rem", color: "#64748b", marginBottom: "1rem" }}>
-                  {openGroup.course}
-                </p>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                  <div
-                    onClick={() => setGroupChannel("general")}
-                    style={{
-                      padding: "0.5rem 0.7rem",
-                      borderRadius: "6px",
-                      background: groupChannel === "general" ? "#e0e7ff" : "transparent",
-                      color: groupChannel === "general" ? "#4338ca" : "#64748b",
-                      fontWeight: groupChannel === "general" ? "600" : "400",
-                      cursor: "pointer",
-                    }}
-                  >
-                    # general
-                  </div>
-
-                  <div
-                    onClick={() => setGroupChannel("homework")}
-                    style={{
-                      padding: "0.5rem 0.7rem",
-                      borderRadius: "6px",
-                      background: groupChannel === "homework" ? "#e0e7ff" : "transparent",
-                      color: groupChannel === "homework" ? "#4338ca" : "#64748b",
-                      fontWeight: groupChannel === "homework" ? "600" : "400",
-                      cursor: "pointer",
-                    }}
-                  >
-                    # homework
-                  </div>
-
-                  <div
-                    onClick={() => setGroupChannel("meetups")}
-                    style={{
-                      padding: "0.5rem 0.7rem",
-                      borderRadius: "6px",
-                      background: groupChannel === "meetups" ? "#e0e7ff" : "transparent",
-                      color: groupChannel === "meetups" ? "#4338ca" : "#64748b",
-                      fontWeight: groupChannel === "meetups" ? "600" : "400",
-                      cursor: "pointer",
-                    }}
-                  >
-                    # meetups
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                <div style={{ padding: "1rem", borderBottom: "1px solid #e2e8f0", fontWeight: "600", color: "#1e293b" }}>
-                  # {groupChannel}
-                </div>
-
-                <div style={{ flex: 1, minHeight: 0, padding: "1rem", overflowY: "auto" }}>
-                  <p style={{ color: "#64748b" }}>
-                    Welcome to {openGroup.name}.
-                  </p>
-
-                  {(groupMessages[openGroup.id]?.[groupChannel] || []).map((msg) => (
-                    <div
-                      key={msg.id}
-                      style={{
-                        marginTop: "0.75rem",
-                        padding: "0.6rem 0.9rem",
-                        background: "#2563eb",
-                        color: "#fff",
-                        borderRadius: "10px",
-                        maxWidth: "70%",
-                        overflowWrap: "anywhere",
-                        marginLeft: "auto",
-                      }}
-                    >
-                      <div style={{ fontSize: "0.75rem", opacity: 0.8, marginBottom: "0.2rem" }}>
-                        You
-                      </div>
-
-                      <div style={{ fontSize: "0.95rem" }}>
-                        {msg.content}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: "flex", gap: "0.5rem", padding: "1rem", borderTop: "1px solid #e2e8f0" }}>
-                  <input
-                    type="text"
-                    placeholder={`Message #${groupChannel}...`}
-                    value={groupMessage}
-                    onChange={(e) => setGroupMessage(e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: "0.7rem 1rem",
-                      border: "1px solid #cbd5e1",
-                      borderRadius: "8px",
-                      outline: "none",
-                    }}
-                  />
-
-                  <button
-                    onClick={() => {
-                      const message = groupMessage.trim();
-                      if (!message) return;
-
-                      setGroupMessages((prev) => ({
-                        ...prev,
-                        [openGroup.id]: {
-                          ...prev[openGroup.id],
-                          [groupChannel]: [
-                            ...(prev[openGroup.id]?.[groupChannel] || []),
-                            {
-                              id: Date.now(),
-                              content: message,
-                            },
-                          ],
-                        },
-                      }));
-
-                      setGroupMessage("");
-                    }}
-                    style={{
-                      padding: "0.7rem 1.2rem",
-                      background: "#2563eb",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: "8px",
-                      fontWeight: "600",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
-            </div>
+          {groupsError && (
+            <p style={{ color: "#dc2626", fontSize: "0.9rem", marginBottom: "1rem" }}>{groupsError}</p>
           )}
-
-          {!openGroup && groupView === "discover" && (
+          {groupView === "discover" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
                 <div>
@@ -1136,20 +1741,22 @@ export default function SpacesChat({
                   </p>
                 </div>
 
-                <button
-                  onClick={() => setShowCreateGroup(true)}
-                  style={{
-                    padding: "0.7rem 1rem",
-                    background: "#2563eb",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "8px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  + Create Group
-                </button>
+                {studentCourses.length > 0 && (
+                  <button
+                    onClick={() => setShowCreateGroup(true)}
+                    style={{
+                      padding: "0.7rem 1rem",
+                      background: "#2563eb",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                    }}
+                  >
+                    + Create Group
+                  </button>
+                )}
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.5rem" }}>
@@ -1180,8 +1787,9 @@ export default function SpacesChat({
                   }}
                 >
                   <option value="all">All Courses</option>
-                  <option value="CS 3398">CS 3398</option>
-                  <option value="CS 3360">CS 3360</option>
+                  {courses.map(c => (
+                    <option key={c.id} value={c.course_code}>{c.course_code}</option>
+                  ))}
                 </select>
               </div>
 
@@ -1214,7 +1822,7 @@ export default function SpacesChat({
                     />
 
                     <select
-                      value={newGroupCourse}
+                      value={newGroupCourse || studentCourses[0]?.id || ""}
                       onChange={(e) => setNewGroupCourse(e.target.value)}
                       style={{
                         padding: "0.7rem 1rem",
@@ -1224,9 +1832,9 @@ export default function SpacesChat({
                         color: "#475569",
                       }}
                     >
-                      <option value="CS 3398">CS 3398</option>
-                      <option value="CS 3360">CS 3360</option>
-                      <option value="EE 2120">EE 2120</option>
+                      {studentCourses.map(c => (
+                        <option key={c.id} value={c.id}>{c.course_code} {c.course_name}</option>
+                      ))}
                     </select>
 
                     <input
@@ -1244,22 +1852,8 @@ export default function SpacesChat({
 
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                       <button
-                        onClick={() => {
-                          if (!newGroupName.trim()) return;
-
-                          const newGroup = {
-                            id: Date.now(),
-                            name: newGroupName.trim(),
-                            course: newGroupCourse,
-                            time: newGroupTime.trim() || "Meeting time not set",
-                          };
-
-                          setCreatedGroups((prev) => [...prev, newGroup]);
-
-                          setShowCreateGroup(false);
-                          setNewGroupName("");
-                          setNewGroupTime("");
-                        }}
+                        onClick={handleCreateGroup}
+                        disabled={creatingGroup || !newGroupName.trim()}
                         style={{
                           padding: "0.6rem 1rem",
                           background: "#2563eb",
@@ -1270,7 +1864,7 @@ export default function SpacesChat({
                           cursor: "pointer",
                         }}
                       >
-                        Create
+                        {creatingGroup ? "Creating..." : "Create"}
                       </button>
 
                       <button
@@ -1292,413 +1886,63 @@ export default function SpacesChat({
                 </div>
               )}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {discoverGroups.length === 0 && (
+                  <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+                    No study groups in your courses yet. Create the first one!
+                  </p>
+                )}
 
-                <div style={{ display:
-                  "cs 3398 exam prep".includes(groupSearch.toLowerCase()) &&
-                  (groupCourse === "all" || groupCourse === "CS 3398")
-                    ? "flex"
-                    : "none", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                  <div>
-                    <strong style={{ color: "#1e293b" }}>
-                      CS 3398 Exam Prep
-                    </strong>
+                {discoverGroups
+                  .filter(g =>
+                    g.name.toLowerCase().includes(groupSearch.toLowerCase()) &&
+                    (groupCourse === "all" || g.course_code === groupCourse)
+                  )
+                  .map(g => (
+                    <div key={g.id} style={partnerCardStyle}>
+                      <div>
+                        <strong style={{ color: "#1e293b" }}>
+                          {g.name}
+                        </strong>
 
-                    <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                      CS 3398 • 5 members
+                        <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
+                          {g.course_code} • {g.member_count} {g.member_count === 1 ? "member" : "members"}
+                        </div>
+
+                        <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                          {g.meeting_time || "Meeting time not set"}
+                        </div>
+                        {g.members?.length > 0 && (
+                          <div style={{ marginTop: "0.5rem" }}>
+                            <MemberStrip members={g.members} />
+                          </div>
+                        )}
+                      </div>
+
+                      {g.my_role === "student" ? (
+                        <button
+                          onClick={() => handleJoinToggle(g)}
+                          disabled={busyGroupId === g.id}
+                          style={{
+                            ...primaryButtonStyle,
+                            background: g.is_member ? "#e2e8f0" : "#2563eb",
+                            color: g.is_member ? "#475569" : "#fff",
+                          }}
+                        >
+                          {g.is_member ? "Joined ✓" : "Join"}
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#64748b" }}>
+                          Teaching
+                        </span>
+                      )}
                     </div>
-
-                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                      Wednesday at 6:00 PM
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      setJoinedGroups((prev) =>
-                        prev.includes("examPrep")
-                          ? prev.filter((id) => id !== "examPrep")
-                          : [...prev, "examPrep"]
-                      )
-                    }
-                    style={{
-                      padding: "0.6rem 1rem",
-                      background: joinedGroups.includes("examPrep") ? "#e2e8f0" : "#2563eb",
-                      color: joinedGroups.includes("examPrep") ? "#475569" : "#fff",
-                      border: "none",
-                      borderRadius: "8px",
-                      fontWeight: "600",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {joinedGroups.includes("examPrep") ? "Joined ✓" : "Join"}
-                  </button>
-                </div>
-
-                <div style={{ display:
-                  "software engineering project group".includes(groupSearch.toLowerCase()) &&
-                  (groupCourse === "all" || groupCourse === "CS 3398")
-                    ? "flex"
-                    : "none", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                  <div>
-                    <strong style={{ color: "#1e293b" }}>
-                      Software Engineering Project Group
-                    </strong>
-
-                    <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                      CS 3398 • 4 members
-                    </div>
-
-                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                      Thursday at 4:00 PM
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      setJoinedGroups((prev) =>
-                        prev.includes("projectGroup")
-                          ? prev.filter((id) => id !== "projectGroup")
-                          : [...prev, "projectGroup"]
-                      )
-                    }
-                    style={{
-                      padding: "0.6rem 1rem",
-                      background: joinedGroups.includes("projectGroup") ? "#e2e8f0" : "#2563eb",
-                      color: joinedGroups.includes("projectGroup") ? "#475569" : "#fff",
-                      border: "none",
-                      borderRadius: "8px",
-                      fontWeight: "600",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {joinedGroups.includes("projectGroup") ? "Joined ✓" : "Join"}
-                  </button>
-                </div>
-
-                <div style={{ display:
-                  "homework help".includes(groupSearch.toLowerCase()) &&
-                  (groupCourse === "all" || groupCourse === "CS 3360")
-                    ? "flex"
-                    : "none", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                  <div>
-                    <strong style={{ color: "#1e293b" }}>
-                      Homework Help
-                    </strong>
-
-                    <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                      CS 3360 • 7 members
-                    </div>
-
-                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                      Monday at 7:30 PM
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() =>
-                      setJoinedGroups((prev) =>
-                        prev.includes("homeworkHelp")
-                          ? prev.filter((id) => id !== "homeworkHelp")
-                          : [...prev, "homeworkHelp"]
-                      )
-                    }
-                    style={{
-                      padding: "0.6rem 1rem",
-                      background: joinedGroups.includes("homeworkHelp") ? "#e2e8f0" : "#2563eb",
-                      color: joinedGroups.includes("homeworkHelp") ? "#475569" : "#fff",
-                      border: "none",
-                      borderRadius: "8px",
-                      fontWeight: "600",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {joinedGroups.includes("homeworkHelp") ? "Joined ✓" : "Join"}
-                  </button>
-                </div>
-
-              </div>
+                  ))}
+              </div> 
             </>
           )}
 
-          {!openGroup && groupView === "myGroups" && (
-            <div>
-              <h2 style={{ color: "#1e293b", marginBottom: "0.3rem" }}>
-                My Groups
-              </h2>
-
-              <p style={{ color: "#64748b", marginBottom: "1rem" }}>
-                Study groups you've joined.
-              </p>
-
-              {joinedGroups.length === 0 && createdGroups.length === 0 && (
-                <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                  You haven't joined any study groups yet.
-                </p>
-              )}
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {joinedGroups.includes("examPrep") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        CS 3398 Exam Prep
-                      </strong>
-
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        CS 3398 • 5 members
-                      </div>
-
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Wednesday at 6:00 PM
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        openStudyGroup({
-                          id: "examPrep",
-                          name: "CS 3398 Exam Prep",
-                          course: "CS 3398",
-                        })
-                      }
-                      style={{
-                        padding: "0.6rem 1rem",
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Group
-                    </button>
-                  </div>
-                )}
-
-                {joinedGroups.includes("projectGroup") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        Software Engineering Project Group
-                      </strong>
-
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        CS 3398 • 4 members
-                      </div>
-
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Thursday at 4:00 PM
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        openStudyGroup({
-                          id: "projectGroup",
-                          name: "Software Engineering Project Group",
-                          course: "CS 3398",
-                        })
-                      }
-                      style={{
-                        padding: "0.6rem 1rem",
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Group
-                    </button>
-                  </div>
-                )}
-
-                {joinedGroups.includes("homeworkHelp") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        Homework Help
-                      </strong>
-
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        CS 3360 • 7 members
-                      </div>
-
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Monday at 7:30 PM
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        openStudyGroup({
-                          id: "homeworkHelp",
-                          name: "Homework Help",
-                          course: "CS 3360",
-                        })
-                      }
-                      style={{
-                        padding: "0.6rem 1rem",
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Group
-                    </button>
-                  </div>
-                )}
-
-                {joinedGroups.includes("calcStudy") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        Calculus Study Session
-                      </strong>
-
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        MATH 2472 • 6 members
-                      </div>
-
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Joined from invite
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        openStudyGroup({
-                          id: "calcStudy",
-                          name: "Calculus Study Session",
-                          course: "MATH 2472",
-                        })
-                      }
-                      style={{
-                        padding: "0.6rem 1rem",
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Group
-                    </button>
-                  </div>
-                )}
-
-                {joinedGroups.includes("architectureReview") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        Computer Architecture Review
-                      </strong>
-
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        CS 3339 • 4 members
-                      </div>
-
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Joined from invite
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        openStudyGroup({
-                          id: "architectureReview",
-                          name: "Computer Architecture Review",
-                          course: "CS 3339",
-                        })
-                      }
-                      style={{
-                        padding: "0.6rem 1rem",
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Group
-                    </button>
-                  </div>
-                )}
-
-                {createdGroups.map((group) => (
-                  <div
-                    key={group.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "1rem",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "10px",
-                    }}
-                  >
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        {group.name}
-                      </strong>
-
-                      <div
-                        style={{
-                          fontSize: "0.85rem",
-                          color: "#64748b",
-                          marginTop: "0.3rem",
-                        }}
-                      >
-                        {group.course} • Created by you
-                      </div>
-
-                      <div
-                        style={{
-                          fontSize: "0.8rem",
-                          color: "#94a3b8",
-                          marginTop: "0.2rem",
-                        }}
-                      >
-                        {group.time}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        openStudyGroup({
-                          id: group.id,
-                          name: group.name,
-                          course: group.course,
-                        })
-                        
-                      }
-                      style={{
-                        padding: "0.6rem 1rem",
-                        background: "#f1f5f9",
-                        color: "#475569",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Open Group
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!openGroup && groupView === "invites" && (
+          {groupView === "invites" && (
             <div>
               <h2 style={{ color: "#1e293b", marginBottom: "0.3rem" }}>
                 Invites
@@ -1715,127 +1959,46 @@ export default function SpacesChat({
               )}
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {groupInvites.includes("calcStudy") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
+                {groupInvites.map(inv => (
+                  <div key={inv.id} style={partnerCardStyle}>
                     <div>
                       <strong style={{ color: "#1e293b" }}>
-                        Calculus Study Session
+                        {inv.group_name}
                       </strong>
 
                       <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        MATH 2472 • 6 members
+                        {inv.course_code} • {inv.member_count} {inv.member_count === 1 ? "member" : "members"}
                       </div>
 
                       <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Invited by Maya Chen
+                        Invited by {inv.inviter_name}
                       </div>
+                      {inv.members?.length > 0 && (
+                        <div style={{ marginTop: "0.5rem" }}>
+                          <MemberStrip members={inv.members} />
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                       <button
-                        onClick={() => {
-                          setGroupInvites((prev) => prev.filter((id) => id !== "calcStudy"));
-                          setJoinedGroups((prev) =>
-                            prev.includes("calcStudy") ? prev : [...prev, "calcStudy"]
-                          );
-                        }}
-                        style={{
-                          padding: "0.6rem 1rem",
-                          background: "#2563eb",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: "8px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                        }}
+                        onClick={() => handleInviteResponse(inv.id, "accept")}
+                        disabled={busyInviteId === inv.id}
+                        style={primaryButtonStyle}
                       >
                         Accept
                       </button>
 
                       <button
-                        onClick={() =>
-                          setGroupInvites((prev) =>
-                            prev.filter((id) => id !== "calcStudy")
-                          )
-                        }
-                        style={{
-                          padding: "0.6rem 1rem",
-                          background: "#f1f5f9",
-                          color: "#475569",
-                          border: "1px solid #cbd5e1",
-                          borderRadius: "8px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                        }}
+                        onClick={() => handleInviteResponse(inv.id, "decline")}
+                        disabled={busyInviteId === inv.id}
+                        style={secondaryButtonStyle}
                       >
                         Decline
                       </button>
                     </div>
                   </div>
-                )}
-
-                {groupInvites.includes("architectureReview") && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" }}>
-                    <div>
-                      <strong style={{ color: "#1e293b" }}>
-                        Computer Architecture Review
-                      </strong>
-
-                      <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
-                        CS 3339 • 4 members
-                      </div>
-
-                      <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
-                        Invited by David Olajide
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <button
-                        onClick={() => {
-                          setGroupInvites((prev) =>
-                            prev.filter((id) => id !== "architectureReview")
-                          );
-                          setJoinedGroups((prev) =>
-                            prev.includes("architectureReview")
-                              ? prev
-                              : [...prev, "architectureReview"]
-                          );
-                        }}
-                        style={{
-                          padding: "0.6rem 1rem",
-                          background: "#2563eb",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: "8px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Accept
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          setGroupInvites((prev) =>
-                            prev.filter((id) => id !== "architectureReview")
-                          )
-                        }
-                        style={{
-                          padding: "0.6rem 1rem",
-                          background: "#f1f5f9",
-                          color: "#475569",
-                          border: "1px solid #cbd5e1",
-                          borderRadius: "8px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
           )}

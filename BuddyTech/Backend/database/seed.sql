@@ -1,19 +1,40 @@
 USE buddytech;
 
+-- Every seeded account uses the demo password "password123".
 INSERT INTO users (name, email, password_hash) VALUES
 ('Demo Student', 'student@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
 ('Study Partner', 'partner@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
-('Demo Teacher', 'teacher@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.');
+('Demo Teacher', 'teacher@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner1', 'partner1@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner2', 'partner2@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner3', 'partner3@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner4', 'partner4@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner5', 'partner5@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner6', 'partner6@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Study Partner7', 'partner7@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
+('Demo Teacher2', 'teacher2@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.');
 
 INSERT INTO courses (course_code, course_name, professor, university) VALUES
 ('CS 3398', 'Software Engineering', 'Rui Wang', 'Texas State University'),
 ('BIO 1330', 'Functional Biology', 'Joel Bergh', 'Texas State University');
 
+ -- Users: 1 Demo Student, 2 Study Partner, 3 Demo Teacher, 4-10 Study Partner1-7, 11 Demo Teacher2.
+-- Courses: 1 CS 3398, 2 BIO 1330.
 INSERT INTO course_members (user_id, course_id, role) VALUES
 (1, 1, 'student'),
 (1, 2, 'student'),
 (2, 1, 'student'),
-(3, 1, 'teacher');
+(3, 1, 'teacher'),
+(4, 1, 'student'),
+(5, 1, 'student'),
+(6, 1, 'student'),
+(7, 1, 'student'),
+(7, 2, 'student'),
+(8, 1, 'student'),
+(8, 2, 'student'),
+(9, 2, 'student'),
+(10, 2, 'student'),
+(11, 2, 'teacher');
 
 INSERT INTO channels (course_id, name) VALUES
 (1, 'general'),
@@ -33,3 +54,55 @@ INSERT INTO assignments (course_id, title, description, due_date) VALUES
 -- Demo Student has finished the Sprint Demo; Study Partner (same course) hasn't.
 INSERT INTO assignment_progress (user_id, assignment_id, status) VALUES
 (1, 1, 'done');
+
+-- Connections, so the Connections tab and the Find Study Partners requests have data:
+--   Demo Student <-> Study Partner and Study Partner2 (connected),
+--   Study Partner <-> Study Partner2 (connected),
+--   Study Partner3 -> Demo Student (incoming request), Demo Student -> Study Partner4 (sent request).
+INSERT INTO friend_requests (sender_id, receiver_id, status, responded_at) VALUES
+(2, 1, 'accepted', CURRENT_TIMESTAMP),
+(1, 5, 'accepted', CURRENT_TIMESTAMP),
+(5, 2, 'accepted', CURRENT_TIMESTAMP),
+(6, 1, 'pending', NULL),
+(1, 7, 'pending', NULL);
+
+-- Groups: 1-3 in CS 3398, 4-5 in BIO 1330.
+INSERT INTO study_groups (course_id, name, meeting_time, created_by) VALUES
+(1, 'CS 3398 Exam Prep', 'Wednesday at 6:00 PM', 1),
+(1, 'Software Engineering Project Group', NULL, 2),
+(1, 'Sprint Retro Crew', 'Friday at 3:00 PM', 4),
+(2, 'BIO 1330 Lab Partners', 'Tuesday at 5:30 PM', 7),
+(2, 'Metabolism Review', 'Sunday at 2:00 PM', 9);
+
+-- Exam Prep = Demo Student, Study Partner and Study Partner2.
+INSERT INTO study_group_members (group_id, user_id) VALUES
+(1, 1),
+(1, 2),
+(1, 5),
+(2, 2),
+(2, 4),
+(2, 6),
+(3, 4),
+(3, 5),
+(3, 8),
+(4, 7),
+(4, 9),
+(4, 10),
+(5, 8),
+(5, 9);
+
+-- Two invites waiting for Demo Student under Study Groups -> Invites.
+INSERT INTO study_group_invites (group_id, inviter_id, invitee_id) VALUES
+(2, 2, 1),
+(5, 9, 1);
+
+INSERT INTO study_group_messages (group_id, channel, user_id, content) VALUES
+(1, 'general', 1, 'Who wants to go over the exam topics Wednesday?'),
+(1, 'general', 2, 'I''m in, bring your notes!'),
+(1, 'general', 5, 'Count me in too.'),
+(1, 'homework', 5, 'Is problem 3 asking for a sequence diagram or a class diagram?'),
+(4, 'general', 7, 'Lab report draft is due Friday, anyone want to compare?');
+
+INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES
+(2, 1, 'Hey, are you going to the Exam Prep session?'),
+(1, 2, 'Yep, see you Wednesday!');

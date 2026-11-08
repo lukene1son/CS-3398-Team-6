@@ -30,6 +30,8 @@ app.use("/api", requireAuth);
 app.use("/api/ai", require("./routes/ai"));
 
 app.use("/api", require("./routes/friends"));
+app.use("/api", require("./routes/studyGroups"));
+app.use("/api", require("./routes/directMessages"));
 
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {
@@ -149,6 +151,31 @@ app.get("/api/courses/:id/channels", async (req, res) => {
         res.status(500).json({
             error: "Failed to fetch channels"
         });
+    }
+});
+
+// GET /api/courses/:id/members
+// Everyone in a course, for the Chat header's member strip. Only people in the
+// course can see who else is in it. Names and roles only, never emails.
+app.get("/api/courses/:id/members", async (req, res) => {
+    try {
+        if (!(await isCourseMember(req.user.id, req.params.id))) {
+            return res.status(403).json({ error: "You are not in this course" });
+        }
+        const [rows] = await pool.query(
+            `
+            SELECT users.id, users.name, course_members.role
+            FROM course_members
+            JOIN users ON users.id = course_members.user_id
+            WHERE course_members.course_id = ?
+            ORDER BY FIELD(course_members.role, 'teacher', 'ta', 'student'), users.name ASC
+            `,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching course members:", error);
+        res.status(500).json({ error: "Failed to fetch course members" });
     }
 });
 
