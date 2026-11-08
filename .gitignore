@@ -5,6 +5,3 @@ node_modules/
 *.crt
 *.csv
 npm-debug.log
-.claude/
-
-CLAUDE.md
