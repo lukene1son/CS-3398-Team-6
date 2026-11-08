@@ -6,6 +6,7 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 const ONE_HOUR = 60 * 60 * 1000;
+const ONE_DAY = 24 * 60 * 60 * 1000;
 
 function tooMany(message) {
     return (req, res, next, options) => {
@@ -20,6 +21,18 @@ const authIpLimiter = rateLimit({
     standardHeaders: "draft-8",
     legacyHeaders: false,
     handler: tooMany("Too many requests. Please wait a few minutes and try again."),
+});
+
+// Per user: caps how many study group invites one account can send.
+// Failed attempts (already invited, not in the course, ...) don't count.
+const groupInviteLimiter = rateLimit({
+    windowMs: ONE_HOUR,
+    limit: 30,
+    skipFailedRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're sending study group invites too quickly. Please try again later."),
 });
 
 // Per email: 5 wrong passwords for one account locks sign-in for that account
@@ -49,4 +62,58 @@ const registerLimiter = rateLimit({
     handler: tooMany("Too many accounts created from this network. Please try again later."),
 });
 
-module.exports = { authIpLimiter, loginAccountLimiter, registerLimiter };
+// These run after requireAuth, so we key by the logged-in user instead of IP.
+// (Falls back to IP only if req.user is somehow missing.)
+function userKey(req) {
+    return req.user && req.user.id
+        ? `user:${req.user.id}`
+        : `ip:${ipKeyGenerator(req.ip)}`;
+}
+
+// Per user: caps how many friend requests one account can send overall.
+const friendRequestLimiter = rateLimit({
+    windowMs: ONE_HOUR,
+    limit: 20,
+    skipFailedRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're sending friend requests too quickly. Please try again later."),
+});
+
+// Per sender + receiver pair: stops one user from re-sending a request to the
+// same person over and over (e.g. right after it's declined).
+const friendRequestPairLimiter = rateLimit({
+    windowMs: ONE_DAY,
+    limit: 3,
+    skipFailedRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        // Same rules as toId() in friends.js, so "5", 5, "05" and 5.0 all count as user 5.
+        const raw = Number((req.body || {}).receiver_id);
+        const receiverId = Number.isInteger(raw) && raw > 0 ? raw : "invalid";
+        return `${userKey(req)}:to:${receiverId}`;
+    },
+    handler: tooMany("You've already sent this person several requests today. Please try again tomorrow."),
+});
+
+//Per User: limits how fast one account can search other users.
+const userSearchLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("Too many searches. Please wait a moment and try again."),
+});
+
+module.exports = {
+    authIpLimiter,
+    loginAccountLimiter,
+    registerLimiter,
+    friendRequestLimiter,
+    friendRequestPairLimiter,
+    userSearchLimiter,
+    groupInviteLimiter,
+};

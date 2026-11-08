@@ -1,6 +1,11 @@
-import { Users, GraduationCap, Laptop, Sparkles } from 'lucide-react';
+import { Users, GraduationCap, Laptop, Sparkles, MessageSquare, Calendar } from 'lucide-react';
+import './Landing.css';
 
-export default function Home() {
+export default function Home({ onGetStarted, isLoggedIn }) {
+  const scrollToFeatures = () => {
+    document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
     <main>
       <section className="hero">
@@ -15,8 +20,10 @@ export default function Home() {
           Find peer mentors, collaborate on technical coursework, and master your software skills together.
         </p>
         <div className="hero-actions">
-          <button className="btn-primary">Find a Tech Buddy</button>
-          <button className="btn-outline">Explore Projects</button>
+          <button className="btn-primary" onClick={onGetStarted}>
+            {isLoggedIn ? 'Go to Dashboard' : 'Find a Tech Buddy'}
+          </button>
+          <button className="btn-outline" onClick={scrollToFeatures}>Explore Features</button>
         </div>
       </section>
 
@@ -57,6 +64,44 @@ export default function Home() {
             </p>
           </div>
         </div>
+      </section>
+
+      <section className="how-section" id="about">
+        <div className="features-header">
+          <h2>How BuddyTech Works</h2>
+          <p style={{ color: '#64748b' }}>Three steps from "I'm stuck" to "I've got this."</p>
+        </div>
+
+        <div className="steps-grid">
+          <div className="step-card">
+            <div className="step-icon"><Users size={22} /></div>
+            <span className="step-number">Step 1</span>
+            <h3>Join your course spaces</h3>
+            <p>Every course has its own space with channels for homework help, exam prep, and general chat.</p>
+          </div>
+
+          <div className="step-card">
+            <div className="step-icon"><MessageSquare size={22} /></div>
+            <span className="step-number">Step 2</span>
+            <h3>Chat and stay organized</h3>
+            <p>Talk with classmates in real time and track assignments in your planner.</p>
+          </div>
+
+          <div className="step-card">
+            <div className="step-icon"><Calendar size={22} /></div>
+            <span className="step-number">Step 3</span>
+            <h3>Study smarter with AI</h3>
+            <p>Summarize notes, generate practice questions, and get concepts explained on demand.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="cta-banner" id="community">
+        <h2>Ready to find your study buddy?</h2>
+        <p>Join your classmates on BuddyTech and make your next assignment a team effort.</p>
+        <button className="cta-button" onClick={onGetStarted}>
+          {isLoggedIn ? 'Go to Dashboard' : 'Get Started'}
+        </button>
       </section>
     </main>
   );
