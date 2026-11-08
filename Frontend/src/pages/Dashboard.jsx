@@ -379,18 +379,33 @@ export default function Dashboard({ user, onLogout }) {
                       {course.course_name}
                     </p>
 
-                    <span
-                      style={{
-                        fontSize: '0.75rem',
-                        background: '#dbeafe',
-                        color: '#1e40af',
-                        padding: '3px 8px',
-                        borderRadius: '12px',
-                        fontWeight: 600
-                      }}
-                    >
-                      Enrolled
-                    </span>
+                    {course.role === 'teacher' || course.role === 'ta' ? (
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          background: '#ede9fe',
+                          color: '#5b21b6',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontWeight: 600
+                        }}
+                      >
+                        Administrator
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          background: '#dbeafe',
+                          color: '#1e40af',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontWeight: 600
+                        }}
+                      >
+                        Enrolled
+                      </span>
+                    )}
                   </div>
                 ))}
 

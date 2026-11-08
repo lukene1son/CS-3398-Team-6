@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS direct_messages;
 DROP TABLE IF EXISTS course_resources;
 
 
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE users (
@@ -105,6 +106,7 @@ CREATE TABLE study_groups (
     course_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     meeting_time VARCHAR(100) NULL,
+    visibility ENUM('public', 'private') NOT NULL DEFAULT 'public',
     created_by INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,

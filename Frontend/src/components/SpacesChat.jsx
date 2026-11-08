@@ -11,6 +11,7 @@ const POLL_MS = 3000; // how often we re-fetch messages so other users' chats sh
 const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" };
 const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
+const privateBadgeStyle = { marginLeft: "0.4rem", fontSize: "0.75rem", fontWeight: "500", color: "#64748b" };
 
 const GROUP_CHANNELS = ["general", "homework", "meetups"];
 
@@ -373,6 +374,9 @@ export default function SpacesChat({
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupCourse, setNewGroupCourse] = useState("");
   const [newGroupTime, setNewGroupTime] = useState("");
+  const [newGroupVisibility, setNewGroupVisibility] = useState("public");
+  const [groupsNotice, setGroupsNotice] = useState("");  // e.g. "Private group created..."
+  const [leavingGroup, setLeavingGroup] = useState(false); // header Leave button in flight
   const [groupSearch, setGroupSearch] = useState("");
   const [groupCourse, setGroupCourse] = useState("all");
   const [groupChannel, setGroupChannel] = useState("general");
@@ -507,13 +511,14 @@ export default function SpacesChat({
     setMembersByGroup(prev => ({ ...prev, [id]: data }));
   }, []);
 
-  // Join or leave a group from Discover, then refresh everything that shows it.
+  // Join a group from Discover, then refresh everything that shows it.
   // (Joining also settles any pending invite to that group, so invites reload too.)
-  async function handleJoinToggle(group) {
+  // Leaving happens from the group's chat header (handleLeaveGroup).
+  async function handleJoinGroup(group) {
+    if (group.is_member) return;
     setBusyGroupId(group.id);
     try {
-      if (group.is_member) await leaveStudyGroup(group.id);
-      else await joinStudyGroup(group.id);
+      await joinStudyGroup(group.id);
       setGroupsError("");
     } catch (err) {
       setGroupsError(err.message);
@@ -529,12 +534,16 @@ export default function SpacesChat({
     if (!name || !courseId || creatingGroup) return;
     setCreatingGroup(true);
     try {
-      await createStudyGroup({ course_id: courseId, name, meeting_time: newGroupTime.trim() });
+      await createStudyGroup({ course_id: courseId, name, meeting_time: newGroupTime.trim(), visibility: newGroupVisibility });
+      setGroupsNotice(newGroupVisibility === "private"
+        ? `Private group "${name}" created. It won't show in Discover; invite people from Connections or a member's card.`
+        : "");
       setShowCreateGroup(false);
       setNewGroupName("");
       setNewGroupTime("");
+      setNewGroupVisibility("public");
       setGroupsError("");
-       await Promise.all([loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
+      await Promise.all([loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
     } catch (err) {
       setGroupsError(`Group not created: ${err.message}`);
     } finally {
@@ -553,6 +562,33 @@ export default function SpacesChat({
     } finally {
       await Promise.all([loadGroupInvites(), loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
       setBusyInviteId(null);
+    }
+  }
+
+  // "Leave group" in the Chat header. Only members (not teachers/TAs) see the button.
+  // If you're the last member the backend deletes the group.
+  async function handleLeaveGroup() {
+    if (!activeGroup || activeGroup.access !== "member" || leavingGroup) return;
+    const memberCount = (membersByGroup[activeGroup.id] ?? []).length;
+    let warning = `Leave ${activeGroup.name}?`;
+    if (memberCount <= 1) {
+      warning += "\n\nYou're the last member, so the group and all its messages will be deleted.";
+    } else if (activeGroup.visibility === "private") {
+      warning += "\n\nThis group is private, so you'll need a new invite to rejoin.";
+    }
+    if (!window.confirm(warning)) return;
+
+    setLeavingGroup(true);
+    try {
+      await leaveStudyGroup(activeGroup.id);
+      setErrorFor("leaveGroup", "");
+    } catch (err) {
+      setErrorFor("leaveGroup", `Couldn't leave group: ${err.message}`);
+    } finally {
+      // Once myGroups no longer has this group, activeGroup becomes null and the
+      // Chat tab falls back to the course channel on its own.
+      await Promise.all([loadMyGroups(), loadDiscoverGroups()]).catch(() => {});
+      setLeavingGroup(false);
     }
   }
 
@@ -780,6 +816,7 @@ export default function SpacesChat({
     errors.conversations,
     errors.groups,
     errors.request,
+    errors.leaveGroup,
     showingChannel ? errors.channel : "",
     activeFriend ? errors.dm : "",
     activeGroup ? errors.groupMessages : "",
@@ -1209,13 +1246,14 @@ export default function SpacesChat({
           onToggle={() => toggleSection("groups")}
         />
         {!collapsed.groups && <>
-          {myGroups.length === 0 && <p style={sidebarHintStyle}>Join a group from the Study Groups tab.</p>}
+          {myGroups.length === 0 && <p style={sidebarHintStyle}>Join a group from Discover or accept an invite in the Study Groups tab.</p>}
           <ul style={sidebarListStyle}>
             {myGroups.map(g => {
               const isOpen = activeGroup?.id === g.id;
               return <li key={g.id} style={{ marginBottom: "0.4rem" }}>
                 <div onClick={() => openGroupChat(g.id)} style={sidebarItemStyle(isOpen)}>
                   {g.name}
+                  {g.visibility === "private" && <span style={{ fontWeight: "400", color: "#64748b" }}> 🔒</span>}
                   {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
                 </div>
 
@@ -1282,12 +1320,22 @@ export default function SpacesChat({
             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", minWidth: 0 }}>
               <span>
                 {chatTitle}
+                {activeGroup?.visibility === "private" && <span title="Private group"> 🔒</span>}
                 {activeGroup?.access === "staff" && (
                   <span style={{ fontWeight: "400", color: "#64748b", fontSize: "0.85rem" }}> · Teaching</span>
                 )}
               </span>
               <MemberStrip key={chatTitle} members={headerMembers} max={15} renderCard={renderMemberCard} />
             </span>
+          )}
+          {activeGroup?.access === "member" && (
+            <button
+              onClick={handleLeaveGroup}
+              disabled={leavingGroup}
+              style={{ ...secondaryButtonStyle, padding: "0.45rem 0.8rem", marginLeft: "auto" }}
+            >
+              {leavingGroup ? "Leaving..." : "Leave group"}
+            </button>
           )}
         </div>
 
@@ -1464,7 +1512,7 @@ export default function SpacesChat({
           {outgoingRequests.length > 0 && (
             <div style={{ marginBottom: "1.5rem" }}>
               <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
-                Study Partner Requests
+                Requested Study Partners
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 {outgoingRequests.map(r => (
@@ -1784,6 +1832,9 @@ export default function SpacesChat({
           {groupsError && (
             <p style={{ color: "#dc2626", fontSize: "0.9rem", marginBottom: "1rem" }}>{groupsError}</p>
           )}
+          {groupsNotice && (
+            <p style={{ color: "#15803d", fontSize: "0.9rem", marginBottom: "1rem" }}>{groupsNotice}</p>
+          )}
           {groupView === "discover" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
@@ -1793,13 +1844,13 @@ export default function SpacesChat({
                   </h2>
 
                   <p style={{ color: "#64748b", fontSize: "0.9rem" }}>
-                    Join groups created by students in your courses.
+                    Join public groups created by students in your courses.
                   </p>
                 </div>
 
                 {studentCourses.length > 0 && (
                   <button
-                    onClick={() => setShowCreateGroup(true)}
+                    onClick={() => { setShowCreateGroup(true); setGroupsNotice(""); }}
                     style={{
                       padding: "0.7rem 1rem",
                       background: "#2563eb",
@@ -1906,6 +1957,34 @@ export default function SpacesChat({
                       }}
                     />
 
+                    <div>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        {["public", "private"].map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setNewGroupVisibility(v)}
+                            style={{
+                              padding: "0.5rem 1rem",
+                              border: "1px solid #cbd5e1",
+                              borderRadius: "8px",
+                              cursor: "pointer",
+                              background: newGroupVisibility === v ? "#e0e7ff" : "#fff",
+                              color: newGroupVisibility === v ? "#4338ca" : "#64748b",
+                              fontWeight: newGroupVisibility === v ? "600" : "400",
+                            }}
+                          >
+                            {v === "public" ? "Public" : "🔒 Private"}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.4rem" }}>
+                        {newGroupVisibility === "public"
+                          ? "Anyone in this space can find and join it in Discover."
+                          : "Invite only. It won't appear in Discover. Invite people from Connections or a member's card."}
+                      </p>
+                    </div>
+
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                       <button
                         onClick={handleCreateGroup}
@@ -1924,7 +2003,7 @@ export default function SpacesChat({
                       </button>
 
                       <button
-                        onClick={() => setShowCreateGroup(false)}
+                        onClick={() => { setShowCreateGroup(false); setNewGroupVisibility("public"); }}
                         style={{
                           padding: "0.6rem 1rem",
                           background: "#f1f5f9",
@@ -1945,7 +2024,7 @@ export default function SpacesChat({
              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 {discoverGroups.length === 0 && (
                   <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                    No study groups in your courses yet. Create the first one!
+                    No public study groups in your courses yet. Create the first one!
                   </p>
                 )}
 
@@ -1976,17 +2055,22 @@ export default function SpacesChat({
                       </div>
 
                       {g.my_role === "student" ? (
-                        <button
-                          onClick={() => handleJoinToggle(g)}
-                          disabled={busyGroupId === g.id}
-                          style={{
-                            ...primaryButtonStyle,
-                            background: g.is_member ? "#e2e8f0" : "#2563eb",
-                            color: g.is_member ? "#475569" : "#fff",
-                          }}
-                        >
-                          {g.is_member ? "Joined ✓" : "Join"}
-                        </button>
+                        g.is_member ? (
+                          <span
+                            title="Leave from the group's chat"
+                            style={{ fontSize: "0.85rem", fontWeight: "600", color: "#475569" }}
+                          >
+                            Joined ✓
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleJoinGroup(g)}
+                            disabled={busyGroupId === g.id}
+                            style={primaryButtonStyle}
+                          >
+                            {busyGroupId === g.id ? "Joining..." : "Join"}
+                          </button>
+                        )
                       ) : (
                         <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#64748b" }}>
                           Teaching
@@ -2020,6 +2104,7 @@ export default function SpacesChat({
                     <div>
                       <strong style={{ color: "#1e293b" }}>
                         {inv.group_name}
+                        {inv.visibility === "private" && <span style={privateBadgeStyle}>🔒 Private</span>}
                       </strong>
 
                       <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>

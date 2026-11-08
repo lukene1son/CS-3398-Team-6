@@ -10,7 +10,7 @@ const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 function copySeedFiles() {
     if (!fs.existsSync(SEED_DIR)) return 0;
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-    const files = fs.readdirSync(SEED_DIR).filter((file) => file.endsWith(".pdf"));
+    const files = fs.readdirSync(SEED_DIR).filter((file) => !file.startsWith("."));
     let copied = 0;
     for (const file of files) {
         const target = path.join(UPLOAD_DIR, file);
