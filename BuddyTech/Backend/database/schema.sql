@@ -27,7 +27,13 @@ CREATE TABLE users (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
+    assignment_reminders BOOLEAN NOT NULL DEFAULT TRUE,
+    avatar_stored_name VARCHAR(64) NULL,
+    avatar_mime_type VARCHAR(100) NULL,
+    avatar_color VARCHAR(7) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    name_changed_at TIMESTAMP NULL
 );
 
 CREATE TABLE courses (
@@ -90,15 +96,15 @@ CREATE TABLE assignment_progress (
 );
 
 CREATE TABLE friend_requests (
-id INT AUTO_INCREMENT PRIMARY KEY,
-sender_id INT NOT NULL,
-receiver_id INT NOT NULL,
-status ENUM('pending', 'accepted', 'declined') NOT NULL DEFAULT 'pending',
-created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-responded_at TIMESTAMP NULL,
-FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
-FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
-UNIQUE (sender_id, receiver_id)
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    status ENUM('pending', 'accepted', 'declined') NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    responded_at TIMESTAMP NULL,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (sender_id, receiver_id)
 );
 
 CREATE TABLE study_groups (

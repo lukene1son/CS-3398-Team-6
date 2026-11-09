@@ -11,10 +11,10 @@ import CalendarView from './Calendar';
 import AITools from './AITools';
 import Resources from './Resources';
 import SettingsPage from './SettingsPage';
+import Avatar from '../components/Avatar';
 
-export default function Dashboard({ user, onLogout }) {
+export default function Dashboard({ user, onLogout, onUserChange }) {
   const displayName = user?.name || "Student";
-  const userInitial = displayName.charAt(0).toUpperCase();
 
   const [tasks, setTasks] = useState([]);
   const [courses, setCourses] = useState([]);
@@ -236,9 +236,14 @@ export default function Dashboard({ user, onLogout }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
             <Bell size={20} style={{ color: '#64748b', cursor: 'pointer' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#2563eb', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                {userInitial}
-              </div>
+              <Avatar
+                name={displayName}
+                userId={user?.id}
+                color={user?.avatar_color}
+                hasAvatar={user?.has_avatar}
+                refreshKey={user?.avatar_refresh}
+                size={38}
+              />
               <div style={{ fontSize: '0.85rem' }}>
                 <p style={{ fontWeight: 600, margin: 0 }}>{displayName}</p>
                 <p style={{ color: '#64748b', margin: 0, fontSize: '0.75rem' }}>{user?.email || "Student Account"}</p>
@@ -270,7 +275,7 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         ) : activeTab === 'settings' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
-            <SettingsPage user={user} />
+             <SettingsPage user={user} onUserChange={onUserChange} />
           </div>
         ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>

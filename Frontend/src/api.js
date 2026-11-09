@@ -6,8 +6,9 @@
 // When a teammate finishes a route, flip that one flag to false. Nothing else changes.
 
 export const USE_MOCK = {
-  settings: true,  // needs: GET/PUT  /api/users/:id/settings
+  settings: false,  // live: GET/PUT   /api/me/settings, POST/GET /api/me/avatar
   ai: false,       // live: POST     /api/ai/chat
+  chat: false,
 };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -352,7 +353,7 @@ export async function getSettings(userId) {
       return DEFAULT_SETTINGS;
     }
   }
-  return request(`/api/users/${userId}/settings`);
+  return request("/api/me/settings");
 }
 
 export async function saveSettings(userId, settings) {
@@ -365,11 +366,60 @@ export async function saveSettings(userId, settings) {
     }
     return settings;
   }
-  return request(`/api/users/${userId}/settings`, {
+  return request("/api/me/settings", {
     method: "PUT",
     headers: JSON_HEADERS,
     body: JSON.stringify(settings),
   });
+}
+
+// Profile pictures as blob: URLs for <img>. (<img src> can't send the login token,
+// so we fetch the image ourselves.) One download per user, shared by every <Avatar>.
+const avatarCache = new Map(); // userId -> Promise<blob URL | null>
+
+export function getUserAvatarUrl(userId) {
+  if (USE_MOCK.settings) return Promise.resolve(null);
+  const id = String(userId);
+  if (!avatarCache.has(id)) {
+    const promise = authFetch(`/api/users/${encodeURIComponent(id)}/avatar`)
+      .then(async (res) => URL.createObjectURL(await res.blob()))
+      .catch((err) => {
+        if (err.status === 404) return null; // no picture: show the initial
+        avatarCache.delete(id);              // other errors: try again next time
+        throw err;
+      });
+    avatarCache.set(id, promise);
+  }
+  return avatarCache.get(id);
+}
+
+// Call after uploading or removing a picture so the next <Avatar> downloads it fresh.
+export function forgetUserAvatar(userId) {
+  const id = String(userId);
+  const promise = avatarCache.get(id);
+  avatarCache.delete(id);
+  if (promise) promise.then((url) => url && URL.revokeObjectURL(url)).catch(() => {});
+}
+
+export function saveAvatarColor(color) {
+  if (USE_MOCK.settings) return Promise.resolve({ avatar_color: color });
+  return request("/api/me/avatar-color", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ color }),
+  });
+}
+
+export function deleteAvatar() {
+  return request("/api/me/avatar", { method: "DELETE" });
+}
+
+export async function uploadAvatar(file) {
+  if (USE_MOCK.settings) throw new Error("Profile pictures need the settings API");
+  const body = new FormData();
+  body.append("avatar", file);
+  // No Content-Type header: the browser adds the multipart boundary itself.
+  return request("/api/me/avatar", { method: "POST", body });
 }
 
 /* ---------- AI tools ---------- */

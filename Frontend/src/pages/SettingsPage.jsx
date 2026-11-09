@@ -1,15 +1,24 @@
-import React, { useState, useEffect } from "react";
-import { getSettings, saveSettings, USE_MOCK } from "../api";
+import React, { useState, useEffect, useRef } from "react";
+import { Pencil } from "lucide-react";
+import { getSettings, saveSettings, uploadAvatar, deleteAvatar, saveAvatarColor, forgetUserAvatar, USE_MOCK } from "../api";
+
+import Avatar from "../components/Avatar";
+import { AVATAR_COLORS, AVATAR_COLOR_NAMES, avatarColor } from "../avatarColors";
 
 const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" };
 const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none", width: "100%" };
+const AVATAR_SIZE = 72;
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // matches the backend limit
 
-export default function SettingsPage({ user }) {
+export default function SettingsPage({ user, onUserChange }) {
   const userId = user?.id;
 
   const [form, setForm] = useState(null); // null = still loading
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,11 +39,65 @@ export default function SettingsPage({ user }) {
     setMessage("");
   }
 
+  // Uploads right away when a file is picked (separate from the Save button).
+  async function handleAvatarChange(e) {
+    const file = e.target.files[0];
+    e.target.value = ""; // lets the same file be picked again
+    if (!file) return;
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarMessage("Could not upload: image is too large (2 MB max)");
+      return;
+    }
+    setUploading(true);
+    setAvatarMessage("");
+    try {
+      await uploadAvatar(file);
+      forgetUserAvatar(userId);
+      onUserChange?.({ has_avatar: true, avatar_refresh: Date.now() });
+      setAvatarMessage("Picture updated ✓");
+    } catch (err) {
+      setAvatarMessage(`Could not upload: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function pickAvatar() {
+    fileInputRef.current?.click();
+  }
+
+  // Saves right away when a color is clicked (separate from the Save button).
+  async function pickColor(color) {
+    const previous = form.avatar_color;
+    setForm((prev) => ({ ...prev, avatar_color: color }));
+    setAvatarMessage("");
+    try {
+      await saveAvatarColor(color);
+      onUserChange?.({ avatar_color: color });
+    } catch (err) {
+      setForm((prev) => ({ ...prev, avatar_color: previous }));
+      setAvatarMessage(`Could not save color: ${err.message}`);
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    setAvatarMessage("");
+    try {
+      await deleteAvatar();
+      forgetUserAvatar(userId);
+      onUserChange?.({ has_avatar: false });
+      setAvatarMessage("Picture removed ✓");
+    } catch (err) {
+      setAvatarMessage(`Could not remove picture: ${err.message}`);
+    }
+  }
+
   async function handleSave(e) {
     e.preventDefault();
     setSaving(true);
     try {
-      await saveSettings(userId, form);
+      const saved = await saveSettings(userId, form);
+      onUserChange?.({ name: saved.display_name });
       setMessage("Saved ✓");
     } catch (err) {
       setMessage(`Could not save: ${err.message}`);
@@ -54,9 +117,99 @@ export default function SettingsPage({ user }) {
       </p>
 
       <div style={card}>
-        <h3 style={{ marginTop: 0 }}>Profile</h3>
-        <label style={{ fontSize: "0.85rem", color: "#475569" }}>Display name</label>
-        <input style={{ ...input, marginBottom: "0.75rem" }} value={form.display_name} onChange={(e) => update("display_name", e.target.value)} />
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.75rem" }}>
+          <div style={{ position: "relative", width: AVATAR_SIZE, height: AVATAR_SIZE, flexShrink: 0 }}>
+            <Avatar
+              name={form.display_name || user?.name}
+              userId={userId}
+              color={form.avatar_color}
+              hasAvatar={user?.has_avatar}
+              refreshKey={user?.avatar_refresh}
+              size={AVATAR_SIZE}
+            />
+            <button
+              type="button"
+              onClick={pickAvatar}
+              disabled={uploading}
+              aria-label="Change profile picture"
+              title="Change profile picture"
+              style={{
+                position: "absolute",
+                right: 0,
+                bottom: 0,
+                width: 24,
+                height: 24,
+                padding: 0,
+                borderRadius: "50%",
+                background: "#fff",
+                border: "1px solid #cbd5e1",
+                color: "#475569",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <Pencil size={12} />
+            </button>
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 style={{ marginTop: 0 }}>Profile</h3>
+            <label style={{ fontSize: "0.85rem", color: "#475569" }}>Display name</label>
+            <input style={input} value={form.display_name}  onChange={(e) => update("display_name", e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: "0.75rem" }}>
+          <div role="radiogroup" aria-label="Avatar color" style={{ display: "flex", gap: "0.4rem" }}>
+            {AVATAR_COLORS.map((c, i) => {
+              const selected = avatarColor(userId, form.avatar_color) === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  aria-label={AVATAR_COLOR_NAMES[i]}
+                  title={AVATAR_COLOR_NAMES[i]}
+                  onClick={() => { if (!selected) pickColor(c); }}
+                  style={{
+                    width: 32,
+                    height: 14,
+                    padding: 0,
+                    borderRadius: 6,
+                    background: c,
+                    border: "2px solid #fff",
+                    boxShadow: selected ? `0 0 0 2px ${c}` : "0 0 0 1px #cbd5e1",
+                    cursor: "pointer",
+                  }}
+                />
+              );
+            })}
+          </div>
+          {Boolean(user?.has_avatar) && (
+            <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "#64748b" }}>
+              Your color shows when you don't have a profile picture.{" "}
+              <button type="button" onClick={handleRemoveAvatar} style={{ background: "none", border: "none", padding: 0, color: "#2563eb", cursor: "pointer", fontSize: "inherit" }}>
+                Remove picture
+              </button>
+            </p>
+          )}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          onChange={handleAvatarChange}
+          style={{ display: "none" }}
+        />
+        {(uploading || avatarMessage) && (
+          <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: avatarMessage.startsWith("Could not") ? "#b91c1c" : "#15803d" }}>
+            {uploading ? "Uploading..." : avatarMessage}
+          </p>
+        )}
         <label style={{ fontSize: "0.85rem", color: "#475569" }}>Email</label>
         <input style={{ ...input, background: "#f1f5f9" }} value={user?.email || ""} disabled />
       </div>

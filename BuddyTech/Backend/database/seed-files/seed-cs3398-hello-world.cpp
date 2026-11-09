@@ -4,7 +4,7 @@
 // Compile:  g++ hello_world.cpp -o hello_world
 // Run:      ./hello_world
 
-#include <iostream>  // gives us std::cout for printing to the console
+#include <iostream>
 
 int main() {
     std::cout << "Hello, World!" << std::endl;

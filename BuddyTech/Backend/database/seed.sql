@@ -25,7 +25,7 @@ INSERT INTO course_members (user_id, course_id, role) VALUES
 (1, 2, 'student'),
 (2, 1, 'student'),
 (3, 1, 'teacher'),
-(4, 1, 'student'),
+(4, 1, 'ta'),
 (5, 1, 'student'),
 (6, 1, 'student'),
 (7, 1, 'student'),

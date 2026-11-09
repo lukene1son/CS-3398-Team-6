@@ -40,6 +40,8 @@ router.get("/me/direct-messages", async (req, res) => {
             SELECT
                 users.id,
                 users.name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 last_message.content AS last_message,
                 last_message.created_at AS last_message_at
             FROM (
@@ -83,6 +85,8 @@ router.get("/me/direct-messages/:userId", async (req, res) => {
                 direct_messages.id,
                 direct_messages.sender_id AS user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 direct_messages.content,
                 direct_messages.created_at
             FROM direct_messages
@@ -128,6 +132,8 @@ router.post("/me/direct-messages/:userId", async (req, res) => {
                 direct_messages.sender_id AS user_id,
                 direct_messages.receiver_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 direct_messages.content,
                 direct_messages.created_at
             FROM direct_messages

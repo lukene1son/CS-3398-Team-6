@@ -5,6 +5,7 @@ sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendReques
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
 getCourseMembers, getGroupMembers } from "../api";
+import Avatar from "./Avatar";
 
 const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
 const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
@@ -41,44 +42,6 @@ function sidebarChannelStyle(active) {
 const sidebarHeadingStyle = { fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
 const sidebarHintStyle = { fontSize: "0.8rem", color: "#94a3b8" };
 const sidebarListStyle = { listStyle: "none", padding: 0, margin: 0 };
-
-// First letter of the first and last name, e.g. "Maya Chen" -> "MC", "Maya" -> "M".
-function getInitials(name) {
-  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  const first = parts[0][0];
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
-  return (first + last).toUpperCase();
-}
-
-// Dark enough for white initials to stay readable.
-const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#c2410c", "#15803d", "#0e7490"];
-
-// Placeholder profile picture: a colored circle with the person's initials.
-// The color comes from their user id, so each person always gets the same one.
-function Avatar({ name, userId, size = 28 }) {
-  const color = AVATAR_COLORS[Math.abs(Number(userId) || 0) % AVATAR_COLORS.length];
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        background: color,
-        color: "#fff",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: Math.round(size * 0.4),
-        fontWeight: "600",
-        flexShrink: 0,
-      }}
-    >
-      {getInitials(name)}
-    </span>
-  );
-}
 
 // Chat-sidebar heading that collapses/expands the section under it.
 // Shows how many items are hidden while collapsed.
@@ -197,7 +160,7 @@ function MemberStrip({ members, max = MEMBER_STRIP_MAX, renderCard }) {
           borderRadius: "50%",
           boxShadow: isSelected ? "0 0 0 2px #2563eb" : "0 0 0 2px #fff",
         };
-        const pic = <Avatar name={m.name} userId={m.id} size={28} />;
+        const pic = <Avatar name={m.name} userId={m.id} color={m.avatar_color} hasAvatar={m.has_avatar} size={28} />;
         return renderCard ? (
           <button
             key={m.id}
@@ -255,7 +218,7 @@ function MemberStrip({ members, max = MEMBER_STRIP_MAX, renderCard }) {
             const isSelected = selected?.id === m.id && selected.from === "list";
             const rowStyle = { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.4rem", color: "#1e293b", fontSize: "0.9rem" };
             const row = <>
-              <Avatar name={m.name} userId={m.id} size={24} />
+              <Avatar name={m.name} userId={m.id} color={m.avatar_color} hasAvatar={m.has_avatar} size={24} />
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {m.name}
               </span>
@@ -632,7 +595,7 @@ export default function SpacesChat({
 
     return <>
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: isMe ? 0 : "0.75rem" }}>
-        <Avatar name={member.name} userId={member.id} size={36} />
+        <Avatar name={member.name} userId={member.id} color={member.avatar_color} hasAvatar={member.has_avatar} size={36} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: "600", color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {member.name}
@@ -1269,7 +1232,7 @@ export default function SpacesChat({
 
         {/* DMs you've started with your connections */}
         <SectionHeader
-          title="Direct Messages"
+          title="Study Chats"
           count={dmFriends.length}
           collapsed={collapsed.dms}
           onToggle={() => toggleSection("dms")}
@@ -1284,7 +1247,7 @@ export default function SpacesChat({
               alignItems: "center",
               gap: "0.5rem"
             }}>
-              <Avatar name={f.name} userId={f.id} size={24} />
+              <Avatar name={f.name} userId={f.id} color={f.avatar_color} hasAvatar={f.has_avatar} size={24} />
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {f.name}
               </span>
@@ -1313,7 +1276,7 @@ export default function SpacesChat({
         }}>
           {activeFriend ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
-              <Avatar name={activeFriend.name} userId={activeFriend.id} size={32} />
+              <Avatar name={activeFriend.name} userId={activeFriend.id} color={activeFriend.avatar_color} hasAvatar={activeFriend.has_avatar} size={32} />
               {chatTitle}
             </span>
           ) : (
@@ -1368,7 +1331,7 @@ export default function SpacesChat({
               alignSelf: mine ? "flex-end" : "flex-start",
               maxWidth: "70%"
             }}>
-              <Avatar name={senderName} userId={msg.user_id} />
+              <Avatar name={senderName} userId={msg.user_id} color={msg.avatar_color} hasAvatar={msg.has_avatar} />
               <div style={{
                 minWidth: 0,
                 overflowWrap: "anywhere",
@@ -1518,7 +1481,7 @@ export default function SpacesChat({
                 {outgoingRequests.map(r => (
                   <div key={r.id} style={partnerCardStyle}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                      <Avatar name={r.other_user_name} userId={r.other_user_id} size={36} />
+                      <Avatar name={r.other_user_name} userId={r.other_user_id} color={r.other_user_avatar_color} hasAvatar={r.other_user_has_avatar} size={36} />
                       <div style={{ minWidth: 0 }}>
                         <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
                         <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
@@ -1607,7 +1570,7 @@ export default function SpacesChat({
                 return (
                   <div key={p.id} style={partnerCardStyle}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                      <Avatar name={p.name} userId={p.id} size={36} />
+                      <Avatar name={p.name} userId={p.id} color={p.avatar_color} hasAvatar={p.has_avatar} size={36} />
                       <div style={{ minWidth: 0 }}>
                         <strong style={{ color: "#1e293b" }}>{p.name}</strong>
                         <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
@@ -1663,7 +1626,7 @@ export default function SpacesChat({
                 <div key={f.id} style={{ border: "1px solid #e2e8f0", borderRadius: "10px" }}>
                   <div style={{ ...partnerCardStyle, border: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                      <Avatar name={f.name} userId={f.id} size={36} />
+                      <Avatar name={f.name} userId={f.id} color={f.avatar_color} hasAvatar={f.has_avatar} size={36} />
                       <div style={{ minWidth: 0 }}>
                         <strong style={{ color: "#1e293b" }}>{f.name}</strong>
                         {f.friends_since && (
@@ -1748,7 +1711,7 @@ export default function SpacesChat({
                   {incomingRequests.map(r => (
                     <div key={r.id} style={partnerCardStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                        <Avatar name={r.other_user_name} userId={r.other_user_id} size={36} />
+                        <Avatar name={r.other_user_name} userId={r.other_user_id} color={r.other_user_avatar_color} hasAvatar={r.other_user_has_avatar} size={36} />
                         <div style={{ minWidth: 0 }}>
                           <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
                           <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
@@ -1782,7 +1745,6 @@ export default function SpacesChat({
         )}
       </div>
     </div>}
-
     {activeTab === "groups" && (
       <div style={{ display: "flex", height: "calc(100vh - 200px)", border: "1px solid #e2e8f0", borderRadius: "12px", overflow: "hidden", background: "#fff" }}>
 

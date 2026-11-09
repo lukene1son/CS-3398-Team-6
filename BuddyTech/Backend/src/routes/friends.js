@@ -25,6 +25,8 @@ router.get("/me/study-partners/suggested", async (req, res) => {
             SELECT
                 users.id,
                 users.name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 GROUP_CONCAT(DISTINCT courses.course_code ORDER BY courses.course_code) AS shared_courses
             FROM course_members AS mine
             JOIN course_members AS theirs
@@ -39,7 +41,7 @@ router.get("/me/study-partners/suggested", async (req, res) => {
                     AND ((friend_requests.sender_id = ? AND friend_requests.receiver_id = users.id)
                       OR (friend_requests.sender_id = users.id AND friend_requests.receiver_id = ?))
               )
-            GROUP BY users.id, users.name
+            GROUP BY users.id, users.name, users.avatar_color, users.avatar_stored_name
             ORDER BY users.name ASC
             `,
             [me, me, me]
@@ -214,7 +216,9 @@ router.get("/me/friend-requests", async (req, res) => {
                 friend_requests.status,
                 friend_requests.created_at,
                 users.id AS other_user_id,
-                users.name AS other_user_name
+                users.name AS other_user_name,
+                users.avatar_color AS other_user_avatar_color,
+                users.avatar_stored_name IS NOT NULL AS other_user_has_avatar
             FROM friend_requests
             JOIN users ON users.id = friend_requests.${otherColumn}
             WHERE friend_requests.${myColumn} = ?
@@ -344,13 +348,15 @@ router.get("/me/friends", async (req, res) => {
             SELECT
                 users.id,
                 users.name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 MIN(friend_requests.responded_at) AS friends_since
             FROM friend_requests
             JOIN users
                 ON users.id = IF(friend_requests.sender_id = ?, friend_requests.receiver_id, friend_requests.sender_id)
             WHERE friend_requests.status = 'accepted'
               AND (friend_requests.sender_id = ? OR friend_requests.receiver_id = ?)
-            GROUP BY users.id, users.name
+            GROUP BY users.id, users.name, users.avatar_color, users.avatar_stored_name
             ORDER BY users.name ASC
             `,
             [me, me, me]

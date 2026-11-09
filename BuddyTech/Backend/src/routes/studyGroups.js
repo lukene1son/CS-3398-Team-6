@@ -81,7 +81,8 @@ router.get("/me/study-groups/discover", async (req, res) => {
                 COUNT(DISTINCT members.user_id) AS member_count,
                 MAX(members.user_id = ?) AS is_member,
                 course_members.role AS my_role,
-                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role))
+                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role,
+            'avatar_color', users.avatar_color, 'has_avatar', users.avatar_stored_name IS NOT NULL))
                  FROM study_group_members AS group_members
                  JOIN users ON users.id = group_members.user_id
                  JOIN course_members AS member_roles
@@ -341,7 +342,8 @@ router.get("/study-groups/:id/members", async (req, res) => {
         // the same rule getGroupAccess uses.
         const [rows] = await pool.query(
             `
-            SELECT users.id, users.name, course_members.role
+             SELECT users.id, users.name, users.avatar_color,
+                 users.avatar_stored_name IS NOT NULL AS has_avatar, course_members.role
             FROM study_group_members
             JOIN users ON users.id = study_group_members.user_id
             JOIN study_groups ON study_groups.id = study_group_members.group_id
@@ -390,6 +392,8 @@ router.get("/study-groups/:id/messages", async (req, res) => {
                 study_group_messages.channel,
                 study_group_messages.user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 study_group_messages.content,
                 study_group_messages.created_at
             FROM study_group_messages
@@ -446,6 +450,8 @@ router.post("/study-groups/:id/messages", async (req, res) => {
                 study_group_messages.channel,
                 study_group_messages.user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 study_group_messages.content,
                 study_group_messages.created_at
             FROM study_group_messages
@@ -573,7 +579,8 @@ router.get("/me/study-group-invites", async (req, res) => {
                 courses.course_code,
                 (SELECT COUNT(*) FROM study_group_members
                  WHERE study_group_members.group_id = study_groups.id) AS member_count,
-                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role))
+                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role,
+                'avatar_color', users.avatar_color, 'has_avatar', users.avatar_stored_name IS NOT NULL))
                  FROM study_group_members AS group_members
                  JOIN users ON users.id = group_members.user_id
                  JOIN course_members AS member_roles

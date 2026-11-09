@@ -108,6 +108,18 @@ const userSearchLimiter = rateLimit({
     handler: tooMany("Too many searches. Please wait a moment and try again."),
 });
 
+// Per user: three profile picture uploads every 15 minutes.
+// Rejected uploads (wrong type, too large) don't use up the turn.
+const avatarUploadLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 3,
+    skipFailedRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You can change your profile picture once every 15 minutes."),
+});
+
 module.exports = {
     authIpLimiter,
     loginAccountLimiter,
@@ -116,4 +128,5 @@ module.exports = {
     friendRequestPairLimiter,
     userSearchLimiter,
     groupInviteLimiter,
+    avatarUploadLimiter,
 };

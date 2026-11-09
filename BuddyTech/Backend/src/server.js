@@ -33,6 +33,7 @@ app.use("/api", require("./routes/friends"));
 app.use("/api", require("./routes/studyGroups"));
 app.use("/api", require("./routes/directMessages"));
 app.use("/api", require("./routes/resources"));
+app.use("/api", require("./routes/userSettings"));
 
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {
@@ -71,13 +72,15 @@ async function canAccessAssignment(userId, assignmentId) {
 // GET /api/me  -> the logged-in user's profile (used to restore a session on page load)
 app.get("/api/me", async (req, res) => {
     const [rows] = await pool.query(
-        "SELECT id, name, email, created_at FROM users WHERE id = ?",
+        `SELECT id, name, email, created_at, avatar_color,
+                avatar_stored_name IS NOT NULL AS has_avatar
+         FROM users WHERE id = ?`,
         [req.user.id]
     );
     if (rows.length === 0) {
         return res.status(404).json({ error: "User not found" });
     }
-    res.json(rows[0]);
+    res.json({ ...rows[0], has_avatar: Boolean(rows[0].has_avatar) });
 });
 
 app.get("/test-db", async (req, res) => {
@@ -165,7 +168,7 @@ app.get("/api/courses/:id/members", async (req, res) => {
         }
         const [rows] = await pool.query(
             `
-            SELECT users.id, users.name, course_members.role
+            SELECT users.id, users.name, users.avatar_color, users.avatar_stored_name IS NOT NULL AS has_avatar, course_members.role
             FROM course_members
             JOIN users ON users.id = course_members.user_id
             WHERE course_members.course_id = ?
@@ -192,6 +195,8 @@ app.get("/api/channels/:id/messages", async (req, res) => {
                 messages.channel_id,
                 messages.user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 messages.content,
                 messages.created_at
             FROM messages
