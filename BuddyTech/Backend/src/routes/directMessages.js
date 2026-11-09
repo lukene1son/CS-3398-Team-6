@@ -1,5 +1,6 @@
 const express = require("express");
 const pool = require("../db");
+const { emitTo } = require("../realtime");
 
 const router = express.Router();
 
@@ -8,7 +9,8 @@ const router = express.Router();
 // or the receiver, so only the two people in a conversation can ever read it.
 // Not even teachers/TAs can see these. New messages require an accepted connection.
 
-const MAX_MESSAGE_LENGTH = 2000;
+const MAX_MESSAGE_LENGTH = 2000
+const MESSAGE_HISTORY_LIMIT = 200; // same as server.js
 
 function toId(value) {
     const id = Number(value);
@@ -39,6 +41,8 @@ router.get("/me/direct-messages", async (req, res) => {
             SELECT
                 users.id,
                 users.name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 last_message.content AS last_message,
                 last_message.created_at AS last_message_at
             FROM (
@@ -82,17 +86,20 @@ router.get("/me/direct-messages/:userId", async (req, res) => {
                 direct_messages.id,
                 direct_messages.sender_id AS user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 direct_messages.content,
                 direct_messages.created_at
             FROM direct_messages
             JOIN users ON users.id = direct_messages.sender_id
             WHERE (direct_messages.sender_id = ? AND direct_messages.receiver_id = ?)
                OR (direct_messages.sender_id = ? AND direct_messages.receiver_id = ?)
-            ORDER BY direct_messages.created_at ASC, direct_messages.id ASC
+            ORDER BY direct_messages.created_at DESC, direct_messages.id DESC
+            LIMIT ?
             `,
-            [me, otherId, otherId, me]
+            [me, otherId, otherId, me, MESSAGE_HISTORY_LIMIT]
         );
-        res.json(rows);
+        res.json(rows.reverse());
     } catch (error) {
         console.error("Error fetching direct messages:", error);
         res.status(500).json({ error: "Failed to fetch messages" });
@@ -119,7 +126,30 @@ router.post("/me/direct-messages/:userId", async (req, res) => {
             "INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?)",
             [me, otherId, content]
         );
-        res.status(201).json({ id: result.insertId, user_id: me, receiver_id: otherId, content });
+        const [rows] = await pool.query(
+            `
+            SELECT
+                direct_messages.id,
+                direct_messages.sender_id AS user_id,
+                direct_messages.receiver_id,
+                users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
+                direct_messages.content,
+                direct_messages.created_at
+            FROM direct_messages
+            JOIN users ON users.id = direct_messages.sender_id
+            WHERE direct_messages.id = ?
+            `,
+            [result.insertId]
+        );
+
+        // Both people's rooms: the receiver sees it, and the sender's other tabs do too.
+        const notice = { sender_id: me, receiver_id: otherId };
+        emitTo(`user:${me}`, "direct-message", notice);
+        emitTo(`user:${otherId}`, "direct-message", notice);
+
+        res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending direct message:", error);
         res.status(500).json({ error: "Failed to send message" });

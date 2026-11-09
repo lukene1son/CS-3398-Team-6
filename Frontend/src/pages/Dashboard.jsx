@@ -11,14 +11,13 @@ import CalendarView from './Calendar';
 import AITools from './AITools';
 import Resources from './Resources';
 import SettingsPage from './SettingsPage';
+import Avatar from '../components/Avatar';
 
-export default function Dashboard({ user, onLogout }) {
+export default function Dashboard({ user, onLogout, onUserChange }) {
   const displayName = user?.name || "Student";
-  const userInitial = displayName.charAt(0).toUpperCase();
 
   const [tasks, setTasks] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -58,8 +57,6 @@ export default function Dashboard({ user, onLogout }) {
         // Keep tasks/courses as empty arrays so the page still renders.
         console.error('Failed to load dashboard data:', error);
         setLoadError(error.message);
-      } finally {
-        setLoading(false);
       }
     }
 
@@ -239,9 +236,14 @@ export default function Dashboard({ user, onLogout }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
             <Bell size={20} style={{ color: '#64748b', cursor: 'pointer' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#2563eb', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                {userInitial}
-              </div>
+              <Avatar
+                name={displayName}
+                userId={user?.id}
+                color={user?.avatar_color}
+                hasAvatar={user?.has_avatar}
+                refreshKey={user?.avatar_refresh}
+                size={38}
+              />
               <div style={{ fontSize: '0.85rem' }}>
                 <p style={{ fontWeight: 600, margin: 0 }}>{displayName}</p>
                 <p style={{ color: '#64748b', margin: 0, fontSize: '0.75rem' }}>{user?.email || "Student Account"}</p>
@@ -273,7 +275,7 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         ) : activeTab === 'settings' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
-            <SettingsPage user={user} />
+             <SettingsPage user={user} onUserChange={onUserChange} />
           </div>
         ) : (
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
@@ -382,18 +384,33 @@ export default function Dashboard({ user, onLogout }) {
                       {course.course_name}
                     </p>
 
-                    <span
-                      style={{
-                        fontSize: '0.75rem',
-                        background: '#dbeafe',
-                        color: '#1e40af',
-                        padding: '3px 8px',
-                        borderRadius: '12px',
-                        fontWeight: 600
-                      }}
-                    >
-                      Enrolled
-                    </span>
+                    {course.role === 'teacher' || course.role === 'ta' ? (
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          background: '#ede9fe',
+                          color: '#5b21b6',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontWeight: 600
+                        }}
+                      >
+                        Administrator
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          background: '#dbeafe',
+                          color: '#1e40af',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontWeight: 600
+                        }}
+                      >
+                        Enrolled
+                      </span>
+                    )}
                   </div>
                 ))}
 

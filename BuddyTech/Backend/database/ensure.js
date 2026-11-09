@@ -11,6 +11,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", "port.env"), quiet: 
 
 const mysql = require("mysql2/promise");
 const dbConfig = require("../src/dbConfig");
+const copySeedFiles = require("./seedFiles");
 
 const DB_NAME = process.env.DB_NAME || "buddytech";
 
@@ -31,6 +32,7 @@ async function ensureDatabase() {
         const [rows] = await connection.query("SHOW TABLES LIKE 'users'");
         if (rows.length > 0) {
             console.log(`Database "${DB_NAME}" already initialized.`);
+            copySeedFiles(); // puts back any seed PDF missing from uploads/
             return;
         }
 
@@ -39,6 +41,7 @@ async function ensureDatabase() {
         const seed = fs.readFileSync(path.join(__dirname, "seed.sql"), "utf8");
         await connection.query(schema);
         await connection.query(seed);
+        copySeedFiles();
         console.log("Database initialized successfully.");
     } finally {
         await connection.end().catch(() => {});

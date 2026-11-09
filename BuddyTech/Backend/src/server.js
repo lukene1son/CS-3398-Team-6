@@ -10,6 +10,8 @@ const STAFF_ROLES = ["teacher", "ta"];
 const express = require("express");
 const pool = require("./db");
 const requireAuth = require("./middleware/requireAuth");
+const http = require("http");
+const { initRealtime, emitTo } = require("./realtime");
 
 const app = express();
 
@@ -30,8 +32,11 @@ app.use("/api", requireAuth);
 app.use("/api/ai", require("./routes/ai"));
 
 app.use("/api", require("./routes/friends"));
-app.use("/api", require("./routes/studyGroups"));
+const studyGroupsRouter = require("./routes/studyGroups");
+app.use("/api", studyGroupsRouter);
 app.use("/api", require("./routes/directMessages"));
+app.use("/api", require("./routes/resources"));
+app.use("/api", require("./routes/userSettings"));
 
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {
@@ -70,13 +75,15 @@ async function canAccessAssignment(userId, assignmentId) {
 // GET /api/me  -> the logged-in user's profile (used to restore a session on page load)
 app.get("/api/me", async (req, res) => {
     const [rows] = await pool.query(
-        "SELECT id, name, email, created_at FROM users WHERE id = ?",
+        `SELECT id, name, email, created_at, avatar_color,
+                avatar_stored_name IS NOT NULL AS has_avatar
+         FROM users WHERE id = ?`,
         [req.user.id]
     );
     if (rows.length === 0) {
         return res.status(404).json({ error: "User not found" });
     }
-    res.json(rows[0]);
+    res.json({ ...rows[0], has_avatar: Boolean(rows[0].has_avatar) });
 });
 
 app.get("/test-db", async (req, res) => {
@@ -164,7 +171,7 @@ app.get("/api/courses/:id/members", async (req, res) => {
         }
         const [rows] = await pool.query(
             `
-            SELECT users.id, users.name, course_members.role
+            SELECT users.id, users.name, users.avatar_color, users.avatar_stored_name IS NOT NULL AS has_avatar, course_members.role
             FROM course_members
             JOIN users ON users.id = course_members.user_id
             WHERE course_members.course_id = ?
@@ -191,6 +198,8 @@ app.get("/api/channels/:id/messages", async (req, res) => {
                 messages.channel_id,
                 messages.user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 messages.content,
                 messages.created_at
             FROM messages
@@ -233,7 +242,7 @@ app.post("/api/channels/:id/messages", async (req, res) => {
             `,
             [req.params.id, user_id, content]
         );
-
+        emitTo(`channel:${Number(req.params.id)}`, "channel-message", { channel_id: Number(req.params.id) });
         res.status(201).json({
             id: result.insertId,
             channel_id: Number(req.params.id),
@@ -458,6 +467,13 @@ app.patch("/api/assignments/:id/status", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+// Express and Socket.IO share one HTTP server (see realtime.js).
+const server = http.createServer(app);
+initRealtime(server, {
+    canAccessChannel,
+    getGroupAccess: studyGroupsRouter.getGroupAccess,
+});
+
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

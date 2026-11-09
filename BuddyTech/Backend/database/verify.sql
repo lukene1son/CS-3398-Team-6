@@ -10,7 +10,9 @@ SELECT 'messages', COUNT(*) FROM messages
 UNION ALL
 SELECT 'assignments', COUNT(*) FROM assignments
 UNION ALL
-SELECT 'assignment_progress', COUNT(*) FROM assignment_progress;
+SELECT 'assignment_progress', COUNT(*) FROM assignment_progress
+UNION ALL
+SELECT 'course_resources', COUNT(*) FROM course_resources;
 
 SELECT
     u.name AS user_name,

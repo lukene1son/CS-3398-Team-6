@@ -46,7 +46,7 @@ const loginAccountLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req) => {
         const email = req.body && typeof req.body.email === "string"
-            ? req.body.email.trim().toLowerCase()
+            ? req.body.email.trim().toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
             : "";
         return email ? `email:${email}` : `ip:${ipKeyGenerator(req.ip)}`;
     },
@@ -81,6 +81,7 @@ const friendRequestLimiter = rateLimit({
     handler: tooMany("You're sending friend requests too quickly. Please try again later."),
 });
 
+
 // Per sender + receiver pair: stops one user from re-sending a request to the
 // same person over and over (e.g. right after it's declined).
 const friendRequestPairLimiter = rateLimit({
@@ -108,6 +109,18 @@ const userSearchLimiter = rateLimit({
     handler: tooMany("Too many searches. Please wait a moment and try again."),
 });
 
+// Per user: three profile picture uploads every 15 minutes.
+// Rejected uploads (wrong type, too large) don't use up the turn.
+const avatarUploadLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 3,
+    skipFailedRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You can change your profile picture once every 15 minutes."),
+});
+
 module.exports = {
     authIpLimiter,
     loginAccountLimiter,
@@ -116,4 +129,5 @@ module.exports = {
     friendRequestPairLimiter,
     userSearchLimiter,
     groupInviteLimiter,
+    avatarUploadLimiter,
 };

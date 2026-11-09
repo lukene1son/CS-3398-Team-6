@@ -5,12 +5,15 @@ sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendReques
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
 getCourseMembers, getGroupMembers } from "../api";
+import Avatar from "./Avatar";
+import { onSocketEvent, watchRoom } from "../socket";
 
 const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
-const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
+const POLL_MS = 60000; // safety net only; live updates come over the socket (socket.js)
 const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" };
 const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
+const privateBadgeStyle = { marginLeft: "0.4rem", fontSize: "0.75rem", fontWeight: "500", color: "#64748b" };
 
 const GROUP_CHANNELS = ["general", "homework", "meetups"];
 
@@ -40,44 +43,6 @@ function sidebarChannelStyle(active) {
 const sidebarHeadingStyle = { fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
 const sidebarHintStyle = { fontSize: "0.8rem", color: "#94a3b8" };
 const sidebarListStyle = { listStyle: "none", padding: 0, margin: 0 };
-
-// First letter of the first and last name, e.g. "Maya Chen" -> "MC", "Maya" -> "M".
-function getInitials(name) {
-  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  const first = parts[0][0];
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
-  return (first + last).toUpperCase();
-}
-
-// Dark enough for white initials to stay readable.
-const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#c2410c", "#15803d", "#0e7490"];
-
-// Placeholder profile picture: a colored circle with the person's initials.
-// The color comes from their user id, so each person always gets the same one.
-function Avatar({ name, userId, size = 28 }) {
-  const color = AVATAR_COLORS[Math.abs(Number(userId) || 0) % AVATAR_COLORS.length];
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        background: color,
-        color: "#fff",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: Math.round(size * 0.4),
-        fontWeight: "600",
-        flexShrink: 0,
-      }}
-    >
-      {getInitials(name)}
-    </span>
-  );
-}
 
 // Chat-sidebar heading that collapses/expands the section under it.
 // Shows how many items are hidden while collapsed.
@@ -196,7 +161,7 @@ function MemberStrip({ members, max = MEMBER_STRIP_MAX, renderCard }) {
           borderRadius: "50%",
           boxShadow: isSelected ? "0 0 0 2px #2563eb" : "0 0 0 2px #fff",
         };
-        const pic = <Avatar name={m.name} userId={m.id} size={28} />;
+        const pic = <Avatar name={m.name} userId={m.id} color={m.avatar_color} hasAvatar={m.has_avatar} size={28} />;
         return renderCard ? (
           <button
             key={m.id}
@@ -254,7 +219,7 @@ function MemberStrip({ members, max = MEMBER_STRIP_MAX, renderCard }) {
             const isSelected = selected?.id === m.id && selected.from === "list";
             const rowStyle = { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.4rem", color: "#1e293b", fontSize: "0.9rem" };
             const row = <>
-              <Avatar name={m.name} userId={m.id} size={24} />
+              <Avatar name={m.name} userId={m.id} color={m.avatar_color} hasAvatar={m.has_avatar} size={24} />
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {m.name}
               </span>
@@ -345,10 +310,15 @@ export default function SpacesChat({
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState("Connecting...");
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
+  const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
   const [activeTab, setActiveTab] = useState("chat");
   const [partnerView, setPartnerView] = useState("connections");
   const bottomRef = useRef(null);
+  const messageListRef = useRef(null);           // the scrolling message area
+  const lastScrolledTitleRef = useRef(null);     // chat we last auto-scrolled in
+  const lastMessageCountRef = useRef(0);
+  const connectingRef = useRef(new Set());       // partner ids with a request in flight (a ref, so a fast double click can't slip past)
   const [partnerSearch, setPartnerSearch] = useState("");
   const [partnerCourse, setPartnerCourse] = useState("all");
   const [suggestedPartners, setSuggestedPartners] = useState([]);
@@ -361,12 +331,16 @@ export default function SpacesChat({
   const [listsLoading, setListsLoading] = useState(false);
   const [listsError, setListsError] = useState("");
   const [busyRequestId, setBusyRequestId] = useState(null); // disables buttons while a click is in flight
+  const [removingFriendId, setRemovingFriendId] = useState(null); // remove-connection in flight
   const [groupView, setGroupView] = useState("discover");
   const [groupInvites, setGroupInvites] = useState([]);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupCourse, setNewGroupCourse] = useState("");
   const [newGroupTime, setNewGroupTime] = useState("");
+  const [newGroupVisibility, setNewGroupVisibility] = useState("public");
+  const [groupsNotice, setGroupsNotice] = useState("");  // e.g. "Private group created..."
+  const [leavingGroup, setLeavingGroup] = useState(false); // header Leave button in flight
   const [groupSearch, setGroupSearch] = useState("");
   const [groupCourse, setGroupCourse] = useState("all");
   const [groupChannel, setGroupChannel] = useState("general");
@@ -389,6 +363,11 @@ export default function SpacesChat({
   // What the Chat tab is showing: a course channel, a study group, or a DM.
   //   { type: "channel" } | { type: "group", id } | { type: "dm", id: friendUserId }
   const [chatTarget, setChatTarget] = useState({ type: "channel" });
+  
+  // Set (or clear, with "") the Chat-tab error for one source.
+  const setErrorFor = useCallback((source, message) => {
+    setErrors(prev => (prev[source] || "") === message ? prev : { ...prev, [source]: message });
+  }, []);
 
     // Which Chat-tab sidebar sections are collapsed (all open by default).
   const [collapsed, setCollapsed] = useState({ spaces: false, groups: false, dms: false });
@@ -424,15 +403,19 @@ export default function SpacesChat({
     setSuggestedPartners(await getSuggestedPartners());
   }, []);
 
-  async function handleConnect(partnerId) {
+  async function handleConnect(partnerId, showError = setPartnersError) {
+    if (connectingRef.current.has(partnerId)) return;
+    connectingRef.current.add(partnerId);
     setConnectStatus(prev => ({ ...prev, [partnerId]: "sending" }));
     try {
       await sendFriendRequest(partnerId);
-      setPartnersError("");
+      showError("");
     } catch (err) {
       // 409 = a request or friendship already exists; the reload below shows which.
-      if (!/already/i.test(err.message)) setPartnersError(err.message);
+      // Anything else (like a 429 rate limit) is a real error the user should see.
+      if (err.status !== 409) showError(err.message);
     } finally {
+      connectingRef.current.delete(partnerId);
       setConnectStatus(prev => {
         const next = { ...prev };
         delete next[partnerId];
@@ -492,13 +475,14 @@ export default function SpacesChat({
     setMembersByGroup(prev => ({ ...prev, [id]: data }));
   }, []);
 
-  // Join or leave a group from Discover, then refresh everything that shows it.
+  // Join a group from Discover, then refresh everything that shows it.
   // (Joining also settles any pending invite to that group, so invites reload too.)
-  async function handleJoinToggle(group) {
+  // Leaving happens from the group's chat header (handleLeaveGroup).
+  async function handleJoinGroup(group) {
+    if (group.is_member) return;
     setBusyGroupId(group.id);
     try {
-      if (group.is_member) await leaveStudyGroup(group.id);
-      else await joinStudyGroup(group.id);
+      await joinStudyGroup(group.id);
       setGroupsError("");
     } catch (err) {
       setGroupsError(err.message);
@@ -514,12 +498,16 @@ export default function SpacesChat({
     if (!name || !courseId || creatingGroup) return;
     setCreatingGroup(true);
     try {
-      await createStudyGroup({ course_id: courseId, name, meeting_time: newGroupTime.trim() });
+      await createStudyGroup({ course_id: courseId, name, meeting_time: newGroupTime.trim(), visibility: newGroupVisibility });
+      setGroupsNotice(newGroupVisibility === "private"
+        ? `Private group "${name}" created. It won't show in Discover; invite people from Connections or a member's card.`
+        : "");
       setShowCreateGroup(false);
       setNewGroupName("");
       setNewGroupTime("");
+      setNewGroupVisibility("public");
       setGroupsError("");
-       await Promise.all([loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
+      await Promise.all([loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
     } catch (err) {
       setGroupsError(`Group not created: ${err.message}`);
     } finally {
@@ -538,6 +526,33 @@ export default function SpacesChat({
     } finally {
       await Promise.all([loadGroupInvites(), loadDiscoverGroups(), loadMyGroups()]).catch(() => {});
       setBusyInviteId(null);
+    }
+  }
+
+  // "Leave group" in the Chat header. Only members (not teachers/TAs) see the button.
+  // If you're the last member the backend deletes the group.
+  async function handleLeaveGroup() {
+    if (!activeGroup || activeGroup.access !== "member" || leavingGroup) return;
+    const memberCount = (membersByGroup[activeGroup.id] ?? []).length;
+    let warning = `Leave ${activeGroup.name}?`;
+    if (memberCount <= 1) {
+      warning += "\n\nYou're the last member, so the group and all its messages will be deleted.";
+    } else if (activeGroup.visibility === "private") {
+      warning += "\n\nThis group is private, so you'll need a new invite to rejoin.";
+    }
+    if (!window.confirm(warning)) return;
+
+    setLeavingGroup(true);
+    try {
+      await leaveStudyGroup(activeGroup.id);
+      setErrorFor("leaveGroup", "");
+    } catch (err) {
+      setErrorFor("leaveGroup", `Couldn't leave group: ${err.message}`);
+    } finally {
+      // Once myGroups no longer has this group, activeGroup becomes null and the
+      // Chat tab falls back to the course channel on its own.
+      await Promise.all([loadMyGroups(), loadDiscoverGroups()]).catch(() => {});
+      setLeavingGroup(false);
     }
   }
 
@@ -581,7 +596,7 @@ export default function SpacesChat({
 
     return <>
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: isMe ? 0 : "0.75rem" }}>
-        <Avatar name={member.name} userId={member.id} size={36} />
+        <Avatar name={member.name} userId={member.id} color={member.avatar_color} hasAvatar={member.has_avatar} size={36} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: "600", color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {member.name}
@@ -645,7 +660,7 @@ export default function SpacesChat({
       {!isMe && !friend && (
         received ? (
           <button
-            onClick={() => handleRequestAction(received.id, "accept")}
+            onClick={() => handleRequestAction(received.id, "accept", (msg) => setErrorFor("request", msg))}
             disabled={busyRequestId === received.id}
             style={{ ...primaryButtonStyle, ...smallButton }}
           >
@@ -657,7 +672,7 @@ export default function SpacesChat({
           </button>
         ) : (
           <button
-            onClick={() => handleConnect(member.id)}
+            onClick={() => handleConnect(member.id, (msg) => setErrorFor("request", msg))}
             disabled={sending}
             style={{ ...primaryButtonStyle, ...smallButton }}
           >
@@ -684,8 +699,7 @@ export default function SpacesChat({
   // Accept / decline a request sent to you, or cancel one you sent, then refresh
   // requests, suggestions and connections (an accept makes them a connection).
   // Show errors on the tab the request is on: Connections (requests for you) or Find Study Partners (sent).
-  async function handleRequestAction(requestId, action) {
-    const showError = partnerView === "connections" ? setListsError : setPartnersError;
+  async function handleRequestAction(requestId, action, showError = partnerView === "connections" ? setListsError : setPartnersError) {
     setBusyRequestId(requestId);
     try {
       if (action === "cancel") await cancelFriendRequest(requestId);
@@ -701,13 +715,17 @@ export default function SpacesChat({
   }
 
   async function handleRemoveFriend(friend) {
+    if (removingFriendId) return;
     if (!window.confirm(`Remove ${friend.name} from your connections?`)) return;
+    setRemovingFriendId(friend.id);
     try {
       await removeFriend(friend.id);
       await loadFriends();
       setListsError("");
     } catch (err) {
       setListsError(err.message);
+    } finally {
+      setRemovingFriendId(null);
     }
   }
 
@@ -755,6 +773,20 @@ export default function SpacesChat({
     messages;
   const canSend = Boolean(activeGroup || activeFriend || channel);
 
+  // Chat-tab banner: sidebar errors always, plus the errors for whatever chat is open.
+  const visibleErrors = [
+    errors.courses,
+    errors.channels,
+    errors.conversations,
+    errors.groups,
+    errors.request,
+    errors.leaveGroup,
+    showingChannel ? errors.channel : "",
+    activeFriend ? errors.dm : "",
+    activeGroup ? errors.groupMessages : "",
+    sendError?.target === chatTitle ? sendError.text : "",
+  ].filter(Boolean);
+
   const headerMembers =
     activeGroup ? membersByGroup[activeGroup.id] ?? [] :
     showingChannel && course ? membersByCourse[course.id] ?? [] :
@@ -770,18 +802,18 @@ export default function SpacesChat({
         if (cancelled) return;
         setCourses(data);
         setStatus("Connected to Backend");
-        setError("");
+        setErrorFor("courses", "");
       } catch (err) {
         if (cancelled) return;
         setStatus("Backend offline");
-        setError(err.message);
+        setErrorFor("courses", err.message);
       }
     }
     loadCourses();
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, setErrorFor]);
 
   // 2. Load channels whenever the selected course changes
   const courseId = course?.id;
@@ -796,33 +828,28 @@ export default function SpacesChat({
           ...prev,
           [courseId]: data
         }));
+        setErrorFor("channels", "");
       } catch (err) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setErrorFor("channels", err.message);
       }
     }
     loadChannels();
     return () => {
       cancelled = true;
     };
-  }, [courseId]);
+  }, [courseId, setErrorFor]);
 
   // 3. Fetch messages for the open channel
   const channelId = channel?.id;
   const loadMessages = useCallback(async () => {
     if (!channelId) return;
-    try {
-      const data = await getChannelMessages(channelId);
-      setMessagesByChannel(prev => ({
-        ...prev,
-        [channelId]: data
-      }));
-      setStatus("Connected to Backend");
-      setError("");
-    } catch (err) {
-      setStatus("Backend offline");
-      setError(err.message);
-    }
+    const data = await getChannelMessages(channelId);
+    setMessagesByChannel(prev => ({
+      ...prev,
+      [channelId]: data
+    }));
   }, [channelId]);
+
 
     // 4. Load the Find Study Partners view (pending requests + suggestions) when it's
   //    opened, and re-check every PARTNER_POLL_MS so the other person's actions show up
@@ -842,9 +869,13 @@ export default function SpacesChat({
     }
     refresh(true);
     const timer = setInterval(() => refresh(false), PARTNER_POLL_MS);
+    const stopListening = onSocketEvent("friends-changed", () => refresh(false));
+    const stopReconnect = onSocketEvent("connect", () => refresh(false));
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
   }, [userId, activeTab, partnerView, loadSuggested, loadRequests]);
 
@@ -868,20 +899,47 @@ export default function SpacesChat({
     }
     refresh(true);
     const timer = setInterval(() => refresh(false), PARTNER_POLL_MS);
+    const stopListening = onSocketEvent("friends-changed", () => refresh(false));
+    const stopReconnect = onSocketEvent("connect", () => refresh(false));
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
   }, [userId, activeTab, partnerView, loadFriends, loadRequests]);
 
 
   // Load on channel change + poll so messages from other users appear
+  // only while a course channel is actually on screen (not a DM, group, or other tab).
   useEffect(() => {
-    if (!channelId) return;
-    loadMessages();
-    const timer = setInterval(loadMessages, POLL_MS);
-    return () => clearInterval(timer);
-  }, [channelId, loadMessages]);
+    if (!channelId || activeTab !== "chat" || !showingChannel) return;
+    let cancelled = false;
+    async function refresh() {
+      try {
+        await loadMessages();
+        if (cancelled) return;
+        setStatus("Connected to Backend");
+        setErrorFor("channel", "");
+      } catch (err) {
+        if (cancelled) return;
+        setStatus("Backend offline");
+        setErrorFor("channel", err.message);
+      }
+    }
+    refresh();
+    const stopWatching = watchRoom({ type: "channel", id: channelId }, refresh);
+    const stopListening = onSocketEvent("channel-message", (msg) => {
+      if (Number(msg.channel_id) === Number(channelId)) refresh();
+    });
+    const timer = setInterval(refresh, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      stopWatching();
+      stopListening();
+    };
+  }, [channelId, activeTab, showingChannel, loadMessages, setErrorFor]);
 
   // 6. Load your DM conversations while the Chat tab is open, re-checking every
   //    PARTNER_POLL_MS so a chat someone starts with you shows up in your sidebar.
@@ -891,17 +949,24 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadConversations();
+        if (!cancelled) setErrorFor("conversations", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load direct messages: ${err.message}`);
+        if (!cancelled) setErrorFor("conversations", `Couldn't load direct messages: ${err.message}`);
       }
     }
     refresh();
+    const stopListening = onSocketEvent("direct-message", refresh);
+    const stopFriends = onSocketEvent("friends-changed", refresh);
+    const stopReconnect = onSocketEvent("connect", refresh);
     const timer = setInterval(refresh, PARTNER_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
+      stopFriends();
     };
-  }, [userId, activeTab, loadConversations]);
+  }, [userId, activeTab, loadConversations, setErrorFor]);
 
   // 7. Load the open DM from the database and poll it like a course channel,
   //    so the other person's replies appear.
@@ -911,17 +976,25 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadDirectMessages(activeFriendId);
+        if (!cancelled) setErrorFor("dm", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load messages: ${err.message}`);
+        if (!cancelled) setErrorFor("dm", `Couldn't load messages: ${err.message}`);
       }
     }
     refresh();
+    const stopListening = onSocketEvent("direct-message", (msg) => {
+      const otherId = Number(msg.sender_id) === Number(userId) ? msg.receiver_id : msg.sender_id;
+      if (Number(otherId) === Number(activeFriendId)) refresh();
+    });
+    const stopReconnect = onSocketEvent("connect", refresh);
     const timer = setInterval(refresh, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
-  }, [activeFriendId, loadDirectMessages]);
+  }, [userId, activeFriendId, loadDirectMessages, setErrorFor]);
   
   // 8. Load the groups whose chat you can open (yours + ones you teach) for the
   //    Chat tab's sidebar, re-checking every PARTNER_POLL_MS.
@@ -932,8 +1005,9 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadMyGroups();
+        if (!cancelled) setErrorFor("groups", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load study groups: ${err.message}`);
+        if (!cancelled) setErrorFor("groups", `Couldn't load study groups: ${err.message}`);
       }
     }
     refresh();
@@ -942,7 +1016,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [userId, activeTab, partnerView, loadMyGroups]);
+  }, [userId, activeTab, partnerView, loadMyGroups, setErrorFor]);
 
   // 9. Load the open group channel from the database and poll it like a course
   //    channel, so other members' messages appear.
@@ -952,17 +1026,24 @@ export default function SpacesChat({
     async function refresh() {
       try {
         await loadGroupMessages(activeGroupId, groupChannel);
+        if (!cancelled) setErrorFor("groupMessages", "");
       } catch (err) {
-        if (!cancelled) setError(`Couldn't load messages: ${err.message}`);
+        if (!cancelled) setErrorFor("groupMessages", `Couldn't load messages: ${err.message}`);
       }
     }
     refresh();
+    const stopWatching = watchRoom({ type: "group", id: activeGroupId }, refresh);
+    const stopListening = onSocketEvent("group-message", (msg) => {
+      if (Number(msg.group_id) === Number(activeGroupId) && msg.channel === groupChannel) refresh();
+    });
     const timer = setInterval(refresh, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopWatching();
+      stopListening();
     };
-  }, [activeGroupId, groupChannel, loadGroupMessages]);
+  }, [activeGroupId, groupChannel, loadGroupMessages, setErrorFor]);
 
   // 10. Load Discover and your invites while the Study Groups tab is open,
   //     re-checking every PARTNER_POLL_MS so new groups and invites show up.
@@ -979,9 +1060,13 @@ export default function SpacesChat({
     }
     refresh();
     const timer = setInterval(refresh, PARTNER_POLL_MS);
+    const stopListening = onSocketEvent("group-invites-changed", refresh);
+    const stopReconnect = onSocketEvent("connect", refresh);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
   }, [userId, activeTab, loadDiscoverGroups, loadGroupInvites]);
 
@@ -1012,10 +1097,18 @@ export default function SpacesChat({
   }, [activeTab, activeGroupId, showingChannel, courseId, loadGroupMembers, loadCourseMembers]);
 
   // Auto-scroll when a new message arrives or the channel changes
+  //    Always on a chat switch or first load; otherwise only if you're already near the
+  //    bottom, so reading older messages doesn't get interrupted.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: "smooth"
-    });
+    const box = messageListRef.current;
+    const switchedChat = lastScrolledTitleRef.current !== chatTitle;
+    const firstLoad = lastMessageCountRef.current === 0;
+    lastScrolledTitleRef.current = chatTitle;
+    lastMessageCountRef.current = visibleMessages.length;
+    const nearBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 200;
+    if (switchedChat || firstLoad || nearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [visibleMessages.length, chatTitle]);
 
    // 4. Send a message. Course channels, study groups and DMs are all saved to the
@@ -1039,10 +1132,11 @@ export default function SpacesChat({
       } else {
         await sendChannelMessage(channelId, content);
         setInputText("");
-        await loadMessages();
+        await loadMessages().catch(() => {});
       }
+      setSendError(null);
     } catch (err) {
-      setError(`Message not sent: ${err.message}`);
+      setSendError({ target: chatTitle, text: `Message not sent: ${err.message}` });
     } finally {
       setSending(false);
     }
@@ -1117,10 +1211,9 @@ export default function SpacesChat({
           first
         />
         {!collapsed.spaces && <>
-          {courses.length === 0 && status === "Connected to Backend" && <p style={{
-            fontSize: "0.85rem",
-            color: "#64748b"
-          }}>You aren't in any courses yet.</p>}
+          {courses.length === 0 && status === "Connected to Backend" && (
+            <p style={sidebarHintStyle}>You aren't in any courses yet.</p>
+          )}
 
           <ul style={sidebarListStyle}>
             {courses.map(c => {
@@ -1154,13 +1247,14 @@ export default function SpacesChat({
           onToggle={() => toggleSection("groups")}
         />
         {!collapsed.groups && <>
-          {myGroups.length === 0 && <p style={sidebarHintStyle}>Join a group from the Study Groups tab.</p>}
+          {myGroups.length === 0 && <p style={sidebarHintStyle}>Join a group from Discover or accept an invite in the Study Groups tab.</p>}
           <ul style={sidebarListStyle}>
             {myGroups.map(g => {
               const isOpen = activeGroup?.id === g.id;
               return <li key={g.id} style={{ marginBottom: "0.4rem" }}>
                 <div onClick={() => openGroupChat(g.id)} style={sidebarItemStyle(isOpen)}>
                   {g.name}
+                  {g.visibility === "private" && <span style={{ fontWeight: "400", color: "#64748b" }}> 🔒</span>}
                   {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
                 </div>
 
@@ -1176,7 +1270,7 @@ export default function SpacesChat({
 
         {/* DMs you've started with your connections */}
         <SectionHeader
-          title="Direct Messages"
+          title="Study Chats"
           count={dmFriends.length}
           collapsed={collapsed.dms}
           onToggle={() => toggleSection("dms")}
@@ -1191,7 +1285,7 @@ export default function SpacesChat({
               alignItems: "center",
               gap: "0.5rem"
             }}>
-              <Avatar name={f.name} userId={f.id} size={24} />
+              <Avatar name={f.name} userId={f.id} color={f.avatar_color} hasAvatar={f.has_avatar} size={24} />
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {f.name}
               </span>
@@ -1220,13 +1314,14 @@ export default function SpacesChat({
         }}>
           {activeFriend ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
-              <Avatar name={activeFriend.name} userId={activeFriend.id} size={32} />
+              <Avatar name={activeFriend.name} userId={activeFriend.id} color={activeFriend.avatar_color} hasAvatar={activeFriend.has_avatar} size={32} />
               {chatTitle}
             </span>
           ) : (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", minWidth: 0 }}>
               <span>
                 {chatTitle}
+                {activeGroup?.visibility === "private" && <span title="Private group"> 🔒</span>}
                 {activeGroup?.access === "staff" && (
                   <span style={{ fontWeight: "400", color: "#64748b", fontSize: "0.85rem" }}> · Teaching</span>
                 )}
@@ -1234,14 +1329,23 @@ export default function SpacesChat({
               <MemberStrip key={chatTitle} members={headerMembers} max={15} renderCard={renderMemberCard} />
             </span>
           )}
+          {activeGroup?.access === "member" && (
+            <button
+              onClick={handleLeaveGroup}
+              disabled={leavingGroup}
+              style={{ ...secondaryButtonStyle, padding: "0.45rem 0.8rem", marginLeft: "auto" }}
+            >
+              {leavingGroup ? "Leaving..." : "Leave group"}
+            </button>
+          )}
         </div>
 
-        {error && <div style={{
+        {visibleErrors.length > 0 && <div style={{
           padding: "0.5rem 1rem",
           background: "#fef2f2",
           color: "#b91c1c",
           fontSize: "0.8rem"
-        }}>{error}</div>}
+        }}>{visibleErrors.map(text => <div key={text}>{text}</div>)}</div>}
 
         <div style={{
           flex: 1,
@@ -1265,7 +1369,7 @@ export default function SpacesChat({
               alignSelf: mine ? "flex-end" : "flex-start",
               maxWidth: "70%"
             }}>
-              <Avatar name={senderName} userId={msg.user_id} />
+              <Avatar name={senderName} userId={msg.user_id} color={msg.avatar_color} hasAvatar={msg.has_avatar} />
               <div style={{
                 minWidth: 0,
                 overflowWrap: "anywhere",
@@ -1409,13 +1513,13 @@ export default function SpacesChat({
           {outgoingRequests.length > 0 && (
             <div style={{ marginBottom: "1.5rem" }}>
               <h3 style={{ color: "#1e293b", fontSize: "1rem", margin: "0 0 0.75rem" }}>
-                Study Partner Requests
+                Requested Study Partners
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 {outgoingRequests.map(r => (
                   <div key={r.id} style={partnerCardStyle}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                      <Avatar name={r.other_user_name} userId={r.other_user_id} size={36} />
+                      <Avatar name={r.other_user_name} userId={r.other_user_id} color={r.other_user_avatar_color} hasAvatar={r.other_user_has_avatar} size={36} />
                       <div style={{ minWidth: 0 }}>
                         <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
                         <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
@@ -1504,7 +1608,7 @@ export default function SpacesChat({
                 return (
                   <div key={p.id} style={partnerCardStyle}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                      <Avatar name={p.name} userId={p.id} size={36} />
+                      <Avatar name={p.name} userId={p.id} color={p.avatar_color} hasAvatar={p.has_avatar} size={36} />
                       <div style={{ minWidth: 0 }}>
                         <strong style={{ color: "#1e293b" }}>{p.name}</strong>
                         <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>
@@ -1560,7 +1664,7 @@ export default function SpacesChat({
                 <div key={f.id} style={{ border: "1px solid #e2e8f0", borderRadius: "10px" }}>
                   <div style={{ ...partnerCardStyle, border: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                      <Avatar name={f.name} userId={f.id} size={36} />
+                      <Avatar name={f.name} userId={f.id} color={f.avatar_color} hasAvatar={f.has_avatar} size={36} />
                       <div style={{ minWidth: 0 }}>
                         <strong style={{ color: "#1e293b" }}>{f.name}</strong>
                         {f.friends_since && (
@@ -1580,9 +1684,10 @@ export default function SpacesChat({
                       </button>
                       <button
                         onClick={() => handleRemoveFriend(f)}
+                        disabled={removingFriendId === f.id}
                         style={{ ...secondaryButtonStyle, color: "#dc2626" }}
                       >
-                        Remove
+                        {removingFriendId === f.id ? "Removing..." : "Remove"}
                       </button>
                     </div>
                   </div>
@@ -1644,7 +1749,7 @@ export default function SpacesChat({
                   {incomingRequests.map(r => (
                     <div key={r.id} style={partnerCardStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                        <Avatar name={r.other_user_name} userId={r.other_user_id} size={36} />
+                        <Avatar name={r.other_user_name} userId={r.other_user_id} color={r.other_user_avatar_color} hasAvatar={r.other_user_has_avatar} size={36} />
                         <div style={{ minWidth: 0 }}>
                           <strong style={{ color: "#1e293b" }}>{r.other_user_name}</strong>
                           <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "0.2rem" }}>
@@ -1678,7 +1783,6 @@ export default function SpacesChat({
         )}
       </div>
     </div>}
-
     {activeTab === "groups" && (
       <div style={{ display: "flex", height: "calc(100vh - 200px)", border: "1px solid #e2e8f0", borderRadius: "12px", overflow: "hidden", background: "#fff" }}>
 
@@ -1728,6 +1832,9 @@ export default function SpacesChat({
           {groupsError && (
             <p style={{ color: "#dc2626", fontSize: "0.9rem", marginBottom: "1rem" }}>{groupsError}</p>
           )}
+          {groupsNotice && (
+            <p style={{ color: "#15803d", fontSize: "0.9rem", marginBottom: "1rem" }}>{groupsNotice}</p>
+          )}
           {groupView === "discover" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
@@ -1737,13 +1844,13 @@ export default function SpacesChat({
                   </h2>
 
                   <p style={{ color: "#64748b", fontSize: "0.9rem" }}>
-                    Join groups created by students in your courses.
+                    Join public groups created by students in your courses.
                   </p>
                 </div>
 
                 {studentCourses.length > 0 && (
                   <button
-                    onClick={() => setShowCreateGroup(true)}
+                    onClick={() => { setShowCreateGroup(true); setGroupsNotice(""); }}
                     style={{
                       padding: "0.7rem 1rem",
                       background: "#2563eb",
@@ -1850,6 +1957,34 @@ export default function SpacesChat({
                       }}
                     />
 
+                    <div>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        {["public", "private"].map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setNewGroupVisibility(v)}
+                            style={{
+                              padding: "0.5rem 1rem",
+                              border: "1px solid #cbd5e1",
+                              borderRadius: "8px",
+                              cursor: "pointer",
+                              background: newGroupVisibility === v ? "#e0e7ff" : "#fff",
+                              color: newGroupVisibility === v ? "#4338ca" : "#64748b",
+                              fontWeight: newGroupVisibility === v ? "600" : "400",
+                            }}
+                          >
+                            {v === "public" ? "Public" : "🔒 Private"}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.4rem" }}>
+                        {newGroupVisibility === "public"
+                          ? "Anyone in this space can find and join it in Discover."
+                          : "Invite only. It won't appear in Discover. Invite people from Connections or a member's card."}
+                      </p>
+                    </div>
+
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                       <button
                         onClick={handleCreateGroup}
@@ -1868,7 +2003,7 @@ export default function SpacesChat({
                       </button>
 
                       <button
-                        onClick={() => setShowCreateGroup(false)}
+                        onClick={() => { setShowCreateGroup(false); setNewGroupVisibility("public"); }}
                         style={{
                           padding: "0.6rem 1rem",
                           background: "#f1f5f9",
@@ -1889,7 +2024,7 @@ export default function SpacesChat({
              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                 {discoverGroups.length === 0 && (
                   <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                    No study groups in your courses yet. Create the first one!
+                    No public study groups in your courses yet. Create the first one!
                   </p>
                 )}
 
@@ -1920,17 +2055,22 @@ export default function SpacesChat({
                       </div>
 
                       {g.my_role === "student" ? (
-                        <button
-                          onClick={() => handleJoinToggle(g)}
-                          disabled={busyGroupId === g.id}
-                          style={{
-                            ...primaryButtonStyle,
-                            background: g.is_member ? "#e2e8f0" : "#2563eb",
-                            color: g.is_member ? "#475569" : "#fff",
-                          }}
-                        >
-                          {g.is_member ? "Joined ✓" : "Join"}
-                        </button>
+                        g.is_member ? (
+                          <span
+                            title="Leave from the group's chat"
+                            style={{ fontSize: "0.85rem", fontWeight: "600", color: "#475569" }}
+                          >
+                            Joined ✓
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleJoinGroup(g)}
+                            disabled={busyGroupId === g.id}
+                            style={primaryButtonStyle}
+                          >
+                            {busyGroupId === g.id ? "Joining..." : "Join"}
+                          </button>
+                        )
                       ) : (
                         <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#64748b" }}>
                           Teaching
@@ -1964,6 +2104,7 @@ export default function SpacesChat({
                     <div>
                       <strong style={{ color: "#1e293b" }}>
                         {inv.group_name}
+                        {inv.visibility === "private" && <span style={privateBadgeStyle}>🔒 Private</span>}
                       </strong>
 
                       <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.3rem" }}>

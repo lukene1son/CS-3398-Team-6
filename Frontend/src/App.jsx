@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import {getToken, logout, onSessionExpired } from './api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { getToken, logout, onSessionExpired, getMe } from './api';
+import { disconnectSocket } from './socket';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
 
@@ -65,6 +66,31 @@ export default function App() {
     return stopListening;
   }, []);
 
+  // Close the live connection when the user logs out or their session expires.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    return () => disconnectSocket();
+  }, [currentUser?.id]);
+
+  // Merge changes into the saved user (e.g. new avatar color from Settings).
+  const handleUserChange = useCallback((changes) => {
+    setCurrentUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...changes };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }, []);
+    // The login response has no picture or color info, so load it from /api/me.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    getMe().then(handleUserChange).catch(() => { /* keep what we have */ });
+  }, [currentUser?.id, handleUserChange]);
+
   const handleLogin = (user) => {
     setCurrentUser(user);
     try {
@@ -108,7 +134,7 @@ export default function App() {
           path="/dashboard"
           element={
             currentUser ? (
-              <Dashboard user={currentUser} onLogout={handleLogout} />
+               <Dashboard user={currentUser} onLogout={handleLogout} onUserChange={handleUserChange} />
             ) : (
               <Navigate to="/login" replace />
             )

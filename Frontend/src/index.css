@@ -16,3 +16,18 @@ a {
   text-decoration: none;
   color: inherit;
 }
+
+/* Resources page: the file picker's "Choose File" button. A fixed height lets the
+   picker's top padding (in Resources.jsx) center it in the box. */
+.resource-file-input::file-selector-button {
+    height: 1.75rem;
+    margin: 0 0.75rem 0 0;
+    padding: 0 0.75rem;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+}

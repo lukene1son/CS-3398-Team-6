@@ -1,25 +1,34 @@
 const express = require("express");
 const pool = require("../db");
 const { groupInviteLimiter } = require("../middleware/rateLimits");
+const { emitTo, removeFromRoom } = require("../realtime");
 
 const router = express.Router();
 
-// Every route here runs after requireAuth, so req.user.id is the logged-in user.
-//
 // Who can see a study group's chat:
 //   - members of the group who are still in its course: read AND post
-//   - teachers/TAs of the group's course: read AND post, without joining
+//   - teachers/TAs of the group's course: read AND post, without joining (public AND private groups)
 // Members are always students in the group's course; teachers/TAs never join (they don't need to).
 // Everyone else gets 403, including other students in the same course.
-
+//
+// Visibility:
+//   - public:  listed in Discover; any student in the course can join
+//   - private: never listed in Discover (for anyone); students join only by accepting an invite
+// A group is deleted when its last member leaves.
 const STAFF_ROLES = ["teacher", "ta"]; // same as server.js
 const GROUP_CHANNELS = ["general", "homework", "meetups"]; // same as the ENUM in schema.sql
 const MAX_MESSAGE_LENGTH = 2000;
+const MESSAGE_HISTORY_LIMIT = 200; // same as server.js
 
 // Turns a route param / body value into a positive integer id, or null.
 function toId(value) {
     const id = Number(value);
     return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+// Tell a user (every open tab) that their study group invites changed.
+function notifyInvitesChanged(userId) {
+    emitTo(`user:${userId}`, "group-invites-changed", {});
 }
 
 // null if the group doesn't exist; otherwise what this user is allowed to do with it.
@@ -28,6 +37,7 @@ async function getGroupAccess(userId, groupId) {
         `
         SELECT
             study_groups.course_id,
+            study_groups.visibility,
             course_members.role AS course_role,
             (study_group_members.user_id IS NOT NULL) AS is_member
         FROM study_groups
@@ -43,7 +53,7 @@ async function getGroupAccess(userId, groupId) {
     );
     if (rows.length === 0) return null;
 
-    const { course_id, course_role, is_member } = rows[0];
+    const { course_id, visibility, course_role, is_member } = rows[0];
     const inCourse = course_role !== null;
     const isMember = Boolean(is_member) && inCourse; // left the course = lost access
     const isStaff = STAFF_ROLES.includes(course_role);
@@ -54,14 +64,15 @@ async function getGroupAccess(userId, groupId) {
         isStaff,
         canRead: isMember || isStaff,
         canPost: isMember || isStaff,
+        isPrivate: visibility === "private",
     };
 }
 
 // ---- Listing groups ----
 
 // GET /api/me/study-groups/discover
-// Every group in the courses you're in (the Discover list). Names and member
-// counts only. Messages are NOT included, so this doesn't leak any chat.
+// Every PUBLIC group in the courses you're in (the Discover list). Private groups
+// never show here, for anyone. Names and member counts only; no messages.
 router.get("/me/study-groups/discover", async (req, res) => {
     try {
         const me = req.user.id;
@@ -76,7 +87,8 @@ router.get("/me/study-groups/discover", async (req, res) => {
                 COUNT(DISTINCT members.user_id) AS member_count,
                 MAX(members.user_id = ?) AS is_member,
                 course_members.role AS my_role,
-                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role))
+                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role,
+            'avatar_color', users.avatar_color, 'has_avatar', users.avatar_stored_name IS NOT NULL))
                  FROM study_group_members AS group_members
                  JOIN users ON users.id = group_members.user_id
                  JOIN course_members AS member_roles
@@ -87,7 +99,7 @@ router.get("/me/study-groups/discover", async (req, res) => {
             JOIN study_groups ON study_groups.course_id = course_members.course_id
             JOIN courses ON courses.id = study_groups.course_id
             LEFT JOIN study_group_members AS members ON members.group_id = study_groups.id
-            WHERE course_members.user_id = ?
+            WHERE course_members.user_id = ? AND study_groups.visibility = 'public'
             GROUP BY study_groups.id, study_groups.name, study_groups.meeting_time,
                      study_groups.course_id, courses.course_code, course_members.role
             ORDER BY courses.course_code ASC, study_groups.name ASC
@@ -119,6 +131,7 @@ router.get("/me/study-groups", async (req, res) => {
                 study_groups.id,
                 study_groups.name,
                 study_groups.meeting_time,
+                study_groups.visibility,
                 study_groups.course_id,
                 courses.course_code,
                 (members.user_id IS NOT NULL) AS is_member
@@ -147,7 +160,7 @@ router.get("/me/study-groups", async (req, res) => {
 
 // ---- Creating, joining, leaving ----
 
-// POST /api/study-groups  { course_id, name, meeting_time? }
+// POST /api/study-groups  { course_id, name, meeting_time?, visibility?: "public" | "private" }
 // Any student in the course can create a group; the creator joins it automatically.
 // Teachers/TAs don't create or join groups; they can already see every group in their courses.
 router.post("/study-groups", async (req, res) => {
@@ -156,6 +169,7 @@ router.post("/study-groups", async (req, res) => {
     const courseId = toId(body.course_id);
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const meetingTime = typeof body.meeting_time === "string" ? body.meeting_time.trim() : "";
+    const visibility = body.visibility === undefined ? "public" : body.visibility;
 
     if (!courseId) return res.status(400).json({ error: "course_id is required" });
     if (!name || name.length > 100) {
@@ -163,6 +177,10 @@ router.post("/study-groups", async (req, res) => {
     }
     if (meetingTime.length > 100) {
         return res.status(400).json({ error: "meeting_time is 100 characters max" });
+    }
+
+    if (visibility !== "public" && visibility !== "private") {
+        return res.status(400).json({ error: "visibility must be public or private" });
     }
 
     let connection;
@@ -182,8 +200,8 @@ router.post("/study-groups", async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
         const [result] = await connection.query(
-            "INSERT INTO study_groups (course_id, name, meeting_time, created_by) VALUES (?, ?, ?, ?)",
-            [courseId, name, meetingTime || null, me]
+            "INSERT INTO study_groups (course_id, name, meeting_time, created_by, visibility) VALUES (?, ?, ?, ?, ?)",
+            [courseId, name, meetingTime || null, me, visibility]
         );
         await connection.query(
             "INSERT INTO study_group_members (group_id, user_id) VALUES (?, ?)",
@@ -196,6 +214,7 @@ router.post("/study-groups", async (req, res) => {
             course_id: courseId,
             name,
             meeting_time: meetingTime || null,
+            visibility,
             access: "member",
             can_post: true,
         });
@@ -209,6 +228,7 @@ router.post("/study-groups", async (req, res) => {
 });
 
 // POST /api/me/study-groups/:id  - join a group in one of your courses.
+// Public groups: any student in the course. Private groups: only with a pending invite.
 router.post("/me/study-groups/:id", async (req, res) => {
     try {
         const groupId = toId(req.params.id);
@@ -220,6 +240,16 @@ router.post("/me/study-groups/:id", async (req, res) => {
 
         if (access.isStaff) {
             return res.status(403).json({ error: "Teachers and TAs can already see this group without joining" });
+        }
+        // Private groups are invite-only. 404 (not 403) so we don't confirm the group exists.
+        if (access.isPrivate && !access.isMember) {
+            const [invites] = await pool.query(
+                "SELECT id FROM study_group_invites WHERE group_id = ? AND invitee_id = ? AND status = 'pending'",
+                [groupId, req.user.id]
+            );
+            if (invites.length === 0) {
+                return res.status(404).json({ error: "Study group not found" });
+            }
         }
 
         // INSERT IGNORE: joining twice is harmless.
@@ -246,22 +276,55 @@ router.post("/me/study-groups/:id", async (req, res) => {
 });
 
 // DELETE /api/me/study-groups/:id  - leave a group.
+// If you were the last member, the group is deleted too (its messages, members
+// and invites go with it via ON DELETE CASCADE). All-or-nothing.
 router.delete("/me/study-groups/:id", async (req, res) => {
-    try {
-        const groupId = toId(req.params.id);
-        if (!groupId) return res.status(400).json({ error: "Invalid group id" });
+    const groupId = toId(req.params.id);
+    if (!groupId) return res.status(400).json({ error: "Invalid group id" });
 
-        const [result] = await pool.query(
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // Lock the group row so two last members leaving at once can't both
+        // see "1 remaining" and leave an empty group behind.
+        const [groups] = await connection.query(
+            "SELECT id FROM study_groups WHERE id = ? FOR UPDATE",
+            [groupId]
+        );
+        if (groups.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: "You are not in this study group" });
+        }
+
+        const [result] = await connection.query(
             "DELETE FROM study_group_members WHERE group_id = ? AND user_id = ?",
             [groupId, req.user.id]
         );
         if (result.affectedRows === 0) {
+            await connection.rollback();
             return res.status(404).json({ error: "You are not in this study group" });
         }
-        res.json({ group_id: groupId, joined: false });
+
+        const [[{ remaining }]] = await connection.query(
+            "SELECT COUNT(*) AS remaining FROM study_group_members WHERE group_id = ?",
+            [groupId]
+        );
+        const deleted = Number(remaining) === 0;
+        if (deleted) {
+            await connection.query("DELETE FROM study_groups WHERE id = ?", [groupId]);
+        }
+
+        await connection.commit();
+        removeFromRoom(req.user.id, `group:${groupId}`);
+        res.json({ group_id: groupId, joined: false, deleted });
     } catch (error) {
+        if (connection) await connection.rollback().catch(() => {});
         console.error("Error leaving study group:", error);
         res.status(500).json({ error: "Failed to leave study group" });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
@@ -275,6 +338,9 @@ router.get("/study-groups/:id/members", async (req, res) => {
 
         const access = await getGroupAccess(req.user.id, groupId);
         if (!access) return res.status(404).json({ error: "Study group not found" });
+        if (access.isPrivate && !access.canRead) {
+            return res.status(404).json({ error: "Study group not found" });
+        }
         if (!access.canRead) {
             return res.status(403).json({ error: "You don't have access to this study group" });
         }
@@ -283,7 +349,8 @@ router.get("/study-groups/:id/members", async (req, res) => {
         // the same rule getGroupAccess uses.
         const [rows] = await pool.query(
             `
-            SELECT users.id, users.name, course_members.role
+             SELECT users.id, users.name, users.avatar_color,
+                 users.avatar_stored_name IS NOT NULL AS has_avatar, course_members.role
             FROM study_group_members
             JOIN users ON users.id = study_group_members.user_id
             JOIN study_groups ON study_groups.id = study_group_members.group_id
@@ -316,6 +383,9 @@ router.get("/study-groups/:id/messages", async (req, res) => {
 
         const access = await getGroupAccess(req.user.id, groupId);
         if (!access) return res.status(404).json({ error: "Study group not found" });
+                if (access.isPrivate && !access.canRead) {
+            return res.status(404).json({ error: "Study group not found" });
+        }
         if (!access.canRead) {
             return res.status(403).json({ error: "You don't have access to this study group" });
         }
@@ -329,16 +399,20 @@ router.get("/study-groups/:id/messages", async (req, res) => {
                 study_group_messages.channel,
                 study_group_messages.user_id,
                 users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
                 study_group_messages.content,
                 study_group_messages.created_at
             FROM study_group_messages
             JOIN users ON users.id = study_group_messages.user_id
             WHERE study_group_messages.group_id = ? AND study_group_messages.channel = ?
-            ORDER BY study_group_messages.created_at ASC, study_group_messages.id ASC
+            ORDER BY study_group_messages.created_at DESC, study_group_messages.id DESC
+            LIMIT ?
             `,
-            [groupId, channel]
+            [groupId, channel, MESSAGE_HISTORY_LIMIT]
         );
-        res.json(rows);
+        // Fetched newest-first so LIMIT keeps the latest ones; send them oldest-first.
+        res.json(rows.reverse());
     } catch (error) {
         console.error("Error fetching study group messages:", error);
         res.status(500).json({ error: "Failed to fetch messages" });
@@ -364,6 +438,9 @@ router.post("/study-groups/:id/messages", async (req, res) => {
 
         const access = await getGroupAccess(req.user.id, groupId);
         if (!access) return res.status(404).json({ error: "Study group not found" });
+        if (access.isPrivate && !access.canPost) {
+            return res.status(404).json({ error: "Study group not found" });
+        }
         if (!access.canPost) {
             return res.status(403).json({ error: "You don't have access to this study group" });
         }
@@ -372,7 +449,26 @@ router.post("/study-groups/:id/messages", async (req, res) => {
             "INSERT INTO study_group_messages (group_id, channel, user_id, content) VALUES (?, ?, ?, ?)",
             [groupId, channel, req.user.id, content]
         );
-        res.status(201).json({ id: result.insertId, group_id: groupId, channel, user_id: req.user.id, content });
+       const [rows] = await pool.query(
+            `
+            SELECT
+                study_group_messages.id,
+                study_group_messages.group_id,
+                study_group_messages.channel,
+                study_group_messages.user_id,
+                users.name AS user_name,
+                users.avatar_color,
+                users.avatar_stored_name IS NOT NULL AS has_avatar,
+                study_group_messages.content,
+                study_group_messages.created_at
+            FROM study_group_messages
+            JOIN users ON users.id = study_group_messages.user_id
+            WHERE study_group_messages.id = ?
+            `,
+            [result.insertId]
+        );
+        emitTo(`group:${groupId}`, "group-message", { group_id: groupId, channel });
+       res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending study group message:", error);
         res.status(500).json({ error: "Failed to send message" });
@@ -395,7 +491,11 @@ router.post("/study-groups/:id/invites", groupInviteLimiter, async (req, res) =>
         if (inviteeId === me) return res.status(400).json({ error: "You can't invite yourself" });
 
         const access = await getGroupAccess(me, groupId);
+
         if (!access) return res.status(404).json({ error: "Study group not found" });
+        if (access.isPrivate && !access.canPost) {
+            return res.status(404).json({ error: "Study group not found" });
+        }
         if (!access.canPost) {
             return res.status(403).json({ error: "You don't have access to this study group" });
         }
@@ -434,6 +534,7 @@ router.post("/study-groups/:id/invites", groupInviteLimiter, async (req, res) =>
                 `,
                 [me, existing[0].id]
             );
+            notifyInvitesChanged(inviteeId);
             return res.status(201).json({
                 id: existing[0].id,
                 group_id: groupId,
@@ -447,6 +548,7 @@ router.post("/study-groups/:id/invites", groupInviteLimiter, async (req, res) =>
             "INSERT INTO study_group_invites (group_id, inviter_id, invitee_id) VALUES (?, ?, ?)",
             [groupId, me, inviteeId]
         );
+        notifyInvitesChanged(inviteeId);
         res.status(201).json({
             id: result.insertId,
             group_id: groupId,
@@ -482,11 +584,13 @@ router.get("/me/study-group-invites", async (req, res) => {
                 study_group_invites.id,
                 study_group_invites.group_id,
                 study_groups.name AS group_name,
+                study_groups.visibility,
                 study_groups.meeting_time,
                 courses.course_code,
                 (SELECT COUNT(*) FROM study_group_members
                  WHERE study_group_members.group_id = study_groups.id) AS member_count,
-                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role))
+                (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', users.id, 'name', users.name, 'role', member_roles.role,
+                'avatar_color', users.avatar_color, 'has_avatar', users.avatar_stored_name IS NOT NULL))
                  FROM study_group_members AS group_members
                  JOIN users ON users.id = group_members.user_id
                  JOIN course_members AS member_roles
@@ -588,6 +692,7 @@ router.patch("/me/study-group-invites/:id", async (req, res) => {
         }
 
         await connection.commit();
+        notifyInvitesChanged(req.user.id);
         res.json({ id: inviteId, group_id: invite.group_id, status });
     } catch (error) {
         if (connection) await connection.rollback().catch(() => {});
@@ -604,19 +709,29 @@ router.delete("/me/study-group-invites/:id", async (req, res) => {
     try {
         const inviteId = toId(req.params.id);
         if (!inviteId) return res.status(400).json({ error: "Invalid invite id" });
-
+        
+        const [[invite]] = await pool.query(
+            "SELECT invitee_id FROM study_group_invites WHERE id = ? AND inviter_id = ? AND status = 'pending'",
+            [inviteId, req.user.id]
+        );
         const [result] = await pool.query(
             "DELETE FROM study_group_invites WHERE id = ? AND inviter_id = ? AND status = 'pending'",
             [inviteId, req.user.id]
         );
+
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: "Invite not found" });
         }
+
+        if (invite) notifyInvitesChanged(invite.invitee_id);
         res.json({ id: inviteId, deleted: true });
     } catch (error) {
         console.error("Error cancelling study group invite:", error);
         res.status(500).json({ error: "Failed to cancel invite" });
     }
 });
+
+// Used by realtime.js to check who can join a group's live updates.
+router.getGroupAccess = getGroupAccess;
 
 module.exports = router;
