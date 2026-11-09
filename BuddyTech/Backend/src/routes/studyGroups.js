@@ -1,6 +1,7 @@
 const express = require("express");
 const pool = require("../db");
 const { groupInviteLimiter } = require("../middleware/rateLimits");
+const { emitTo, removeFromRoom } = require("../realtime");
 
 const router = express.Router();
 
@@ -23,6 +24,11 @@ const MESSAGE_HISTORY_LIMIT = 200; // same as server.js
 function toId(value) {
     const id = Number(value);
     return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+// Tell a user (every open tab) that their study group invites changed.
+function notifyInvitesChanged(userId) {
+    emitTo(`user:${userId}`, "group-invites-changed", {});
 }
 
 // null if the group doesn't exist; otherwise what this user is allowed to do with it.
@@ -311,6 +317,7 @@ router.delete("/me/study-groups/:id", async (req, res) => {
         }
 
         await connection.commit();
+        removeFromRoom(req.user.id, `group:${groupId}`);
         res.json({ group_id: groupId, joined: false, deleted });
     } catch (error) {
         if (connection) await connection.rollback().catch(() => {});
@@ -460,6 +467,7 @@ router.post("/study-groups/:id/messages", async (req, res) => {
             `,
             [result.insertId]
         );
+        emitTo(`group:${groupId}`, "group-message", { group_id: groupId, channel });
        res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending study group message:", error);
@@ -526,6 +534,7 @@ router.post("/study-groups/:id/invites", groupInviteLimiter, async (req, res) =>
                 `,
                 [me, existing[0].id]
             );
+            notifyInvitesChanged(inviteeId);
             return res.status(201).json({
                 id: existing[0].id,
                 group_id: groupId,
@@ -539,6 +548,7 @@ router.post("/study-groups/:id/invites", groupInviteLimiter, async (req, res) =>
             "INSERT INTO study_group_invites (group_id, inviter_id, invitee_id) VALUES (?, ?, ?)",
             [groupId, me, inviteeId]
         );
+        notifyInvitesChanged(inviteeId);
         res.status(201).json({
             id: result.insertId,
             group_id: groupId,
@@ -682,6 +692,7 @@ router.patch("/me/study-group-invites/:id", async (req, res) => {
         }
 
         await connection.commit();
+        notifyInvitesChanged(req.user.id);
         res.json({ id: inviteId, group_id: invite.group_id, status });
     } catch (error) {
         if (connection) await connection.rollback().catch(() => {});
@@ -698,19 +709,29 @@ router.delete("/me/study-group-invites/:id", async (req, res) => {
     try {
         const inviteId = toId(req.params.id);
         if (!inviteId) return res.status(400).json({ error: "Invalid invite id" });
-
+        
+        const [[invite]] = await pool.query(
+            "SELECT invitee_id FROM study_group_invites WHERE id = ? AND inviter_id = ? AND status = 'pending'",
+            [inviteId, req.user.id]
+        );
         const [result] = await pool.query(
             "DELETE FROM study_group_invites WHERE id = ? AND inviter_id = ? AND status = 'pending'",
             [inviteId, req.user.id]
         );
+
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: "Invite not found" });
         }
+
+        if (invite) notifyInvitesChanged(invite.invitee_id);
         res.json({ id: inviteId, deleted: true });
     } catch (error) {
         console.error("Error cancelling study group invite:", error);
         res.status(500).json({ error: "Failed to cancel invite" });
     }
 });
+
+// Used by realtime.js to check who can join a group's live updates.
+router.getGroupAccess = getGroupAccess;
 
 module.exports = router;

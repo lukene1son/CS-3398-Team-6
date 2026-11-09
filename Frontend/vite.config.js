@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: env.VITE_API_TARGET || 'http://localhost:3000',
           changeOrigin: true,
+          ws: true, // also forward WebSocket connections (Socket.IO at /api/socket.io)
           // Pass the user's real IP to the backend (used by the login rate limits).
           // REPLACE X-Forwarded-For instead of appending to it (what xfwd did), so a
           // client can't send a fake one that the backend would believe.

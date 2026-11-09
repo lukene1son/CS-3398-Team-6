@@ -1,5 +1,6 @@
 const express = require("express");
 const pool = require("../db");
+const { emitTo } = require("../realtime");
 
 const router = express.Router();
 
@@ -142,6 +143,12 @@ router.post("/me/direct-messages/:userId", async (req, res) => {
             `,
             [result.insertId]
         );
+
+        // Both people's rooms: the receiver sees it, and the sender's other tabs do too.
+        const notice = { sender_id: me, receiver_id: otherId };
+        emitTo(`user:${me}`, "direct-message", notice);
+        emitTo(`user:${otherId}`, "direct-message", notice);
+
         res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending direct message:", error);

@@ -81,6 +81,7 @@ const friendRequestLimiter = rateLimit({
     handler: tooMany("You're sending friend requests too quickly. Please try again later."),
 });
 
+
 // Per sender + receiver pair: stops one user from re-sending a request to the
 // same person over and over (e.g. right after it's declined).
 const friendRequestPairLimiter = rateLimit({

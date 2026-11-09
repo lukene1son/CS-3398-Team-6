@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getToken, logout, onSessionExpired, getMe } from './api';
+import { disconnectSocket } from './socket';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
 
@@ -64,6 +65,12 @@ export default function App() {
     });
     return stopListening;
   }, []);
+
+  // Close the live connection when the user logs out or their session expires.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    return () => disconnectSocket();
+  }, [currentUser?.id]);
 
   // Merge changes into the saved user (e.g. new avatar color from Settings).
   const handleUserChange = useCallback((changes) => {

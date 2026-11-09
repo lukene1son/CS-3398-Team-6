@@ -10,6 +10,8 @@ const STAFF_ROLES = ["teacher", "ta"];
 const express = require("express");
 const pool = require("./db");
 const requireAuth = require("./middleware/requireAuth");
+const http = require("http");
+const { initRealtime, emitTo } = require("./realtime");
 
 const app = express();
 
@@ -30,7 +32,8 @@ app.use("/api", requireAuth);
 app.use("/api/ai", require("./routes/ai"));
 
 app.use("/api", require("./routes/friends"));
-app.use("/api", require("./routes/studyGroups"));
+const studyGroupsRouter = require("./routes/studyGroups");
+app.use("/api", studyGroupsRouter);
 app.use("/api", require("./routes/directMessages"));
 app.use("/api", require("./routes/resources"));
 app.use("/api", require("./routes/userSettings"));
@@ -239,7 +242,7 @@ app.post("/api/channels/:id/messages", async (req, res) => {
             `,
             [req.params.id, user_id, content]
         );
-
+        emitTo(`channel:${Number(req.params.id)}`, "channel-message", { channel_id: Number(req.params.id) });
         res.status(201).json({
             id: result.insertId,
             channel_id: Number(req.params.id),
@@ -464,6 +467,13 @@ app.patch("/api/assignments/:id/status", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+// Express and Socket.IO share one HTTP server (see realtime.js).
+const server = http.createServer(app);
+initRealtime(server, {
+    canAccessChannel,
+    getGroupAccess: studyGroupsRouter.getGroupAccess,
+});
+
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

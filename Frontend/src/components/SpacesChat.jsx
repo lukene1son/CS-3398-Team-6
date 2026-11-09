@@ -6,9 +6,10 @@ getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMy
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
 getCourseMembers, getGroupMembers } from "../api";
 import Avatar from "./Avatar";
+import { onSocketEvent, watchRoom } from "../socket";
 
 const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
-const POLL_MS = 3000; // how often we re-fetch messages so other users' chats show up
+const POLL_MS = 60000; // safety net only; live updates come over the socket (socket.js)
 const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid #e2e8f0", borderRadius: "10px" };
 const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
@@ -868,9 +869,13 @@ export default function SpacesChat({
     }
     refresh(true);
     const timer = setInterval(() => refresh(false), PARTNER_POLL_MS);
+    const stopListening = onSocketEvent("friends-changed", () => refresh(false));
+    const stopReconnect = onSocketEvent("connect", () => refresh(false));
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
   }, [userId, activeTab, partnerView, loadSuggested, loadRequests]);
 
@@ -894,9 +899,13 @@ export default function SpacesChat({
     }
     refresh(true);
     const timer = setInterval(() => refresh(false), PARTNER_POLL_MS);
+    const stopListening = onSocketEvent("friends-changed", () => refresh(false));
+    const stopReconnect = onSocketEvent("connect", () => refresh(false));
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
   }, [userId, activeTab, partnerView, loadFriends, loadRequests]);
 
@@ -919,10 +928,16 @@ export default function SpacesChat({
       }
     }
     refresh();
+    const stopWatching = watchRoom({ type: "channel", id: channelId }, refresh);
+    const stopListening = onSocketEvent("channel-message", (msg) => {
+      if (Number(msg.channel_id) === Number(channelId)) refresh();
+    });
     const timer = setInterval(refresh, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopWatching();
+      stopListening();
     };
   }, [channelId, activeTab, showingChannel, loadMessages, setErrorFor]);
 
@@ -940,10 +955,16 @@ export default function SpacesChat({
       }
     }
     refresh();
+    const stopListening = onSocketEvent("direct-message", refresh);
+    const stopFriends = onSocketEvent("friends-changed", refresh);
+    const stopReconnect = onSocketEvent("connect", refresh);
     const timer = setInterval(refresh, PARTNER_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
+      stopFriends();
     };
   }, [userId, activeTab, loadConversations, setErrorFor]);
 
@@ -961,12 +982,19 @@ export default function SpacesChat({
       }
     }
     refresh();
+    const stopListening = onSocketEvent("direct-message", (msg) => {
+      const otherId = Number(msg.sender_id) === Number(userId) ? msg.receiver_id : msg.sender_id;
+      if (Number(otherId) === Number(activeFriendId)) refresh();
+    });
+    const stopReconnect = onSocketEvent("connect", refresh);
     const timer = setInterval(refresh, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
-  }, [activeFriendId, loadDirectMessages, setErrorFor]);
+  }, [userId, activeFriendId, loadDirectMessages, setErrorFor]);
   
   // 8. Load the groups whose chat you can open (yours + ones you teach) for the
   //    Chat tab's sidebar, re-checking every PARTNER_POLL_MS.
@@ -1004,10 +1032,16 @@ export default function SpacesChat({
       }
     }
     refresh();
+    const stopWatching = watchRoom({ type: "group", id: activeGroupId }, refresh);
+    const stopListening = onSocketEvent("group-message", (msg) => {
+      if (Number(msg.group_id) === Number(activeGroupId) && msg.channel === groupChannel) refresh();
+    });
     const timer = setInterval(refresh, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopWatching();
+      stopListening();
     };
   }, [activeGroupId, groupChannel, loadGroupMessages, setErrorFor]);
 
@@ -1026,9 +1060,13 @@ export default function SpacesChat({
     }
     refresh();
     const timer = setInterval(refresh, PARTNER_POLL_MS);
+    const stopListening = onSocketEvent("group-invites-changed", refresh);
+    const stopReconnect = onSocketEvent("connect", refresh);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopListening();
+      stopReconnect();
     };
   }, [userId, activeTab, loadDiscoverGroups, loadGroupInvites]);
 

@@ -1,6 +1,12 @@
 const express = require("express");
 const pool = require("../db");
 const { friendRequestLimiter, friendRequestPairLimiter, userSearchLimiter } = require("../middleware/rateLimits");
+const { emitTo } = require("../realtime");
+
+// Tell these users (every open tab) that their friends or requests changed.
+function notifyFriendsChanged(...userIds) {
+    userIds.forEach(id => emitTo(`user:${id}`, "friends-changed", {}));
+}
 
 const router = express.Router();
 
@@ -143,6 +149,7 @@ router.post("/me/friend-requests", friendRequestPairLimiter, friendRequestLimite
                 [theirs.id]
             );
             if (result.affectedRows === 1) {
+                notifyFriendsChanged(me, receiverId);
                 return res.json({
                     id: theirs.id,
                     sender_id: receiverId,
@@ -164,6 +171,7 @@ router.post("/me/friend-requests", friendRequestPairLimiter, friendRequestLimite
                 `,
                 [mine.id]
             );
+            notifyFriendsChanged(me, receiverId);
             return res.status(201).json({
                 id: mine.id,
                 sender_id: me,
@@ -176,7 +184,7 @@ router.post("/me/friend-requests", friendRequestPairLimiter, friendRequestLimite
             "INSERT INTO friend_requests (sender_id, receiver_id) VALUES (?, ?)",
             [me, receiverId]
         );
-
+        notifyFriendsChanged(me, receiverId);
         res.status(201).json({
             id: result.insertId,
             sender_id: me,
@@ -294,6 +302,7 @@ router.patch("/me/friend-requests/:id", async (req, res) => {
         }
 
         await connection.commit();
+        notifyFriendsChanged(req.user.id, request.sender_id);
         res.json({ id: requestId, status });
     } catch (error) {
         if (connection) {
@@ -317,6 +326,11 @@ router.delete("/me/friend-requests/:id", async (req, res) => {
             return res.status(400).json({ error: "Invalid request id" });
         }
 
+        const [[request]] = await pool.query(
+            "SELECT receiver_id FROM friend_requests WHERE id = ? AND sender_id = ? AND status = 'pending'",
+            [requestId, req.user.id]
+        );
+
         const [result] = await pool.query(
             `
             DELETE FROM friend_requests
@@ -328,7 +342,7 @@ router.delete("/me/friend-requests/:id", async (req, res) => {
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: "Friend request not found" });
         }
-
+        if (request) notifyFriendsChanged(req.user.id, request.receiver_id);
         res.json({ id: requestId, deleted: true });
     } catch (error) {
         console.error("Error cancelling friend request:", error);
@@ -377,7 +391,10 @@ router.delete("/me/friends/:userId", async (req, res) => {
         if (!otherId) {
             return res.status(400).json({ error: "Invalid user id" });
         }
-
+        const [[request]] = await pool.query(
+            "SELECT receiver_id FROM friend_requests WHERE id = ? AND sender_id = ? AND status = 'pending'",
+            [requestId, req.user.id]
+        );
         // Only matches rows that involve the logged-in user, so you can only
         // remove your own friendships.
         const [result] = await pool.query(
@@ -393,7 +410,7 @@ router.delete("/me/friends/:userId", async (req, res) => {
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: "You are not friends with this user" });
         }
-
+        notifyFriendsChanged(me, otherId);
         res.json({ user_id: otherId, removed: true });
     } catch (error) {
         console.error("Error removing friend:", error);
