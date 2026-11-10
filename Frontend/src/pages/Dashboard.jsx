@@ -7,6 +7,7 @@ import {
 import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignment } from '../api';
 
 import SpacesChat from '../components/SpacesChat';
+import PartnerNotifications from '../components/PartnerNotifications';
 import CalendarView from './Calendar';
 import AITools from './AITools';
 import Resources from './Resources';
@@ -20,6 +21,16 @@ export default function Dashboard({ user, onLogout }) {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
+
+// Temporary sample data until the backend API is available.
+const [partnerRequests] = useState([
+  {
+    id: 1,
+    name: 'Maya Chen',
+    course: 'CS 3398',
+  },
+]);
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
 
@@ -237,7 +248,47 @@ export default function Dashboard({ user, onLogout }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <Bell size={20} style={{ color: '#64748b', cursor: 'pointer' }} />
+            
+<div style={{ position: 'relative' }}>
+  <button
+    type="button"
+    onClick={() => setShowNotifications(!showNotifications)}
+    aria-label="Study partner notifications"
+    aria-expanded={showNotifications}
+    style={{
+      position: 'relative',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'transparent',
+      border: 'none',
+      cursor: 'pointer',
+      padding: '6px',
+    }}
+  >
+    <Bell size={20} color="#64748b" />
+
+    {partnerRequests.length > 0 && (
+      <span
+        style={{
+          position: 'absolute',
+          top: '1px',
+          right: '1px',
+          width: '9px',
+          height: '9px',
+          background: '#ef4444',
+          borderRadius: '50%',
+          border: '2px solid white',
+        }}
+      />
+    )}
+  </button>
+
+  {showNotifications && (
+    <PartnerNotifications requests={partnerRequests} />
+  )}
+</div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#2563eb', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                 {userInitial}
