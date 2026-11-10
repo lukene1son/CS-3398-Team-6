@@ -17,6 +17,9 @@ DROP TABLE IF EXISTS study_groups;
 DROP TABLE IF EXISTS study_group_invites;
 DROP TABLE IF EXISTS direct_messages;
 DROP TABLE IF EXISTS course_resources;
+DROP TABLE IF EXISTS google_calendar_links;
+DROP TABLE IF EXISTS google_calendar_events;
+
 
 
 
@@ -182,4 +185,22 @@ CREATE TABLE course_resources (
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
     FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_resources_course_time (course_id, created_at)
+);
+
+CREATE TABLE google_calendar_links (
+    user_id INT PRIMARY KEY,
+    refresh_token_enc TEXT NOT NULL,   -- AES-256-GCM encrypted, never sent to the browser
+    calendar_id VARCHAR(255) NULL,     -- the "BuddyTech" calendar; NULL until the first sync
+    time_zone VARCHAR(64) NULL,        -- browser timezone from the last sync
+    connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE google_calendar_events (
+    user_id INT NOT NULL,
+    assignment_id INT NOT NULL,
+    google_event_id VARCHAR(1024) NOT NULL,
+    PRIMARY KEY (user_id, assignment_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
 );

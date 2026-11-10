@@ -25,6 +25,10 @@ app.use(express.json());
 
 app.use("/api/auth", require("./routes/auth"));
 
+// Google sends the browser here with no login token, so this one route is public.
+const googleCalendarRouter = require("./routes/googleCalendar");
+app.get("/api/auth/google/callback", googleCalendarRouter.callback);
+
 // Every /api route registered BELOW this line requires a valid login token.
 app.use("/api", requireAuth);
 
@@ -33,6 +37,7 @@ app.use("/api/ai", require("./routes/ai"));
 
 app.use("/api", require("./routes/friends"));
 const studyGroupsRouter = require("./routes/studyGroups");
+app.use("/api", googleCalendarRouter);
 app.use("/api", studyGroupsRouter);
 app.use("/api", require("./routes/directMessages"));
 app.use("/api", require("./routes/resources"));
@@ -407,6 +412,10 @@ app.post("/api/assignments", async (req, res) => {
             `,
             [course_id, title, description || null, due_date, ownerUserId]
         );
+
+        // Push it to Google Calendar in the background. Not awaited, so the
+        // response never waits on Google.
+        googleCalendarRouter.syncNewAssignment(result.insertId);
 
         res.status(201).json({
             id: result.insertId,

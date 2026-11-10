@@ -121,6 +121,31 @@ export function createAssignment(data) {
   });
 }
 
+/* ---------- Google Calendar sync ---------- */
+// -> { configured, connected, connected_at }
+export function getGoogleCalendarStatus() {
+  return request("/api/me/google-calendar");
+}
+
+// -> { url }: Google's consent page. Send the browser there.
+export function getGoogleCalendarConnectUrl() {
+  return request("/api/me/google-calendar/connect", { method: "POST" });
+}
+
+// Due dates are saved without a timezone, so the browser's is sent with every sync.
+export function syncGoogleCalendar() {
+  return request("/api/me/google-calendar/sync", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+  });
+}
+
+export function disconnectGoogleCalendar() {
+  return request("/api/me/google-calendar", { method: "DELETE" });
+}
+
+
 /* ---------- Spaces (message board) ---------- */
 export function getCourseChannels(courseId) {
   return request(`/api/courses/${courseId}/channels`);

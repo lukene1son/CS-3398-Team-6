@@ -7,18 +7,24 @@ const path = require("path");
 const SEED_DIR = path.join(__dirname, "seed-files");
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 
-function copySeedFiles() {
-    if (!fs.existsSync(SEED_DIR)) return 0;
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-    const files = fs.readdirSync(SEED_DIR).filter((file) => !file.startsWith("."));
+// Copies every FILE in `from` into `to`, skipping ones already there.
+function copyMissing(from, to) {
+    if (!fs.existsSync(from)) return 0;
+    fs.mkdirSync(to, { recursive: true });
     let copied = 0;
-    for (const file of files) {
-        const target = path.join(UPLOAD_DIR, file);
+    for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+        if (!entry.isFile() || entry.name.startsWith(".")) continue;
+        const target = path.join(to, entry.name);
         if (fs.existsSync(target)) continue;
-        fs.copyFileSync(path.join(SEED_DIR, file), target);
+        fs.copyFileSync(path.join(from, entry.name), target);
         copied++;
     }
     return copied;
+}
+
+function copySeedFiles() {
+    return copyMissing(SEED_DIR, UPLOAD_DIR)
+        + copyMissing(path.join(SEED_DIR, "avatars"), path.join(UPLOAD_DIR, "avatars"));
 }
 
 module.exports = copySeedFiles;

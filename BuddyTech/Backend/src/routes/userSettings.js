@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 const pool = require("../db");
+const sharp = require("sharp");
 const { avatarUploadLimiter } = require("../middleware/rateLimits");
 
 const router = express.Router();
@@ -11,10 +12,12 @@ const router = express.Router();
 // Every route here runs after requireAuth. Writes only touch req.user.id's own row.
 
 const MAX_NAME_LENGTH = 100;               // users.name is VARCHAR(100)
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;  // 2 MB
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;  // 3 MB
 const AVATAR_DIR = path.join(__dirname, "..", "..", "uploads", "avatars");
 // No SVG on purpose: SVGs can carry scripts.
 const AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+// sharp's format name -> the Content-Type we store and send back
+const REAL_AVATAR_TYPES = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
 const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#c2410c", "#15803d", "#0e7490", "#b91c1c", "#475569"];
 
 fs.mkdirSync(AVATAR_DIR, { recursive: true });
@@ -158,11 +161,31 @@ router.post("/me/avatar", avatarUploadLimiter, receiveAvatar, async (req, res) =
     const file = req.file;
     try {
         if (!file) return res.status(400).json({ error: "Choose a PNG, JPEG, WebP, or GIF image" });
+        
+        // Check the real file contents. The browser's type comes from the file extension,
+        // so a GIF renamed to .jpg would otherwise skip the check.
+        // animated: true checks every frame of a GIF/WebP, not just the first.
+        let format, isOpaque;
+        try {
+            ({ format } = await sharp(file.path).metadata());
+            ({ isOpaque } = await sharp(file.path, { animated: true }).stats());
+        } catch {
+            format = null; // not an image sharp can read
+        }
+        const realType = REAL_AVATAR_TYPES[format];
+        if (!realType) {
+            removeAvatar(file.filename);
+            return res.status(400).json({ error: "Choose a PNG, JPEG, WebP, or GIF image" });
+        }
+        if (!isOpaque) {
+            removeAvatar(file.filename);
+            return res.status(400).json({ error: "Profile pictures can't have a transparent background" });
+        }
 
         const old = await getSettingsRow(req.user.id);
         await pool.query(
             "UPDATE users SET avatar_stored_name = ?, avatar_mime_type = ? WHERE id = ?",
-            [file.filename, file.mimetype, req.user.id]
+            [file.filename, realType, req.user.id]
         );
         removeAvatar(old && old.avatar_stored_name); // delete the previous picture
         res.json({ has_avatar: true });

@@ -8,7 +8,7 @@ import { AVATAR_COLORS, AVATAR_COLOR_NAMES, avatarColor } from "../avatarColors"
 const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" };
 const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none", width: "100%" };
 const AVATAR_SIZE = 72;
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // matches the backend limit
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024; // matches the backend limit
 
 export default function SettingsPage({ user, onUserChange }) {
   const userId = user?.id;
@@ -45,7 +45,7 @@ export default function SettingsPage({ user, onUserChange }) {
     e.target.value = ""; // lets the same file be picked again
     if (!file) return;
     if (file.size > MAX_AVATAR_BYTES) {
-      setAvatarMessage("Could not upload: image is too large (2 MB max)");
+      setAvatarMessage("Could not upload: image is too large (3 MB max)");
       return;
     }
     setUploading(true);

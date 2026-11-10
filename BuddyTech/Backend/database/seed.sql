@@ -14,6 +14,14 @@ INSERT INTO users (name, email, password_hash) VALUES
 ('Study Partner7', 'partner7@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.'),
 ('Demo Teacher2', 'teacher2@buddytech.local', '$2b$10$4GnVCjS3VnViUaVe.LRsd.q.jVQ7NPeNXlOsSi47lI8v44knm75R.');
 
+-- Profile pictures for Study Partner1-5. The files are in database/seed-files/avatars
+-- and are copied into uploads/avatars by database/seedFiles.js.
+UPDATE users SET avatar_stored_name = 'peanut-butter-jelly-time.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner1@buddytech.local';
+UPDATE users SET avatar_stored_name = 'tuff-baby.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner2@buddytech.local';
+UPDATE users SET avatar_stored_name = 'mandala.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner3@buddytech.local';
+UPDATE users SET avatar_stored_name = 'AI-cat.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner4@buddytech.local';
+UPDATE users SET avatar_stored_name = 'cat.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner5@buddytech.local';
+
 INSERT INTO courses (course_code, course_name, professor, university) VALUES
 ('CS 3398', 'Software Engineering', 'Rui Wang', 'Texas State University'),
 ('BIO 1330', 'Functional Biology', 'Joel Bergh', 'Texas State University');
@@ -49,7 +57,25 @@ INSERT INTO messages (channel_id, user_id, content) VALUES
 
 INSERT INTO assignments (course_id, title, description, due_date) VALUES
 (1, 'Sprint Demo', 'Show current BuddyTech backend progress', '2026-10-01 12:00:00'),
-(2, 'Week 6 Worksheet', 'Complete metabolism worksheet', '2026-10-02 23:59:00');
+(2, 'Week 6 Worksheet', 'Complete metabolism worksheet', '2026-10-02 23:59:00'),
+(1, 'Sprint 3 Retrospective',   'Write up what went well and what to change', TIMESTAMP(CURDATE() - INTERVAL 2 DAY,  '17:00:00')),
+(1, 'Code Review: Calendar PR', 'Review a teammate''s pull request',          TIMESTAMP(CURDATE(),                   '14:30:00')),
+(1, 'Unit Testing Lab',         'Add tests for one backend route',            TIMESTAMP(CURDATE() + INTERVAL 1 DAY,  '09:30:00')),
+(1, 'UML Class Diagram',        'Diagram the BuddyTech data model',           TIMESTAMP(CURDATE() + INTERVAL 3 DAY,  '12:00:00')),
+(1, 'Design Patterns Quiz',     'Covers observer, factory, and singleton',    TIMESTAMP(CURDATE() + INTERVAL 3 DAY,  '23:59:00')),
+(1, 'REST API Homework',        'Design endpoints for a library system',      TIMESTAMP(CURDATE() + INTERVAL 8 DAY,  '23:59:00')),
+(1, 'Peer Evaluation Form',     'Rate each teammate''s contribution',         TIMESTAMP(CURDATE() + INTERVAL 10 DAY, '17:00:00')),
+(1, 'Final Project Demo',       'Live demo of BuddyTech to the class',        TIMESTAMP(CURDATE() + INTERVAL 15 DAY, '13:00:00')),
+-- BIO 1330
+(2, 'Lab Report: Enzyme Activity',   'Write up the catalase lab',             TIMESTAMP(CURDATE() - INTERVAL 1 DAY,  '23:59:00')),
+(2, 'Chapter 7 Reading Quiz',        'Online quiz on membranes',              TIMESTAMP(CURDATE() + INTERVAL 1 DAY,  '09:30:00')),
+(2, 'Photosynthesis Worksheet',      'Light reactions and the Calvin cycle',  TIMESTAMP(CURDATE() + INTERVAL 2 DAY,  '15:00:00')),
+(2, 'Lab Safety Quiz',               'Required before the next lab',          TIMESTAMP(CURDATE() + INTERVAL 4 DAY,  '11:00:00')),
+(2, 'Cellular Respiration Homework', 'Problems 1-12',                         TIMESTAMP(CURDATE() + INTERVAL 6 DAY,  '23:59:00')),
+(2, 'Midterm Exam 2',                'Chapters 5 through 8',                  TIMESTAMP(CURDATE() + INTERVAL 9 DAY,  '08:00:00')),
+(2, 'Genetics Problem Set',          'Punnett squares and pedigrees',         TIMESTAMP(CURDATE() + INTERVAL 12 DAY, '20:00:00')),
+(2, 'Lab Practical',                 'Microscope identification stations',    TIMESTAMP(CURDATE() + INTERVAL 15 DAY, '14:30:00'));
+
 
 -- Demo Student has finished the Sprint Demo; Study Partner (same course) hasn't.
 INSERT INTO assignment_progress (user_id, assignment_id, status) VALUES

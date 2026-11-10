@@ -121,6 +121,16 @@ const avatarUploadLimiter = rateLimit({
     handler: tooMany("You can change your profile picture once every 15 minutes."),
 });
 
+// Per user: caps manual Google Calendar syncs. Each one makes a Google call per assignment.
+const calendarSyncLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're syncing too often. Please wait a few minutes and try again."),
+});
+
 module.exports = {
     authIpLimiter,
     loginAccountLimiter,
@@ -130,4 +140,5 @@ module.exports = {
     userSearchLimiter,
     groupInviteLimiter,
     avatarUploadLimiter,
+    calendarSyncLimiter,
 };
