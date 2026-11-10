@@ -31,3 +31,175 @@ a {
     font-size: 0.8rem;
     cursor: pointer;
 }
+
+/* Notifications window (PartnerNotifications.jsx): grows in on open, fades out on close. */
+.notif-window {
+    transform-origin: top right;
+    animation: notif-in 0.2s ease-out;
+}
+
+.notif-window.closing {
+    animation: notif-out 0.1s ease-in forwards;
+}
+
+@keyframes notif-in {
+    from {transform: scale(0.95);}
+    to {transform: scale(1);}
+}
+
+@keyframes notif-out {
+    from {opacity: 1;}
+    to {opacity: 0;}
+}
+
+/* Accept / decline icons in the notifications window: grow slightly on hover. */
+.notif-action {
+    transition: transform 0.15s ease-out;
+}
+
+.notif-action:hover:not(:disabled) {transform: scale(1.10);}
+
+
+@media (prefers-reduced-motion: reduce) {
+    .notif-window, 
+    .notif-window.closing {animation-duration: 1ms;}
+    .notif-action {transition: none;}
+}
+
+/* Sidebar highlight (Dashboard.jsx): slides to the active page. */
+.nav-pill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #D1E7FF;
+    border-radius: 10px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Spaces tab underline (SpacesChat.jsx): slides and resizes to the active tab. */
+.spaces-tab-bar {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    background: #2563eb;
+    transition: transform 0.2s ease-out, width 0.2s ease-out;
+}
+
+/* Spaces tab labels: an invisible bold copy reserves the bold width,
+   so a tab doesn't get wider (and shove its neighbours) when selected. */
+.spaces-tab-label {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.spaces-tab-label::after {
+    content: attr(data-label);
+    font-weight: 600;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Home page welcome banner and its progress bar (Dashboard.jsx). */
+.dash-hero {
+    margin-bottom: 1.5rem;
+    padding: 1.6rem 1.75rem;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    box-shadow: 0 10px 30px rgba(37, 99, 235, 0.25);
+}
+
+.dash-progress {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.dash-progress-fill {
+    height: 100%;
+    background: #ffffff;
+    border-radius: 999px;
+    transition: width 0.4s ease-out;
+}
+/* Dashboard Recent Activity (Dashboard.jsx): section labels, assignment placards, message rows. */
+.activity-heading {
+    margin: 0 0 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.activity-placard {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.activity-placard:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.activity-message {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: calc(100% + 1rem);
+    margin: 0 -0.5rem;
+    padding: 0.45rem 0.5rem;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.activity-message:hover {
+    background: #f8fafc;
+}
+
+.activity-ellipsis {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Near-instant instead of `none`, so the animation-end event that unmounts the window still fires. */
+@media (prefers-reduced-motion: reduce) {
+    .notif-window, .notif-window.closing {
+        animation-duration: 1ms;
+    }
+    .nav-pill {
+        transition: none;
+    }
+    .spaces-tab-bar {
+        transition: none;
+    }
+    .dash-progress-fill {
+        transition: none;
+    }
+    .activity-placard {
+        transition: none;
+    }
+}

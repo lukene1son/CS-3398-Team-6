@@ -411,6 +411,18 @@ router.get("/study-groups/:id/messages", async (req, res) => {
             `,
             [groupId, channel, MESSAGE_HISTORY_LIMIT]
         );
+        // Opening a channel marks it read up to its newest message (rows[0], since
+        // they're still newest-first here). GREATEST keeps the marker from going backwards.
+        if (rows.length > 0) {
+            const [marked] = await pool.query(
+                `INSERT INTO study_group_reads (user_id, group_id, channel, last_read_message_id)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE last_read_message_id = GREATEST(last_read_message_id, ?)`,
+                [req.user.id, groupId, channel, rows[0].id, rows[0].id]
+            );
+            // 0 = nothing changed, so the 60-second poll doesn't ping the bell every time.
+            if (marked.affectedRows > 0) emitTo(`user:${req.user.id}`, "group-unread-changed", {});
+        }
         // Fetched newest-first so LIMIT keeps the latest ones; send them oldest-first.
         res.json(rows.reverse());
     } catch (error) {
@@ -468,6 +480,13 @@ router.post("/study-groups/:id/messages", async (req, res) => {
             [result.insertId]
         );
         emitTo(`group:${groupId}`, "group-message", { group_id: groupId, channel });
+
+        // Also tell the other members, wherever they are in the app, so their bell updates.
+        const [members] = await pool.query(
+            "SELECT user_id FROM study_group_members WHERE group_id = ? AND user_id <> ?",
+            [groupId, req.user.id]
+        );
+        members.forEach((member) => emitTo(`user:${member.user_id}`, "group-unread-changed", {}));
        res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending study group message:", error);

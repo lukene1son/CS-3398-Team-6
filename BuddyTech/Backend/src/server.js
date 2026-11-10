@@ -40,6 +40,7 @@ const studyGroupsRouter = require("./routes/studyGroups");
 app.use("/api", googleCalendarRouter);
 app.use("/api", studyGroupsRouter);
 app.use("/api", require("./routes/directMessages"));
+app.use("/api", require("./routes/notifications"));
 app.use("/api", require("./routes/resources"));
 app.use("/api", require("./routes/userSettings"));
 
@@ -307,7 +308,7 @@ app.get("/api/courses/:id/assignments", async (req, res) => {
                 assignments.course_id,
                 assignments.title,
                 assignments.description,
-                assignments.due_date,
+                DATE_FORMAT(assignments.due_date, '%Y-%m-%dT%H:%i:%s') AS due_date,
                 assignments.owner_user_id,
                 COALESCE(assignment_progress.status, 'todo') AS status
             FROM assignments
@@ -339,7 +340,7 @@ app.get("/api/me/assignments", async (req, res) => {
                 assignments.id,
                 assignments.title,
                 assignments.description,
-                assignments.due_date,
+                DATE_FORMAT(assignments.due_date, '%Y-%m-%dT%H:%i:%s') AS due_date,
                 assignments.owner_user_id,
                 COALESCE(assignment_progress.status, 'todo') AS status,
                 courses.id AS course_id,

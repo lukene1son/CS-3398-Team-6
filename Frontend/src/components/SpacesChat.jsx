@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners, 
 sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend,
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
@@ -7,6 +6,13 @@ joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInv
 getCourseMembers, getGroupMembers } from "../api";
 import Avatar from "./Avatar";
 import { onSocketEvent, watchRoom } from "../socket";
+
+// The tabs along the top of Spaces. The blue bar slides to the active one.
+const SPACES_TABS = [
+  { id: "chat", label: "Chat" },
+  { id: "partners", label: "Study Partners" },
+  { id: "groups", label: "Study Groups" },
+];
 
 const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
 const POLL_MS = 60000; // safety net only; live updates come over the socket (socket.js)
@@ -313,6 +319,26 @@ export default function SpacesChat({
   const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
   const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
   const [activeTab, setActiveTab] = useState("chat");
+  
+  // Sliding underline: measure the active tab button, then move the bar under it.
+  const tabRowRef = useRef(null);
+  const tabRefs = useRef({}); // tab id -> its <button>
+  const [tabBar, setTabBar] = useState(null); // { left, width } once measured
+
+  // useLayoutEffect runs after the DOM updates but BEFORE the browser paints,
+  // so the bar never shows a frame in the old position. The ResizeObserver
+  // re-measures if the row changes size (window resize, fonts finishing loading).
+  useLayoutEffect(() => {
+    function measure() {
+      const tab = tabRefs.current[activeTab];
+      if (tab) setTabBar({ left: tab.offsetLeft, width: tab.offsetWidth });
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (tabRowRef.current) observer.observe(tabRowRef.current);
+    return () => observer.disconnect();
+  }, [activeTab]);
+
   const [partnerView, setPartnerView] = useState("connections");
   const bottomRef = useRef(null);
   const messageListRef = useRef(null);           // the scrolling message area
@@ -321,6 +347,7 @@ export default function SpacesChat({
   const connectingRef = useRef(new Set());       // partner ids with a request in flight (a ref, so a fast double click can't slip past)
   const [partnerSearch, setPartnerSearch] = useState("");
   const [partnerCourse, setPartnerCourse] = useState("all");
+  const [connectionSearch, setConnectionSearch] = useState("");
   const [suggestedPartners, setSuggestedPartners] = useState([]);
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [partnersError, setPartnersError] = useState("");
@@ -740,6 +767,10 @@ export default function SpacesChat({
   const channel = channels.find(c => c.id === selectedChannelId) ?? channels[0];
   const messages = channel ? messagesByChannel[channel.id] ?? [] : [];
   const studentCourses = courses.filter(c => c.role === "student");
+  // My Connections, narrowed by its search box.
+  const shownFriends = friends.filter(f =>
+      f.name.toLowerCase().includes(connectionSearch.trim().toLowerCase())
+    );
 
   // DMs in the sidebar: saved conversations (newest first, including ones the other
   // person started), then ones you've opened but haven't sent anything in yet.
@@ -1143,47 +1174,41 @@ export default function SpacesChat({
   }
   return <div>
     {/* Spaces Tabs */}
-    <div style={{
+    <div ref={tabRowRef} style={{
+      position: "relative", // offsetLeft of each tab is measured from this row
       display: "flex",
       gap: "0.5rem",
       marginBottom: "1rem",
       borderBottom: "1px solid #e2e8f0"
     }}>
-      <button onClick={() => setActiveTab("chat")} style={{
-        padding: "0.75rem 1rem",
-        border: "none",
-        borderBottom: activeTab === "chat" ? "3px solid #2563eb" : "3px solid transparent",
-        background: "transparent",
-        color: activeTab === "chat" ? "#2563eb" : "#64748b",
-        fontWeight: activeTab === "chat" ? "600" : "500",
-        cursor: "pointer"
-      }}>
-        Chat
-      </button>
+      {SPACES_TABS.map(({ id, label }) => (
+        <button
+          key={id}
+          ref={(el) => { tabRefs.current[id] = el; }}
+          onClick={() => setActiveTab(id)}
+          aria-current={activeTab === id ? "page" : undefined}
+          style={{
+            padding: "0.75rem 1rem",
+            border: "none",
+            borderBottom: "3px solid transparent", // keeps the old height; the bar draws on top
+            background: "transparent",
+            color: activeTab === id ? "#2563eb" : "#64748b",
+            fontWeight: activeTab === id ? "600" : "500",
+            cursor: "pointer"
+          }}
+        >
+          <span className="spaces-tab-label" data-label={label}>{label}</span>
+        </button>
+      ))}
 
-      <button onClick={() => setActiveTab("partners")} style={{
-        padding: "0.75rem 1rem",
-        border: "none",
-        borderBottom: activeTab === "partners" ? "3px solid #2563eb" : "3px solid transparent",
-        background: "transparent",
-        color: activeTab === "partners" ? "#2563eb" : "#64748b",
-        fontWeight: activeTab === "partners" ? "600" : "500",
-        cursor: "pointer"
-      }}>
-        Study Partners
-      </button>
-
-      <button onClick={() => setActiveTab("groups")} style={{
-        padding: "0.75rem 1rem",
-        border: "none",
-        borderBottom: activeTab === "groups" ? "3px solid #2563eb" : "3px solid transparent",
-        background: "transparent",
-        color: activeTab === "groups" ? "#2563eb" : "#64748b",
-        fontWeight: activeTab === "groups" ? "600" : "500",
-        cursor: "pointer"
-      }}>
-        Study Groups
-      </button>
+      {/* The blue bar. Not rendered until measured, so it doesn't slide in from 0 on load. */}
+      {tabBar && (
+        <span
+          aria-hidden="true"
+          className="spaces-tab-bar"
+          style={{ width: tabBar.width, transform: `translateX(${tabBar.left}px)` }}
+        />
+      )}
     </div>
     {/* Chat Tab */}
     {activeTab === "chat" && <div style={{
@@ -1644,6 +1669,29 @@ export default function SpacesChat({
             <p style={{ color: "#64748b", marginBottom: "1rem" }}>
               Students you've connected with for studying.
             </p>
+            {friends.length > 0 && (
+              <input
+                type="text"
+                placeholder="Search connections..."
+                value={connectionSearch}
+                onChange={(e) => setConnectionSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  marginBottom: "1rem",
+                  padding: "0.7rem 1rem",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  outline: "none"
+                }}
+              />
+            )}
+
+            {friends.length > 0 && shownFriends.length === 0 && (
+              <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+                No connections match "{connectionSearch}".
+              </p>
+            )}
 
             {listsLoading && (
               <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>Loading connections...</p>
@@ -1660,7 +1708,7 @@ export default function SpacesChat({
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {friends.map(f => (
+              {shownFriends.map(f => (
                 <div key={f.id} style={{ border: "1px solid #e2e8f0", borderRadius: "10px" }}>
                   <div style={{ ...partnerCardStyle, border: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>

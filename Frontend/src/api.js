@@ -85,6 +85,22 @@ export async function register({ name, email, password }) {
   return user;
 }
 
+// Exchange Google's ID token for a BuddyTech login, same result as login().
+export async function loginWithGoogle(credential) {
+  const { token, user } = await request("/api/auth/google", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ credential }),
+  });
+  setToken(token);
+  return user;
+}
+
+// -> { clientId } or { clientId: null } if the server has no Google client set up.
+export function getGoogleSignInConfig() {
+  return request("/api/auth/google/config");
+}
+
 export function logout() {
   setToken(null);
 }
@@ -163,6 +179,22 @@ export function sendChannelMessage(channelId, content) {
     body: JSON.stringify({ content }),
   });
 }
+
+/* ---------- Bell notifications ---------- */
+// -> { accepted_requests, unread_group_messages }
+export function getNotifications() {
+  return request("/api/me/notifications");
+}
+
+export function clearAcceptedNotifications() {
+  return request("/api/me/notifications/accepted/seen", { method: "POST" });
+}
+
+// -> { messages: [...], assignments: [...] } for the dashboard's Recent Activity card.
+export function getActivity() {
+  return request("/api/me/activity");
+}
+
 /* ---------- Study partners / friends ---------- */
 // Classmates who share a course with you and aren't already friends or
 // pending. Each item: { id, name, shared_courses: ["CS 3398", ...] }

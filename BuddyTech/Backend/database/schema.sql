@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS direct_messages;
 DROP TABLE IF EXISTS course_resources;
 DROP TABLE IF EXISTS google_calendar_links;
 DROP TABLE IF EXISTS google_calendar_events;
+DROP TABLE IF EXISTS study_group_reads;
 
 
 
@@ -30,6 +31,7 @@ CREATE TABLE users (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NULL,
+    google_sub VARCHAR(255) NULL UNIQUE, -- Google account id for "Sign in with Google"
     email_notifications BOOLEAN NOT NULL DEFAULT TRUE,
     assignment_reminders BOOLEAN NOT NULL DEFAULT TRUE,
     avatar_stored_name VARCHAR(64) NULL,
@@ -105,6 +107,7 @@ CREATE TABLE friend_requests (
     status ENUM('pending', 'accepted', 'declined') NOT NULL DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     responded_at TIMESTAMP NULL,
+    accept_seen BOOLEAN NOT NULL DEFAULT FALSE, -- has the sender seen that it was accepted?
     FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE (sender_id, receiver_id)
@@ -141,6 +144,17 @@ CREATE TABLE study_group_messages (
     FOREIGN KEY (group_id) REFERENCES study_groups(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_group_channel_time (group_id, channel, created_at)
+);
+
+-- The last message each user has read in each study group channel (for the bell).
+CREATE TABLE study_group_reads (
+    user_id INT NOT NULL,
+    group_id INT NOT NULL,
+    channel ENUM('general', 'homework', 'meetups') NOT NULL,
+    last_read_message_id INT NOT NULL,
+    PRIMARY KEY (user_id, group_id, channel),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES study_groups(id) ON DELETE CASCADE
 );
 
 CREATE TABLE study_group_invites (

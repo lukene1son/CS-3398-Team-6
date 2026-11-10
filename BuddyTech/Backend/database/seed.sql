@@ -91,6 +91,7 @@ INSERT INTO friend_requests (sender_id, receiver_id, status, responded_at) VALUE
 (5, 2, 'accepted', CURRENT_TIMESTAMP),
 (6, 1, 'pending', NULL),
 (1, 7, 'pending', NULL);
+UPDATE friend_requests SET accept_seen = TRUE WHERE status = 'accepted';
 
 -- Groups: 1-3 in CS 3398, 4-5 in BIO 1330. Group 2 is private (invite-only).
 INSERT INTO study_groups (course_id, name, meeting_time, created_by, visibility) VALUES

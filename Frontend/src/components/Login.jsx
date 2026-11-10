@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { login, register } from "../api";
+import GoogleSignInButton from "./GoogleSignInButton";
 import "./Login.css";
 
 export default function Login({ onLogin }) {
@@ -81,10 +82,11 @@ export default function Login({ onLogin }) {
           <p role="alert" style={{ color: "#dc2626", margin: "0.5rem 0" }}>{error}</p>
         )}
 
-        <button type="submit" disabled={submitting}>
+         <button type="submit" className="btn-submit" disabled={submitting}>
           {submitting ? "Please wait..." : isRegister ? "Create Account" : "Sign In"}
         </button>
-
+        <div className="login-divider"><span>or</span></div>
+        <GoogleSignInButton onLogin={onLogin} onError={setError} />
         <p className="signup-text">
           {isRegister ? "Already have an account? " : "Don't have an account? "}
           <a href="#" onClick={switchMode}>

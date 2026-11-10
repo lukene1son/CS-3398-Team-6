@@ -1,10 +1,151 @@
-
 import React from 'react';
-import { UserRound, Bell } from 'lucide-react';
+import { Users, MessageSquare, Bell, Check, X } from 'lucide-react';
+import Avatar from './Avatar';
 
-export default function PartnerNotifications({ requests = [] }) {
+const rowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  padding: '14px 16px',
+  borderBottom: '1px solid #f1f5f9',
+  fontSize: '0.9rem',
+  color: '#1e293b',
+};
+
+// `lead` goes on the left (icon or pictures); `actions` (optional) goes on the right.
+function Row({ lead, actions, children }) {
+  return (
+    <div style={rowStyle}>
+      {lead}
+      <p style={{ margin: 0, flex: 1, minWidth: 0 }}>{children}</p>
+      {actions}
+    </div>
+  );
+}
+
+// Just the icon: no background or border, and the button is only as big as the icon.
+const actionButton = (color) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 2,
+  border: 'none',
+  background: 'none',
+  color,
+  cursor: 'pointer',
+});
+
+
+// Small accept (green check) and decline (red x) buttons for a request or invite.
+function RespondButtons({ label, busy, onAccept, onDecline }) {
+  return (
+    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+      <button
+        type="button"
+        className="notif-action"
+        onClick={onAccept}
+        disabled={busy}
+        title="Accept"
+        aria-label={`Accept ${label}`}
+        style={actionButton('#16a34a')}
+      >
+        <Check size={20} strokeWidth={3} />
+      </button>
+      <button
+        type="button"
+        className="notif-action"
+        onClick={onDecline}
+        disabled={busy}
+        title="Decline"
+        aria-label={`Decline ${label}`}
+        style={actionButton('#dc2626')}
+      >
+        <X size={20} strokeWidth={3} />
+      </button>
+    </div>
+  );
+}
+const STACK_MAX = 3;
+const ring = (index) => ({
+  display: 'inline-flex',
+  marginLeft: index === 0 ? 0 : '-8px',
+  borderRadius: '50%',
+  boxShadow: '0 0 0 2px #fff',
+});
+
+// The first three members' pictures, overlapping, then "…" if there are more.
+function AvatarStack({ members }) {
+  const shown = members.slice(0, STACK_MAX);
+  const extra = members.length - shown.length;
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+      {shown.map((member, index) => (
+        <span key={member.id} title={member.name} style={ring(index)}>
+          <Avatar
+            name={member.name}
+            userId={member.id}
+            color={member.avatar_color}
+            hasAvatar={member.has_avatar}
+            size={28}
+          />
+        </span>
+      ))}
+
+      {extra > 0 && (
+        <span
+          title={`${extra} more`}
+          style={{
+            ...ring(1),
+            width: 28,
+            height: 28,
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#e2e8f0',
+            color: '#475569',
+            fontSize: '0.85rem',
+            fontWeight: 700,
+            lineHeight: 1,
+          }}
+        >
+          …
+        </span>
+      )}
+    </div>
+  );
+}
+
+export default function PartnerNotifications({
+  notifications = {},
+  closing = false,
+  onClosed,
+  busyKey,
+  onRespond,
+  onClearAccepted,
+}) {
+  const {
+    friendRequests = [],
+    groupInvites = [],
+    accepted = [],
+    unreadGroups = [],
+    unreadGroupMessages = 0,
+  } = notifications;
+
+  const isEmpty =
+    friendRequests.length +
+      groupInvites.length +
+      accepted.length +
+      unreadGroupMessages ===
+    0;
+
   return (
     <div
+      className={closing ? 'notif-window closing' : 'notif-window'}
+      onAnimationEnd={(event) => {
+        if (event.animationName === 'notif-out' && onClosed) {
+          onClosed();
+        }
+      }}
       style={{
         position: 'absolute',
         top: '45px',
@@ -27,10 +168,10 @@ export default function PartnerNotifications({ requests = [] }) {
           color: '#1e293b',
         }}
       >
-        Study Partner Requests
+        Notifications
       </div>
 
-      {requests.length === 0 ? (
+      {isEmpty ? (
         <div
           style={{
             padding: '28px 16px',
@@ -39,48 +180,124 @@ export default function PartnerNotifications({ requests = [] }) {
           }}
         >
           <Bell size={28} style={{ marginBottom: '10px' }} />
-          <p style={{ margin: 0 }}>No new study partner requests.</p>
+          <p style={{ margin: 0 }}>No new notifications.</p>
         </div>
       ) : (
         <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
-          {requests.map((request) => (
-            <div
-              key={request.id}
+          {unreadGroups.map((group) => (
+            <Row
+              key={`unread-${group.group_id}`}
+              lead={
+                <MessageSquare
+                  size={22}
+                  color="#2563eb"
+                  style={{ flexShrink: 0 }}
+                />
+              }
+            >
+              <strong>{group.unread}</strong> new message
+              {group.unread === 1 ? '' : 's'} in{' '}
+              <strong>{group.group_name}</strong>.
+            </Row>
+          ))}
+
+          {friendRequests.map((request) => (
+            <Row
+              key={`request-${request.id}`}
+              lead={
+                <Avatar
+                  name={request.other_user_name}
+                  userId={request.other_user_id}
+                  color={request.other_user_avatar_color}
+                  hasAvatar={request.other_user_has_avatar}
+                  size={32}
+                />
+              }
+              actions={
+                <RespondButtons
+                  label={`request from ${request.other_user_name}`}
+                  busy={busyKey === `friendRequests-${request.id}`}
+                  onAccept={() =>
+                    onRespond('friendRequests', request.id, 'accept')
+                  }
+                  onDecline={() =>
+                    onRespond('friendRequests', request.id, 'decline')
+                  }
+                />
+              }
+            >
+              <strong>{request.other_user_name}</strong> wants to be your
+              study partner.
+            </Row>
+          ))}
+
+          {groupInvites.map((invite) => (
+            <Row
+              key={`invite-${invite.id}`}
+              lead={
+                invite.members.length > 0 ? (
+                  <AvatarStack members={invite.members} />
+                ) : (
+                  <Users
+                    size={22}
+                    color="#2563eb"
+                    style={{ flexShrink: 0 }}
+                  />
+                )
+              }
+              actions={
+                <RespondButtons
+                  label={`invite to ${invite.group_name}`}
+                  busy={busyKey === `groupInvites-${invite.id}`}
+                  onAccept={() =>
+                    onRespond('groupInvites', invite.id, 'accept')
+                  }
+                  onDecline={() =>
+                    onRespond('groupInvites', invite.id, 'decline')
+                  }
+                />
+              }
+            >
+              <strong>{invite.inviter_name}</strong> invited you to{' '}
+              <strong>{invite.group_name}</strong> ({invite.course_code}).
+            </Row>
+          ))}
+
+          {accepted.map((request) => (
+            <Row
+              key={`accepted-${request.id}`}
+              lead={
+                <Avatar
+                  name={request.other_user_name}
+                  userId={request.other_user_id}
+                  color={request.other_user_avatar_color}
+                  hasAvatar={request.other_user_has_avatar}
+                  size={32}
+                />
+              }
+            >
+              <strong>{request.other_user_name}</strong> has accepted your
+              study request.
+            </Row>
+          ))}
+
+          {accepted.length > 0 && (
+            <button
+              type="button"
+              onClick={onClearAccepted}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '14px 16px',
-                borderBottom: '1px solid #f1f5f9',
+                width: '100%',
+                padding: '10px',
+                border: 'none',
+                background: '#f8fafc',
+                color: '#2563eb',
+                cursor: 'pointer',
+                fontWeight: 600,
               }}
             >
-              <UserRound size={22} color="#2563eb" />
-
-              <div>
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: '0.9rem',
-                    color: '#1e293b',
-                  }}
-                >
-                  <strong>{request.name}</strong> wants to be your study partner.
-                </p>
-
-                {request.course && (
-                  <p
-                    style={{
-                      margin: '4px 0 0',
-                      fontSize: '0.8rem',
-                      color: '#64748b',
-                    }}
-                  >
-                    {request.course}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
+              Clear accepted notices
+            </button>
+          )}
         </div>
       )}
     </div>
