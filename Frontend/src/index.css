@@ -105,28 +105,73 @@ a {
     user-select: none;
 }
 
-/* Home page welcome banner and its progress bar (Dashboard.jsx). */
-.dash-hero {
-    margin-bottom: 1.5rem;
-    padding: 1.6rem 1.75rem;
-    border-radius: 18px;
-    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-    box-shadow: 0 10px 30px rgba(37, 99, 235, 0.25);
+/* Home planner (Dashboard.jsx): a checked-off task plays three steps, one after another:
+   1. 0.25s   a line draws through the title
+   2. 0.3s    the bubble shrinks to 70% and fades out
+   3. 0.25s   the row closes, so the tasks below slide up
+   Dashboard removes the task when step 3 (task-collapse) ends. */
+.task-row {
+    display: grid;
+    grid-template-rows: 1fr; /* animating this to 0fr closes the row smoothly */
+    margin-bottom: 0.75rem; /* the gap to the next task; closes along with the row */
 }
 
-.dash-progress {
-    height: 8px;
-    background: rgba(255, 255, 255, 0.25);
-    border-radius: 999px;
-    overflow: hidden;
+.task-row-inner {
+    min-height: 0; /* lets the grid row shrink below the bubble's height */
 }
 
-.dash-progress-fill {
-    height: 100%;
-    background: #ffffff;
-    border-radius: 999px;
-    transition: width 0.4s ease-out;
+.task-title {
+    /* The strike line is a 2px background stripe, so its width can grow;
+       text-decoration: line-through can't be animated across the text. */
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0 2px;
 }
+
+.task-row.leaving {
+    pointer-events: none; /* no second click while it's on its way out */
+    animation: task-collapse 0.25s ease-in-out 0.55s forwards;
+}
+
+    .task-row.leaving .task-row-inner {
+        overflow: hidden;
+    }
+
+    .task-row.leaving .task-title {
+        animation: task-strike 0.25s ease-out forwards;
+    }
+
+    .task-row.leaving .task-bubble {
+        animation: task-shrink 0.3s ease-in 0.25s forwards;
+    }
+
+@keyframes task-strike {
+    to {
+        background-size: 100% 2px;
+        color: #94a3b8;
+    }
+}
+
+@keyframes task-shrink {
+    to {
+        transform: scale(0.7);
+        opacity: 0;
+    }
+}
+
+@keyframes task-collapse {
+    to {
+        grid-template-rows: 0fr;
+        margin-bottom: 0;
+    }
+}
+
+.expand-chevron {
+    transition: transform 0.2s ease-out;
+}
+
+    .expand-chevron.open {
+        transform: rotate(180deg);
+    }
+
 /* Dashboard Recent Activity (Dashboard.jsx): section labels, assignment placards, message rows. */
 .activity-heading {
     margin: 0 0 0.5rem;
@@ -157,6 +202,32 @@ a {
 .activity-placard:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+    /* Done placards: grey, with a line drawn through the title. The line is a background
+   stripe (like .task-title), so a transition can grow it in when the class is added
+   and shrink it back out if the assignment is un-marked. */
+    .activity-placard.done {
+        background: #f1f5f9;
+    }
+
+.placard-title {
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0 2px;
+    transition: background-size 0.25s ease-out, color 0.25s ease-out;
+}
+
+.activity-placard.done .placard-title {
+    background-size: 100% 2px;
+}
+
+/* Past due and not done. */
+.late-pill {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
 }
 
 .activity-message {
@@ -196,10 +267,17 @@ a {
     .spaces-tab-bar {
         transition: none;
     }
-    .dash-progress-fill {
-        transition: none;
+    .task-row.leaving,
+    .task-row.leaving .task-title,
+    .task-row.leaving .task-bubble {
+        animation-duration: 1ms;
+        animation-delay: 0s;
     }
     .activity-placard {
+        transition: none;
+    }
+    .expand-chevron,
+    .placard-title {
         transition: none;
     }
 }

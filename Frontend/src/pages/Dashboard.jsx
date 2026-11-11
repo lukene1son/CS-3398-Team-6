@@ -2,8 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
   Search, Bell, FileText, MessageSquare, HelpCircle, 
-  Clock, CheckSquare, Square, ChevronRight, LogOut, FolderPlus
-} from 'lucide-react';
+  Clock, CheckSquare, Square, ChevronRight, ChevronDown, LogOut, FolderPlus} from 'lucide-react';
 import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignment,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
     respondToFriendRequest, respondToGroupInvite, getActivity} from '../api';
@@ -37,6 +36,12 @@ function timeAgo(value) {
   return new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+// Due dates are wall-clock text: "2026-11-25T14:30:00" from the API, or
+// "2026-11-25 14:30:00" for a task just created. Swapping the space for "T" makes
+// both standard, and with no "Z" on the end, JavaScript reads them as local time.
+// (Same as parseDue in Calendar.jsx.)
+const parseDue = (value) => new Date(String(value).replace(' ', 'T'));
+
 // Due dates arrive as wall-clock text ("2026-11-25T14:30:00") and are shown as-is.
 function formatDue(value) {
   return new Date(value).toLocaleString([], {
@@ -56,22 +61,11 @@ const NAV_ITEMS = [
 const NAV_ROW = 44; // px: height of one sidebar button
 const NAV_GAP = 6;  // px: space between buttons
 
-// Home page look: soft card shadows, coloured status pills, course colour stripes.
-const CARD_SHADOW = '0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 20px rgba(15, 23, 42, 0.06)';
-const cardStyle = {
-  background: '#ffffff',
-  borderRadius: '16px',
-  border: '1px solid #eef2f7',
-  boxShadow: CARD_SHADOW,
-  padding: '1.5rem'
-};
-const STATUS_PILLS = {
-  done: { label: 'Done', color: '#15803d', background: '#dcfce7' },
-  in_progress: { label: 'In progress', color: '#b45309', background: '#fef3c7' },
-  todo: { label: 'To do', color: '#475569', background: '#f1f5f9' }
-};
-const PLANNER_PREVIEW = 5; // tasks shown before "Show N more"
+const ACTIVITY_ASSIGNMENT_PREVIEW = 3; // Recent Activity assignments shown before "Show N more"
+const ACTIVITY_DAYS_BACK = 2;   // Recent Activity lists assignments due from the start of the day 2 days ago...
+const ACTIVITY_DAYS_AHEAD = 7;  // ...through the end of the day 7 days from now
 const MESSAGE_PREVIEW = 4; // Recent Activity messages shown before "Show N more"
+// One colour per course: the Connected Spaces card stripes and the Recent Activity placards.
 const COURSE_ACCENTS = ['#2563eb', '#16a34a', '#d97706', '#db2777'];
 
 export default function Dashboard({ user, onLogout, onUserChange }) {
@@ -197,13 +191,19 @@ useEffect(() => {
 }, [showNotifications, closing, closeNotifications]);
 
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [showAllTasks, setShowAllTasks] = useState(false);
+  // Tasks playing the check-off animation. They stay on screen until it ends.
+  const [leavingIds, setLeavingIds] = useState([]);
 
-  // Progress banner and planner preview, worked out from tasks on every render.
-  const doneCount = tasks.filter((task) => task.status === 'done').length;
-  const progress = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
-  const visibleTasks = showAllTasks ? tasks : tasks.slice(0, PLANNER_PREVIEW);
-  const hiddenCount = tasks.length - PLANNER_PREVIEW;
+  // My Planner: every unfinished task you have, soonest due first; no due date goes last.
+  // (Done ones are still on the Planner page.)
+  const now = new Date();
+  const openTasks = tasks
+    .filter((task) => task.status !== 'done')
+    .map((task) => ({ ...task, due: task.due_date ? parseDue(task.due_date) : null }))
+    .sort((a, b) => {
+      if (!a.due || !b.due) return !a.due - !b.due; // true - false = 1: the missing one goes after
+      return a.due - b.due;
+    });
 
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = sessionStorage.getItem('buddytechActiveTab');
@@ -254,12 +254,36 @@ useEffect(() => {
   const hiddenMessageCount = activity.messages.length - MESSAGE_PREVIEW;
   // Reload when a DM or study group message arrives. Course channel messages are only
   // pushed to people looking at that channel, so a 60-second refresh covers those.
+  
+  // Recent Activity assignments: course-wide ones (not personal tasks) due from the start of
+  // the day ACTIVITY_DAYS_BACK days ago to the end of the day ACTIVITY_DAYS_AHEAD days from now,
+  // soonest first. Done ones stay in place (crossed out), so the list only changes when a
+  // new assignment is posted. Built from `tasks`, so check-offs show up instantly.
+  const [showAllDueSoon, setShowAllDueSoon] = useState(false);
+  const windowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ACTIVITY_DAYS_BACK);
+  const windowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ACTIVITY_DAYS_AHEAD + 1);
+  const dueSoon = tasks
+    .filter((task) => task.owner_user_id == null && task.due_date)
+    .map((task) => ({ ...task, due: parseDue(task.due_date) }))
+    .filter((task) => task.due >= windowStart && task.due < windowEnd)
+    .sort((a, b) => a.due - b.due);
+  const visibleDueSoon = showAllDueSoon ? dueSoon : dueSoon.slice(0, ACTIVITY_ASSIGNMENT_PREVIEW);
+  const hiddenDueSoonCount = dueSoon.length - ACTIVITY_ASSIGNMENT_PREVIEW;
+
   useEffect(() => {
     let cancelled = false;
     async function loadActivity() {
       try {
-        const data = await getActivity();
-        if (!cancelled) setActivity(data);
+        const [data, assignments] = await Promise.all([getActivity(), getMyAssignments()]);
+        if (cancelled) return;
+        setActivity(data);
+        // Pick up assignments posted since the page loaded. Only ids we don't have yet are
+        // added, so this never undoes a check-off that's still saving or animating.
+        setTasks((current) => {
+          const known = new Set(current.map((task) => task.id));
+          const added = assignments.filter((assignment) => !known.has(assignment.id));
+          return added.length > 0 ? [...current, ...added] : current;
+        });
       } catch (error) {
         console.error('Failed to load activity:', error);
       }
@@ -276,19 +300,43 @@ useEffect(() => {
     };
   }, []);
 
-  const toggleTask = async (id, currentStatus) => {
-    const newStatus = currentStatus === 'done' ? 'todo' : 'done';
-
+  // Checking a task off: start the animation and save at the same time.
+  // The task is marked done (which takes it off the list) when the animation ends.
+  const completeTask = async (id, previousStatus) => {
+    setLeavingIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
     try {
-      await updateAssignmentStatus(id, newStatus);
-
-      setTasks(tasks.map(task =>
-        task.id === id
-          ? { ...task, status: newStatus }
-          : task
-      ));
+      await updateAssignmentStatus(id, 'done');
     } catch (error) {
       console.error(error);
+      // Save failed: stop the animation, or bring the task back if it already left.
+      setLeavingIds((ids) => ids.filter((leavingId) => leavingId !== id));
+      setTasks((current) => current.map((task) =>
+        task.id === id ? { ...task, status: previousStatus } : task
+      ));
+    }
+  };
+
+  // Called when a row's closing animation ends.
+  const finishLeaving = (id) => {
+    setLeavingIds((ids) => ids.filter((leavingId) => leavingId !== id));
+    setTasks((current) => current.map((task) =>
+      task.id === id ? { ...task, status: 'done' } : task
+    ));
+  };
+
+  // Un-marking from the Calendar (a premature or accidental check-off): back to 'todo'.
+  // Updated on screen first; put back to 'done' if the save fails.
+  const reopenTask = async (id) => {
+    setTasks((current) => current.map((task) =>
+      task.id === id ? { ...task, status: 'todo' } : task
+    ));
+    try {
+      await updateAssignmentStatus(id, 'todo');
+    } catch (error) {
+      console.error(error);
+      setTasks((current) => current.map((task) =>
+        task.id === id ? { ...task, status: 'done' } : task
+      ));
     }
   };
 
@@ -300,21 +348,26 @@ useEffect(() => {
     const course = courses[0];
     if (!course) return; // user isn't in any course yet
 
+    // Due at the end of today (local time), so a new task doesn't show up already LATE.
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const dueToday = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())} 23:59:00`;
+
     try {
       const created = await createAssignment({
         course_id: course.id,
         title: newTaskTitle,
         description: 'Created from BuddyTech dashboard',
-        due_date: '2026-10-01 23:59:00'
+        due_date: dueToday
       });
 
-      setTasks([
-        ...tasks,
+      setTasks((current) => [
+        ...current,
         {
           ...created,
           course_code: course.course_code,
           course_name: course.course_name,
-          due_date: '2026-10-01T23:59:00.000Z'
+          due_date: dueToday
         }
       ]);
 
@@ -469,6 +522,7 @@ useEffect(() => {
             onTaskCreated={(task) =>
               setTasks((currentTasks) => [...currentTasks, task])
             }
+            onReopenTask={reopenTask}
           />
         ) : activeTab === 'ai' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
@@ -486,40 +540,18 @@ useEffect(() => {
         <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: '2rem' }}>
           {/* Main Column */}
           <div>
-            {/* Welcome banner with overall progress */}
-            <div className="dash-hero">
-              <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffffff', margin: 0 }}>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a' }}>
                 Welcome back, {displayName} 👋
               </h1>
-              <p style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: '0.95rem', margin: '0.35rem 0 0' }}>
-                Here is an overview of your active spaces and tasks.
-              </p>
-
-              {tasks.length > 0 && (
-                <div style={{ marginTop: '1rem' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: 'rgba(255, 255, 255, 0.9)' }}>
-                    {doneCount} of {tasks.length} tasks done · {progress}%
-                  </div>
-                  <div
-                    className="dash-progress"
-                    role="progressbar"
-                    aria-label="Tasks completed"
-                    aria-valuenow={progress}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
-                    <div className="dash-progress-fill" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
+              <p style={{ color: '#64748b', fontSize: '0.95rem' }}>Here is an overview of your active spaces and tasks.</p>
+              {loadError && (
+                <p role="alert" style={{ color: '#dc2626', fontSize: '0.9rem' }}>Couldn't load your data: {loadError}</p>
               )}
             </div>
 
-            {loadError && (
-              <p role="alert" style={{ color: '#dc2626', fontSize: '0.9rem', margin: '0 0 1.5rem' }}>Couldn't load your data: {loadError}</p>
-            )}
-
             {/* Planner Section */}
-            <div style={{ ...cardStyle, marginBottom: '2rem' }}>
+            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem', marginBottom: '2rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                   <Calendar size={18} color="#2563eb" /> My Planner
@@ -541,53 +573,65 @@ useEffect(() => {
                 </button>
               </form>
 
-              {/* Tasks List: the first few, with a button for the rest */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {tasks.length === 0 ? (
-                  <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>No pending tasks.</p>
-                ) : (
-                  visibleTasks.map(task => {
-                    const pill = STATUS_PILLS[task.status] || STATUS_PILLS.todo;
+              {/* Tasks List: every unfinished task. Each row brings its own 0.75rem gap
+                  (it closes with the row), and the -0.75rem cancels the last one. */}
+              {openTasks.length === 0 ? (
+                <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>No pending tasks.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', marginBottom: '-0.75rem' }}>
+                  {openTasks.map((task) => {
+                    const leaving = leavingIds.includes(task.id);
+                    const late = task.due !== null && task.due < now; // past due and still not done
                     return (
-                      <div key={task.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span
-                            onClick={() => toggleTask(task.id, task.status)}
-                            style={{
-                              cursor: 'pointer',
-                              color: task.status === 'done' ? '#10b981' : '#94a3b8'
-                            }}
-                          >
-                            {task.status === 'done'
-                              ? <CheckSquare size={18} />
-                              : <Square size={18} />
-                            }
-                          </span>
-                          <div>
-                            <p style={{ fontWeight: 600, margin: 0, textDecoration: task.status === 'done' ? 'line-through' : 'none', color: task.status === 'done' ? '#94a3b8' : '#1e293b' }}>
-                              {task.title}
-                            </p>
-                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>{task.course_code} • {task.description}</p>
+                      <div
+                        key={task.id}
+                        className={leaving ? 'task-row leaving' : 'task-row'}
+                        onAnimationEnd={(event) => {
+                          // The title and bubble animations bubble up here too; wait for the last step.
+                          if (event.animationName === 'task-collapse') finishLeaving(task.id);
+                        }}
+                      >
+                        <div className="task-row-inner">
+                          <div className="task-bubble" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#f8fafc', borderRadius: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <span
+                                onClick={() => completeTask(task.id, task.status)}
+                                style={{
+                                  cursor: 'pointer',
+                                  color: leaving ? '#10b981' : '#94a3b8'
+                                }}
+                              >
+                                {leaving
+                                  ? <CheckSquare size={18} />
+                                  : <Square size={18} />
+                                }
+                              </span>
+                              <div>
+                                <p style={{ fontWeight: 600, margin: 0, color: '#1e293b' }}>
+                                  <span className="task-title">{task.title}</span>
+                                </p>
+                                  <p style={{ fontSize: '0.8rem', color: late ? '#b91c1c' : '#64748b', margin: 0 }}>
+                                  {task.course_code} • {task.due ? `Due ${formatDue(task.due)}` : 'No due date'}
+                                </p>
+                              </div>
+                            </div>
+                            {late ? (
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', color: '#b91c1c', background: '#fee2e2', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                              LATE
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: task.color, background: `${task.color}15`, padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                              {task.status}
+                            </span>
+                          )}
                           </div>
                         </div>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: pill.color, background: pill.background, padding: '0.3rem 0.7rem', borderRadius: '999px', whiteSpace: 'nowrap' }}>
-                          {pill.label}
-                        </span>
                       </div>
                     );
-                  })
-                )}
+                  })}
+                </div>
+              )}
 
-                {hiddenCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllTasks((shown) => !shown)}
-                    style={{ alignSelf: 'center', marginTop: '0.25rem', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}
-                  >
-                    {showAllTasks ? 'Show fewer' : `Show ${hiddenCount} more`}
-                  </button>
-                )}
-              </div>
             </div>
 
             {/* Neutral Connected Spaces */}
@@ -607,9 +651,8 @@ useEffect(() => {
                       background: '#ffffff',
                       padding: '1.25rem',
                       borderRadius: '12px',
-                      border: '1px solid #eef2f7',
-                      borderTop: `4px solid ${COURSE_ACCENTS[index % COURSE_ACCENTS.length]}`,
-                      boxShadow: CARD_SHADOW
+                      border: '1px solid #e2e8f0',
+                      borderTop: `4px solid ${COURSE_ACCENTS[index % COURSE_ACCENTS.length]}`
                     }}
                   >
                     <h4 style={{ margin: '0 0 0.4rem 0', color: '#1e293b' }}>
@@ -668,7 +711,7 @@ useEffect(() => {
 
           {/* Right Column: AI Quick Actions */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-           <div style={cardStyle}>
+            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                   <Sparkles size={16} color="#2563eb" /> AI Quick Actions
@@ -702,42 +745,60 @@ useEffect(() => {
             </div>
 
             {/* Recent Activity */}
-            <div style={cardStyle}>
+            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                   <Clock size={16} color="#64748b" /> Recent Activity
                 </h3>
               </div>
 
-              {activity.assignments.length === 0 && activity.messages.length === 0 && (
+              {dueSoon.length === 0 && activity.messages.length === 0 && (
                 <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>Nothing new yet.</p>
               )}
 
-              {/* Newly posted assignments, as placards in their course's colour */}
-              {activity.assignments.length > 0 && (
+              {/* Course assignments due from 2 days ago to 7 days ahead, as placards in their
+                  course's colour. Done = crossed out and grey; past due and not done = LATE. */}
+              {dueSoon.length > 0 && (
                 <>
-                  <p className="activity-heading">New assignments</p>
+                  <p className="activity-heading">Assignments due soon</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.1rem' }}>
-                    {activity.assignments.map((assignment) => {
+                    {visibleDueSoon.map((assignment) => {
+                      const done = assignment.status === 'done';
+                      const late = !done && assignment.due < now;
                       const courseIndex = courses.findIndex((course) => course.id === assignment.course_id);
-                      const accent = COURSE_ACCENTS[Math.max(courseIndex, 0) % COURSE_ACCENTS.length];
+                      const accent = done ? '#cbd5e1' : COURSE_ACCENTS[Math.max(courseIndex, 0) % COURSE_ACCENTS.length];
                       return (
                         <button
                           key={assignment.id}
                           type="button"
-                          className="activity-placard"
+                          className={done ? 'activity-placard done' : 'activity-placard'}
                           onClick={() => changeTab('planner')}
                           style={{ borderLeft: `4px solid ${accent}` }}
                         >
-                          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: accent }}>{assignment.course_code}</span>
-                          <span style={{ fontWeight: 600, color: '#1e293b' }}>{assignment.title}</span>
-                          {assignment.due_date && (
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Due {formatDue(assignment.due_date)}</span>
-                          )}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', fontWeight: 700, color: done ? '#94a3b8' : accent }}>
+                            {assignment.course_code}
+                            {late && <span className="late-pill">LATE</span>}
+                          </span>
+                          {/* Inner span stays inline (flex children don't), so the line follows each wrapped line of text. */}
+                          <span style={{ fontWeight: 600, color: done ? '#94a3b8' : '#1e293b' }}>
+                            <span className="placard-title">{assignment.title}</span>
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: late ? '#b91c1c' : '#64748b' }}>Due {formatDue(assignment.due)}</span>
                         </button>
                       );
                     })}
                   </div>
+                  {hiddenDueSoonCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllDueSoon((shown) => !shown)}
+                      aria-expanded={showAllDueSoon}
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', margin: '-0.5rem auto 1.1rem', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+                    >
+                      {showAllDueSoon ? 'Show fewer' : `Show ${hiddenDueSoonCount} more`}
+                      <ChevronDown size={14} className={showAllDueSoon ? 'expand-chevron open' : 'expand-chevron'} />
+                    </button>
+                  )}
                 </>
               )}
 

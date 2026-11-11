@@ -45,8 +45,28 @@ const GoogleLogo = () => (
 export default function Calendar({
   assignments = [],
   courses = [],
-  onTaskCreated
+  onTaskCreated,
+  onReopenTask
 }) {
+  // A done assignment can be clicked (or Enter/Space) to un-mark it, for a check-off
+  // made too early or by accident. Returns nothing for assignments that aren't done.
+  const reopenProps = (assignment) => {
+    if (assignment.status !== 'done' || !onReopenTask) return {};
+    const reopen = () => onReopenTask(assignment.id);
+    return {
+      role: 'button',
+      tabIndex: 0,
+      title: `${assignment.title}: done. Click to mark as not done.`,
+      onClick: reopen,
+      onKeyDown: (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault(); // stop Space from scrolling the page
+          reopen();
+        }
+      }
+    };
+  };
+
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -357,10 +377,11 @@ export default function Calendar({
 
                       {dayAssignments.map((assignment) => (
                         <div
-                          className="calendar-event"
+                          className={assignment.status === 'done' ? 'calendar-event done' : 'calendar-event'}
                           key={assignment.id}
                           style={{ marginTop: assignment.marginTop, height: EVENT_HEIGHT }}
                           title={`${assignment.title} (due ${formatTime(assignment.due)})`}
+                          {...reopenProps(assignment)}
                         >
                           <strong>{assignment.title}</strong>
 
@@ -393,8 +414,9 @@ export default function Calendar({
               ) : (
                 upcomingAssignments.map((assignment) => (
                   <div
-                    className="upcoming-assignment"
+                    className={assignment.status === 'done' ? 'upcoming-assignment done' : 'upcoming-assignment'}
                     key={assignment.id}
+                    {...reopenProps(assignment)}
                   >
                     <div className="upcoming-icon">
                       <Clock size={16} />
