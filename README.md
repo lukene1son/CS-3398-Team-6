@@ -6,24 +6,28 @@ Students chat in their courses ("Study Spaces"), find and connect with classmate
 
 ## Live Version
 
-The publicly hosted version of BuddyTech is at **https://buddytech.devs.li**.
+The publicly hosted version of BuddyTech is at **https://buddytechdemo.devs.li**.
 
-To run your own copy locally, follow the setup below.
+To run your own copy locally, use the [Native Development Setup](#native-development-setup) below. The Docker setup in this repository is now the **hosted server's** setup (see the next section).
 
-Backend setup, database, permissions, real-time events, and the full API list: [`BuddyTech/Backend/README.md`](BuddyTech/Backend/README.md)
+Backend setup, database, permissions, sign-in sessions, real-time events, and the full API list: [`BuddyTech/Backend/README.md`](BuddyTech/Backend/README.md)
 
-## Recommended Setup: Docker
+## Hosting with Docker
 
-Docker is the easiest and most reliable way to run BuddyTech on macOS, Windows, or Linux.
+`docker-compose.yml` runs the whole site on one server: MySQL, the backend, the frontend, and **Caddy**, a web server that gets an HTTPS certificate automatically and passes requests on (`/api/*`, including Socket.IO, to the backend; everything else to the frontend). Only Caddy is reachable from outside, on ports 80 and 443; the backend and frontend have no published ports.
+
+The site address is set in the `Caddyfile` at the repository root (`buddytechdemo.devs.li`). For your own server, change it to your domain and point that domain's DNS at the server before starting, so Caddy can get the certificate.
+
+> **Running Docker on your own computer:** with this setup, `http://localhost:5173` and `http://localhost:3000` are no longer published, and Caddy only answers for the domain in the `Caddyfile`. For local development, use the [Native Development Setup](#native-development-setup).
 
 ### Requirements
 
-Install:
+On the server, install:
 
 - Git
-- Docker Desktop
+- Docker with the Compose plugin (Docker Engine on a Linux server, or Docker Desktop)
 
-You do not need to install Node.js or MySQL separately when using Docker.
+You do not need to install Node.js or MySQL separately when using Docker. The server must accept connections on ports 80 and 443.
 
 > **Windows tip:** if PowerShell says `docker : The term 'docker' is not recognized`, Docker Desktop is installed but its command-line folder isn't on your `PATH`. For a per-user install, add `%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin` to your user `PATH`, then restart your terminal (and VS Code, if you use its terminal).
 
@@ -48,8 +52,15 @@ Docker reads a `.env` file in the repository root (it is git-ignored). **`JWT_SE
 
     # Optional: Google Calendar sync (needs all four)
     GOOGLE_CLIENT_SECRET=your-client-secret
-    GOOGLE_REDIRECT_URI=http://localhost:5173/api/auth/google/callback
+    GOOGLE_REDIRECT_URI=https://buddytechdemo.devs.li/api/auth/google/callback
     GOOGLE_TOKEN_KEY=64-hex-characters
+
+    # Optional: security emails ("approve this sign-in"), sent through Resend
+    EMAIL_API_KEY=your-resend-api-key
+    MAIL_FROM=BuddyTech <security@your-verified-domain>
+
+    # The site's public address, used for links in emails (this is the default)
+    APP_URL=https://buddytechdemo.devs.li
 
 To generate `JWT_SECRET` or `GOOGLE_TOKEN_KEY`:
 
@@ -59,9 +70,9 @@ Never commit this file. See the backend README for what each Google setting does
 
 ### 3. Start BuddyTech
 
-Make sure Docker Desktop is running, then run:
+On the server, from the repository root:
 
-    docker compose up --build
+    docker compose up -d --build
 
 On the first launch Docker will:
 
@@ -70,43 +81,51 @@ On the first launch Docker will:
 - start MySQL
 - create the BuddyTech database and tables
 - load demo data (accounts, courses, study groups, assignments, resources, and profile pictures)
-- start the Express backend
-- start the React frontend
+- start the Express backend and the React frontend
+- start Caddy, which gets the HTTPS certificate for the site address
 
 On every start, the backend also runs `npm run db:migrate`, which applies any new files in `BuddyTech/Backend/database/migrations/` without touching existing data.
 
 ### 4. Open BuddyTech
 
-Frontend:
+    https://buddytechdemo.devs.li
 
-    http://localhost:5173
+(or the domain you put in the `Caddyfile`).
 
-Backend:
+### Updating, logs, and stopping
 
-    http://localhost:3000
+After pulling new code, rebuild and restart:
 
-### Stopping BuddyTech
+    docker compose up -d --build
 
-Press Ctrl+C in the terminal running Docker.
+Backend logs:
 
-Your database and uploaded files (profile pictures, course resources) are stored in Docker volumes, so they remain available the next time you run:
+    docker compose logs backend --tail 100
 
-    docker compose up
+Stop everything:
 
-### Resetting the Local Database
+    docker compose down
 
-To completely erase the Docker database and uploads and start fresh:
+Your database, uploaded files (profile pictures, course resources), and Caddy's certificates are stored in Docker volumes, so they remain available the next time you start it.
+
+### Resetting the Database
+
+To rebuild the database and reload the demo data while the site is running:
+
+    docker compose exec backend npm run db:init
+
+To erase **everything** (database, uploads, and certificates) and start fresh:
 
     docker compose down -v
-    docker compose up --build
+    docker compose up -d --build
 
-Only use the `-v` option when you intentionally want to erase local BuddyTech data.
+Only use the `-v` option when you intentionally want to erase BuddyTech data.
 
 **When to reset:** demo data (`seed.sql`) is only loaded into an **empty** database. If someone changes `seed.sql`, you won't see the new demo data until you reset. The backend log says `Database "buddytech" already initialized.` when it skipped the seed, and `Database initialized successfully.` when it loaded it. If the log shows `Database setup failed` with an SQL error, fix `seed.sql` and reset again (the failed run leaves empty tables behind).
 
 ## Native Development Setup
 
-Docker is recommended, but BuddyTech can also run directly on a developer machine.
+This is the way to run BuddyTech on your own computer.
 
 ### Backend
 
@@ -195,11 +214,19 @@ Working now:
 
 - **Accounts:**
   - Sign up and sign in with an email and password. Passwords are hashed with bcrypt, and the backend issues a login token that lasts 7 days, so you stay signed in after a browser refresh.
-  - **Sign in with Google** (when `GOOGLE_CLIENT_ID` is set). A new Google user gets an account automatically. An existing password account with the same email is linked to Google only if Google vouches for the address (a `@gmail.com` address, or a verified Google Workspace address); otherwise the user is asked to sign in with their password.
-- **Private data:** every `/api` route (except sign-in, sign-up, and the Google Calendar callback) requires a login token. Users only see courses they belong to, plus their own personal tasks and task status.
+  - **Sign in with Google** (when `GOOGLE_CLIENT_ID` is set). A new Google user gets an account automatically. An existing password account with the same email is linked to Google only if Google vouches for the address (a `@gmail.com` address, or a verified Google Workspace address); otherwise the user is asked to sign in with their password. Linking removes the account's password and signs out its other devices, so from then on it signs in with Google (someone could have registered the address with a password before its real owner arrived).
+  - **Join with Canvas** button on the sign-in page. It's a demo: it shows a short note and doesn't sign in yet.
+- **Sign-in sessions and approval:**
+  - Every login token belongs to a session the server keeps track of. **Sign Out** ends that session on the server, so the token stops working right away (not just in this browser).
+  - **New sign-ins need approval while you're signed in elsewhere.** If someone signs in to your account while you have BuddyTech open on another device, the sign-in is held: the new device shows a **Waiting for approval** screen, and your open app gets a bell notification, "**Sign-In attempt:** *device* (*IP address*). Was this you?" with ✓ / ✗. ✓ lets the other device in (it checks every 3 seconds); ✗ refuses it. You have 10 minutes to decide. If email is set up, you also get an email about it.
+  - If you don't have the app open anywhere, a correct password signs in normally.
+- **Private data:** every `/api` route (except sign-in, sign-up, the waiting device's approval check, and the Google Calendar callback) requires a login token for a live session. Users only see courses they belong to, plus their own personal tasks and task status.
 - **Course roles:** each course member is a student, TA, or teacher. Only TAs and teachers can post assignments for the whole course; students can add personal tasks.
-- **Home tab:** your upcoming tasks (check them off; each user's check-offs are saved separately) and a **Recent Activity** card with the newest messages from your channels, groups, and direct messages, plus newly posted course assignments.
-- **Notification bell:** incoming study partner requests, study group invites (both with **Accept** / **Decline**), requests of yours that were accepted, and unread study group messages.
+- **Home tab:**
+  - Your upcoming tasks. Check them off; each user's check-offs are saved separately. A task shows **LATE** once its due time passes, or if it was checked off after its due time; one finished on time doesn't.
+  - A **search bar** (not connected yet; see the limitations below).
+  - A **Recent Activity** card with the newest messages from your channels, groups, and direct messages, plus newly posted course assignments.
+- **Notification bell:** sign-in attempts waiting for your approval, incoming study partner requests and study group invites (all with ✓ / ✗), requests of yours that were accepted, and unread messages in study groups, direct messages, and course channels. Clicking an unread chat opens it in Spaces. The Spaces sidebar shows a red dot on each chat with unread messages; it keeps pulsing until you've seen that notification in the bell.
 - **Spaces tab:** three sub-tabs.
   - **Chat:** one place for every conversation, with a collapsible sidebar:
     - **Study Spaces:** members of a course chat in its channels.
@@ -226,7 +253,8 @@ Working now:
   - Only you, your classmates, and your connections can see your picture.
   - Email notification and assignment reminder switches (saved, but see the limitations below).
 - **Rate limiting:**
-  - **Sign-in:** after 5 wrong passwords for one email, sign-in for that account is blocked for 15 minutes. Each IP address can create at most 10 accounts per hour.
+  - **Sign-in:** after 5 wrong passwords for one email, sign-in for that account is blocked for 15 minutes (only wrong passwords count). Each account can have at most 5 held sign-ins per hour that weren't approved. Each IP address can create at most 10 accounts per hour.
+  - **Chat:** each user can send 15 messages per 30 seconds, across course channels, study groups, and direct messages together.
   - **Study partners and groups:** each user can send 20 friend requests per hour (3 per day to the same person), 30 study group invites per hour, and 30 user searches per minute. Failed attempts don't count.
   - **Settings and sync:** 3 profile picture uploads per 15 minutes, and 10 Google Calendar syncs per 15 minutes.
 
@@ -261,18 +289,21 @@ Known limitations:
 - **`JWT_SECRET` must be set.** Natively, the backend reads it from `BuddyTech/Backend/port.env`; without it, sign-in and sign-up fail with a server error. Under Docker, `docker compose up` refuses to start until the root `.env` sets it.
 - **Google features need a Google Cloud OAuth client.** Without `GOOGLE_CLIENT_ID`, the **Sign in with Google** button is hidden. Without all four Google Calendar settings, the Planner's sync card says sync isn't configured.
 - **Google Calendar sync is one-way.** Changes made in Google Calendar don't come back to BuddyTech, and disconnecting leaves the "BuddyTech" calendar in your Google account.
-- **The email notification and assignment reminder switches don't send anything yet.** They are saved, but the backend has no email sending.
+- **The email notification and assignment reminder switches don't send anything yet.** They are saved, but the only email the backend sends is the sign-in approval email.
+- **The sign-in approval email's link doesn't work yet.** It points to a `/login-attempt` page the frontend doesn't have. Approve from the bell instead. (Without `EMAIL_API_KEY` and `MAIL_FROM`, no email is sent at all.)
+- **The Home tab's search bar doesn't search yet.** The backend has a search route (`GET /api/me/search`, messages and assignments you can see), but the search box isn't connected to it.
+- **Changing your password and "sign out everywhere" have no buttons yet.** The backend routes exist (`PUT /api/me/password`, `POST /api/me/logout-everywhere`), but the Settings tab doesn't use them.
+- **Everyone had to sign in again once** after sessions were added: login tokens from before then have no session and are refused.
 - **A new direct message only appears for the other person once something is sent.** Clicking **Message** opens an empty chat for you right away, but nothing is saved until the first message.
 - **Study groups have three fixed channels** (`#general`, `#homework`, `#meetups`).
 - **Invite pickers list every group you can post in.** The app doesn't know which courses a connection is in, so if you pick a group they can't join, the backend refuses and explains why.
 - **Teachers and TAs show up in Find Study Partners suggestions,** because suggestions are based on shared courses, not roles.
-- **Signing out only affects this browser.** A login token stays valid until it expires (7 days); the server can't cancel it early.
-- **Rate-limit counts and the Google Calendar sync queue reset on restart.** They are kept in the backend's memory, which only works while a single backend server is running.
-- **The local Docker setup in this repository isn't meant for public hosting as-is:**
+- **Rate-limit counts, the Google Calendar sync queue, and "who has the app open" reset on restart.** They are kept in the backend's memory, which only works while a single backend server is running.
+- **The hosted Docker setup still has demo-grade parts:**
   - the frontend runs on the Vite development server instead of a production build
-  - the site needs HTTPS
   - the demo accounts use a password that is published in this repository
   - Docker uses the MySQL root user with a weak password
+- **There's no Docker setup for running on your own computer** right now; `docker-compose.yml` is the hosted server's setup. Use the native setup locally.
 - **AI tools need a Gemini API key.** Without `GEMINI_API_KEY`, the AI route returns "AI service is not configured yet".
 
 ## Technology Stack
@@ -283,4 +314,5 @@ Known limitations:
 - Socket.IO (real-time updates)
 - Google Identity Services (Sign in with Google) and the Google Calendar API
 - Gemini (AI study tools)
-- Docker / Docker Compose
+- Resend (sign-in approval emails)
+- Docker / Docker Compose, with Caddy (HTTPS and routing) on the hosted server

@@ -25,17 +25,18 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}           
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       GOOGLE_TOKEN_KEY: ${GOOGLE_TOKEN_KEY:-}
-      TRUST_PROXY: uniquelocal
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      APP_URL: ${APP_URL:-https://buddytechdemo.devs.li}
     depends_on:
       mysql:
         condition: service_healthy
     command: sh -c "npm run db:ensure && npm run db:migrate && npm start"
-    ports:
-      - "3000:3000"
+    # No "ports:": only Caddy (on the Docker network) may reach the backend.
     volumes:
       - buddytech_uploads:/app/uploads
 
@@ -46,9 +47,20 @@ services:
       VITE_API_TARGET: http://backend:3000
     depends_on:
       - backend
+    # No "ports:": only Caddy may reach the frontend.
+
+  caddy:
+    image: caddy:2.8
     ports:
-      - "5173:5173"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - frontend
 
 volumes:
   buddytech_mysql_data:
   buddytech_uploads:
+  caddy_data:

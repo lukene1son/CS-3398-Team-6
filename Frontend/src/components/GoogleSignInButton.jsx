@@ -27,14 +27,14 @@ let handleCredential = () => {};
 
 // "Sign in with Google". Google draws the button itself (logo, text, colours),
 // which keeps it within their branding rules. Hidden if the server has no client ID.
-export default function GoogleSignInButton({ onLogin, onError }) {
+export default function GoogleSignInButton({ onLogin, onError, onPending }) {
   const buttonRef = useRef(null);
-  const callbacks = useRef({ onLogin, onError });
+  const callbacks = useRef({ onLogin, onError, onPending });
   const [unavailable, setUnavailable] = useState(false);
 
   // Keep the latest callbacks without re-rendering Google's button every time they change.
   useEffect(() => {
-    callbacks.current = { onLogin, onError };
+    callbacks.current = { onLogin, onError, onPending };
   });
 
   useEffect(() => {
@@ -42,8 +42,9 @@ export default function GoogleSignInButton({ onLogin, onError }) {
 
     handleCredential = async (response) => {
       try {
-        const user = await loginWithGoogle(response.credential);
-        callbacks.current.onLogin(user);
+        const result = await loginWithGoogle(response.credential);
+        if (result.pending) callbacks.current.onPending(result); // held: wait for approval
+        else callbacks.current.onLogin(result);
       } catch (err) {
         callbacks.current.onError(err.message);
       }

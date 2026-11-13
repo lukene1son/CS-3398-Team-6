@@ -5,7 +5,8 @@ import {
   Clock, CheckSquare, Square, ChevronRight, ChevronDown, LogOut, FolderPlus} from 'lucide-react';
 import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignment,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
-    respondToFriendRequest, respondToGroupInvite, getActivity} from '../api';
+    respondToFriendRequest, respondToGroupInvite, getActivity, markGroupRead,
+    getLoginAttempts, decideLoginAttempt} from '../api';
 import {onSocketEvent} from '../socket';
 
 import SpacesChat from '../components/SpacesChat';
@@ -22,7 +23,50 @@ function notificationKeys(n) {
     ...n.friendRequests.map((r) => `request-${r.id}`),
     ...n.groupInvites.map((i) => `invite-${i.id}`),
     ...n.accepted.map((r) => `accepted-${r.id}`),
+    ...n.loginAttempts.map((a) => `signin-${a.id}`),
   ];
+}
+
+// Unread chat messages the bell knows about: study groups, Study Chats (DMs) and course channels.
+const unreadTotal = (n) => n.unreadGroupMessages + n.unreadDirectMessages + n.unreadChannelMessages;
+
+// The number on the bell's pill: one per row in the window. A chat with any
+// number of unread messages counts once; so does each partner request,
+// group invite, and accepted request.
+const notificationCount = (n) =>
+  n.unreadGroups.length + n.unreadDirect.length + n.unreadChannels.length +
+  n.friendRequests.length + n.groupInvites.length + n.accepted.length + n.loginAttempts.length;
+
+// Every unread chat as { key: unread count }. Keys: "group-3", "dm-7", "channel-2".
+function unreadChats(n) {
+  return Object.fromEntries([
+    ...n.unreadGroups.map((g) => [`group-${g.group_id}`, g.unread]),
+    ...n.unreadDirect.map((c) => [`dm-${c.user_id}`, c.unread]),
+    ...n.unreadChannels.map((c) => [`channel-${c.channel_id}`, c.unread]),
+  ]);
+}
+
+// The notifications with one chat taken out (opened from the bell), totals kept in step.
+function withoutChat(n, target) {
+  const drop = (list, idKey) => list.filter((item) => item[idKey] !== target.id);
+  const sum = (list) => list.reduce((total, item) => total + item.unread, 0);
+  const groups = target.type === 'group' ? drop(n.unreadGroups, 'group_id') : n.unreadGroups;
+  const direct = target.type === 'dm' ? drop(n.unreadDirect, 'user_id') : n.unreadDirect;
+  const channels = target.type === 'channel' ? drop(n.unreadChannels, 'channel_id') : n.unreadChannels;
+  return {
+    ...n,
+    unreadGroups: groups, unreadGroupMessages: sum(groups),
+    unreadDirect: direct, unreadDirectMessages: sum(direct),
+    unreadChannels: channels, unreadChannelMessages: sum(channels),
+  };
+}
+
+// Which unread chats have been seen in the bell window, and at what unread count:
+// { "dm-7": 3, ... }. Kept in this browser per user, so a reload doesn't make
+// every old notification count as unseen again (the Spaces dots use it).
+const viewedStorageKey = (userId) => `buddytech-viewed-chats-${userId}`;
+function loadViewedChats(userId) {
+  try { return JSON.parse(localStorage.getItem(viewedStorageKey(userId))) || {}; } catch { return {}; }
 }
 
 // Recent Activity times. Message times are real instants (TIMESTAMP columns).
@@ -81,7 +125,9 @@ const [closing, setClosing] = useState(false);
 
 // Temporary sample data until the backend API is available.
 const [notifications, setNotifications] = useState({
-  friendRequests: [], groupInvites: [], accepted: [], unreadGroups: [], unreadGroupMessages: 0
+  friendRequests: [], groupInvites: [], accepted: [], unreadGroups: [], unreadGroupMessages: 0,
+  unreadDirect: [], unreadDirectMessages: 0, unreadChannels: [], unreadChannelMessages: 0,
+  loginAttempts: []
 });
 const latestLoad = useRef(0);
 
@@ -89,16 +135,28 @@ const latestLoad = useRef(0);
 const [seen, setSeen] = useState({ keys: [], unread: 0 });
 const bellRef = useRef(null);
 
+// Unread chats seen in the window, by key, at the unread count they had then (see loadViewedChats).
+const [viewedChats, setViewedChats] = useState(() => loadViewedChats(user?.id));
+useEffect(() => {
+  try { localStorage.setItem(viewedStorageKey(user?.id), JSON.stringify(viewedChats)); } catch { /* storage unavailable */ }
+}, [user?.id, viewedChats]);
+
+// A chat to open in Spaces (clicked in the bell). A new nonce = a new request.
+const [openTarget, setOpenTarget] = useState(null);
+const openCount = useRef(0); // nonce source: counts bell clicks
+
 // Load once, then again whenever the server says something changed.
 // "connect" also fires after a reconnect, to catch up on anything missed.
 useEffect(() => {
   async function loadNotifications() {
     const thisLoad = ++latestLoad.current;
     try {
-      const [friendRequests, groupInvites, extra] = await Promise.all([
+      const [friendRequests, groupInvites, extra, loginAttempts] = await Promise.all([
         getFriendRequests('incoming'),
         getGroupInvites('incoming'),
-        getNotifications()
+        getNotifications(),
+        // Its own catch, so a problem here doesn't empty the rest of the bell.
+        getLoginAttempts().catch((error) => { console.error('Failed to load sign-in attempts:', error); return []; })
       ]);
       if (thisLoad !== latestLoad.current) return; // a newer load started; drop this one
       const fresh = {
@@ -106,22 +164,35 @@ useEffect(() => {
           groupInvites,
           accepted: extra.accepted_requests,
           unreadGroups: extra.unread_groups,
-          unreadGroupMessages: extra.unread_group_messages
+          unreadGroupMessages: extra.unread_group_messages,
+          unreadDirect: extra.unread_direct,
+          unreadDirectMessages: extra.unread_direct_messages,
+          unreadChannels: extra.unread_channels,
+          unreadChannelMessages: extra.unread_channel_messages,
+          loginAttempts
         };
         setNotifications(fresh);
         // Forget seen items that are gone, so a re-sent request or a new message counts as new again.
       const freshKeys = notificationKeys(fresh);
       setSeen((prev) => ({
           keys: prev.keys.filter((key) => freshKeys.includes(key)),
-          unread: Math.min(prev.unread, fresh.unreadGroupMessages)
+          unread: Math.min(prev.unread, unreadTotal(fresh))
       }));
+      // Same for chats: a chat that's been read is forgotten, and one that's partly
+      // read keeps the lower count, so any message after that counts as unseen.
+      const freshChats = unreadChats(fresh);
+      setViewedChats((prev) => Object.fromEntries(Object.entries(prev)
+        .filter(([key]) => key in freshChats)
+        .map(([key, count]) => [key, Math.min(count, freshChats[key])])));
     } catch (error) {
       console.error('Failed to load notifications:', error);
     }
   }
 
   loadNotifications();
-  const stops = ['friends-changed', 'group-invites-changed', 'group-unread-changed', 'connect']
+  const stops = ['friends-changed', 'group-invites-changed', 'group-unread-changed',
+    'direct-message', 'dm-unread-changed', 'channel-unread-changed',
+    'login-attempt', 'login-attempt-decided', 'connect']
     .map((event) => onSocketEvent(event, loadNotifications));
   return () => stops.forEach((stop) => stop());
 }, []);
@@ -138,11 +209,12 @@ const handleClearAccepted = async () => {
 // Which row has an accept/decline in flight, e.g. "friendRequests-4" (disables its buttons).
 const [busyKey, setBusyKey] = useState(null);
 
-// Accept or decline from the bell. kind is 'friendRequests' or 'groupInvites'.
+// Accept or decline from the bell. kind is 'friendRequests', 'groupInvites' or 'loginAttempts'.
 const handleRespond = async (kind, id, action) => {
   setBusyKey(`${kind}-${id}`);
   try {
     if (kind === 'friendRequests') await respondToFriendRequest(id, action);
+    else if (kind === 'loginAttempts') await decideLoginAttempt(id, action === 'accept' ? 'approve' : 'deny');
     else await respondToGroupInvite(id, action);
     // Remove the row right away; the socket event then reloads the real list.
     setNotifications((current) => ({
@@ -159,13 +231,42 @@ const handleRespond = async (kind, id, action) => {
 // Red dot: something is here that wasn't when the window was last closed.
 const hasUnseen =
   notificationKeys(notifications).some((key) => !seen.keys.includes(key)) ||
-  notifications.unreadGroupMessages > seen.unread;
+  unreadTotal(notifications) > seen.unread;
+const count = notificationCount(notifications);
 
 // Closing starts the fade-out and marks everything currently in the window as seen.
 const closeNotifications = useCallback(() => {
   setClosing(true);
-  setSeen({ keys: notificationKeys(notifications), unread: notifications.unreadGroupMessages });
+  setSeen({ keys: notificationKeys(notifications), unread: unreadTotal(notifications) });
+  setViewedChats(unreadChats(notifications));
 }, [notifications]);
+
+// A chat row clicked in the window: close it, take the row out right away (the
+// server's events then reload the real list), and open that chat in Spaces.
+// Opening a DM or channel marks it read there; a group is marked read here, all
+// of its channels, since the row counts them together.
+// target: { type: 'dm' | 'group' | 'channel', id, channel?, courseId? }
+const openChat = (target) => {
+  closeNotifications();
+  setNotifications((current) => withoutChat(current, target));
+  openCount.current += 1;
+  setOpenTarget({ ...target, nonce: openCount.current });
+  changeTab('spaces');
+  if (target.type === 'group') markGroupRead(target.id).catch((error) => console.error(error));
+};
+
+// For the Spaces dots: every unread chat, and whether its notification has been
+// seen in the window (with no new messages since).
+const chatsUnread = Object.fromEntries(Object.entries(unreadChats(notifications)).map(
+  ([key, unread]) => [key, { unread, viewed: (viewedChats[key] ?? 0) >= unread }]));
+const groupChannelsUnread = Object.fromEntries(notifications.unreadGroups.map((g) => [g.group_id, g.channels]));
+// Per course (for the course row's dot): all its channels' unread together; seen only if every one was.
+const coursesUnread = {};
+for (const ch of notifications.unreadChannels) {
+  const course = (coursesUnread[ch.course_id] ||= { unread: 0, viewed: true });
+  course.unread += ch.unread;
+  course.viewed = course.viewed && chatsUnread[`channel-${ch.channel_id}`].viewed;
+}
 
 // Called by the window when its fade-out has finished.
 const finishClose = () => {
@@ -216,6 +317,9 @@ useEffect(() => {
   const changeTab = (tab) => {
     sessionStorage.setItem('buddytechActiveTab', tab);
     setActiveTab(tab);
+    // Leaving Spaces: forget the bell's last "open this chat", so coming back
+    // later doesn't jump to that chat again.
+    if (tab !== 'spaces') setOpenTarget(null);
   };
 
   const activeIndex = NAV_ITEMS.findIndex((item) => item.id === activeTab);
@@ -320,22 +424,23 @@ useEffect(() => {
   const finishLeaving = (id) => {
     setLeavingIds((ids) => ids.filter((leavingId) => leavingId !== id));
     setTasks((current) => current.map((task) =>
-      task.id === id ? { ...task, status: 'done' } : task
+       task.id === id ? { ...task, status: 'done', completed_at: new Date().toISOString() } : task
     ));
   };
 
   // Un-marking from the Calendar (a premature or accidental check-off): back to 'todo'.
   // Updated on screen first; put back to 'done' if the save fails.
   const reopenTask = async (id) => {
+    const before = tasks.find((task) => task.id === id);
     setTasks((current) => current.map((task) =>
-      task.id === id ? { ...task, status: 'todo' } : task
+      task.id === id ? { ...task, status: 'todo', completed_at: null } : task
     ));
     try {
       await updateAssignmentStatus(id, 'todo');
     } catch (error) {
       console.error(error);
       setTasks((current) => current.map((task) =>
-        task.id === id ? { ...task, status: 'done' } : task
+        task.id === id ? { ...task, status: 'done', completed_at: before?.completed_at ?? null } : task
       ));
     }
   };
@@ -450,7 +555,9 @@ useEffect(() => {
       if (showNotifications && !closing) closeNotifications();
       else { setClosing(false); setShowNotifications(true); }
     }}
-    aria-label="Study partner notifications"
+    aria-label={hasUnseen && count > 0
+      ? `Study partner notifications (${count} new)`
+      : 'Study partner notifications'}
     aria-expanded={showNotifications && !closing}
     style={{
       position: 'relative',
@@ -465,19 +572,33 @@ useEffect(() => {
   >
     <Bell size={20} color="#64748b" />
 
-    {hasUnseen && (
+    {/* Red pill with the count. Shows when something is new since the window
+        was last closed, like the dot did; the number is everything in the window. */}
+    {hasUnseen && count > 0 && (
       <span
+        aria-hidden="true"
         style={{
           position: 'absolute',
-          top: '1px',
-          right: '1px',
-          width: '9px',
-          height: '9px',
+          top: '-3px',
+          right: '-6px',
+          minWidth: '18px',
+          height: '18px',
+          padding: '0 5px',
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
           background: '#ef4444',
-          borderRadius: '50%',
+          color: '#ffffff',
+          fontSize: '0.7rem',
+          fontWeight: 700,
+          lineHeight: 1,
+          borderRadius: '9px',
           border: '2px solid white',
         }}
-      />
+      >
+        {count > 99 ? '99+' : count}
+      </span>
     )}
   </button>
 
@@ -486,6 +607,7 @@ useEffect(() => {
       notifications={notifications}
       onClearAccepted={handleClearAccepted}
       onRespond={handleRespond}
+      onOpenChat={openChat}
       busyKey={busyKey}
       closing={closing}
       onClosed={finishClose}
@@ -513,7 +635,8 @@ useEffect(() => {
         {/* Content Body */}
         {activeTab === 'spaces' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
-            <SpacesChat user={user} />
+            <SpacesChat user={user} unread={chatsUnread} groupChannelsUnread={groupChannelsUnread}
+              coursesUnread={coursesUnread} openTarget={openTarget} />
           </div>
         ) : activeTab === 'planner' ? (
           <CalendarView
@@ -764,7 +887,10 @@ useEffect(() => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.1rem' }}>
                     {visibleDueSoon.map((assignment) => {
                       const done = assignment.status === 'done';
-                      const late = !done && assignment.due < now;
+                      // Done: late only if it was checked off after the due time.
+                      // Not done: late once the due time has passed.
+                      const finishedAt = assignment.completed_at ? new Date(assignment.completed_at) : null;
+                      const late = done ? finishedAt !== null && finishedAt > assignment.due : assignment.due < now;
                       const courseIndex = courses.findIndex((course) => course.id === assignment.course_id);
                       const accent = done ? '#cbd5e1' : COURSE_ACCENTS[Math.max(courseIndex, 0) % COURSE_ACCENTS.length];
                       return (

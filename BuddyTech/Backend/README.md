@@ -10,6 +10,7 @@ Canvas/LTI integration is deferred for now.
 - [Run the app](#4-run-the-app-two-terminals)
 - [Project layout](#project-layout)
 - [Permissions](#permissions)
+- [Sign-in sessions and approval](#sign-in-sessions-and-approval)
 - [Rate limits](#rate-limits)
 - [Real-time updates](#real-time-updates-socketio)
 - [API endpoints](#api-endpoints)
@@ -43,7 +44,7 @@ Set `DB_PASSWORD` to the root password you chose when installing MySQL.
 Set `JWT_SECRET` to any long random string. The backend uses it to sign login tokens (and, with a suffix, the Google Calendar OAuth `state`), so:
 
 - **It is required.** Without it, sign-in and registration fail and every protected `/api` route returns 401.
-- **Keep it secret.** Anyone who knows it can create a valid login token for any user. Never commit it (`port.env` is already git-ignored).
+- **Keep it secret.** Every login token is signed with it. Never commit it (`port.env` is already git-ignored).
 - **Changing it signs everyone out**, since existing tokens stop verifying.
 
 To generate one:
@@ -64,11 +65,13 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | `GOOGLE_REDIRECT_URI` | Google Calendar sync | Must be `/api/auth/google/callback` on the address the browser uses, e.g. `http://localhost:5173/api/auth/google/callback`, and must also be listed as an authorized redirect URI on the OAuth client. |
 | `GOOGLE_TOKEN_KEY` | Google Calendar sync | Exactly 64 hex characters (a 32-byte key). Encrypts the stored Google refresh tokens with AES-256-GCM. Changing it makes existing links unreadable, so users must reconnect. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `DB_SSL`, `DB_SSL_CA` | Cloud databases that require SSL | Set `DB_SSL_CA` to the path of the provider's CA certificate (relative to `BuddyTech/Backend`) to verify the server. `DB_SSL=true` without a CA encrypts but doesn't verify. `DB_SSL=false` turns it off. |
-| `TRUST_PROXY` | Hosting behind a proxy | Which proxies to trust for the client IP (used by the rate limits). Defaults to `loopback, linklocal, uniquelocal`. |
+| `TRUST_PROXY` | Hosting behind a proxy | Which proxies to trust for the client IP (used by the rate limits and shown in sign-in approvals). Defaults to `loopback, linklocal, uniquelocal`, which covers Caddy on the Docker network. |
+| `EMAIL_API_KEY`, `MAIL_FROM` | Sign-in approval emails | A [Resend](https://resend.com) API key, and a sender on a domain verified in Resend, e.g. `BuddyTech <security@your-domain>`. Sent over HTTPS (port 443), so the server doesn't need SMTP ports. Without both, emails are skipped with a warning in the log. |
+| `APP_URL` | Links in emails | The site's public address, e.g. `https://buddytechdemo.devs.li` (the Docker default). |
 
 Google Calendar sync only turns on when **all four** of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and a valid `GOOGLE_TOKEN_KEY` are set; otherwise its routes return 503 "Google Calendar sync is not configured yet". Sign in with Google needs only `GOOGLE_CLIENT_ID`.
 
-**Under Docker,** `port.env` is not used. `docker-compose.yml` sets the database settings itself and reads `JWT_SECRET` (required: Compose refuses to start without it), `GEMINI_*`, and `GOOGLE_*` from the `.env` file in the repository root. It also sets `TRUST_PROXY=uniquelocal`.
+**Under Docker,** `port.env` is not used (and `.dockerignore` keeps it and any `*.env` file out of the images). `docker-compose.yml` sets the database settings itself and reads `JWT_SECRET` (required: Compose refuses to start without it), `GEMINI_*`, `GOOGLE_*`, `EMAIL_API_KEY`, `MAIL_FROM`, and `APP_URL` from the `.env` file in the repository root. The backend has no published port there: only Caddy reaches it, on the Docker network (see the root README).
 
 ## 2. Install dependencies
 
@@ -110,7 +113,7 @@ The seed data also loads friend_requests 5, study_groups 5 (one private), study_
 
 ### Changing the schema
 
-1. Add the next migration file, e.g. `database/migrations/018_something.sql`.
+1. Add the next migration file, e.g. `database/migrations/023_something.sql`.
 2. Make the same change in `database/schema.sql`, so fresh databases from `db:init` / `db:ensure` match.
 3. Update `database/seed.sql` if the demo data should use it.
 
@@ -135,6 +138,11 @@ Current migrations:
 | `015_google_calendar_time_zone.sql` | `google_calendar_links.time_zone` |
 | `016_notifications.sql` | `friend_requests.accept_seen`, `study_group_reads` (last message each user read per group channel) |
 | `017_google_sign_in.sql` | `users.google_sub` (the linked Google account) |
+| `018_direct_message_reads.sql` | `direct_message_reads` (last direct message each user read per conversation); existing messages start as read |
+| `019_channel_reads.sql` | `channel_reads` (last message each user read per course channel); existing messages start as read |
+| `020_assignment_completed_at.sql` | `assignment_progress.completed_at` (when a task was checked off, for the LATE label) |
+| `021_user_sessions.sql` | `user_sessions` (one row per signed-in device; the login token's `jti` is its id). Older tokens have no session, so everyone signs in again once |
+| `022_login_attempts.sql` | `login_attempts` (sign-ins held for approval; secrets stored only as SHA-256 hashes) |
 
 `migrate.js` treats "already exists" errors (duplicate column, table, or key) as already applied, so a database built from a newer `schema.sql` just marks those migrations as done.
 
@@ -168,8 +176,13 @@ Production build of the frontend: `npm run build` (output in `Frontend/dist`).
 | Path | What's there |
 |---|---|
 | `src/server.js` | App setup, course / channel / assignment routes, mounting the route files below, and starting Socket.IO |
-| `src/realtime.js` | Socket.IO: login check, rooms, and `emitTo()` for the routes |
+| `src/realtime.js` | Socket.IO: session check, rooms, `emitTo()` for the routes, closing a revoked session's sockets, and `isUserOnline()` |
+| `src/sessions.js` | Sign-in sessions: create a session + token, check a token, revoke sessions, cancel held sign-ins |
+| `src/mailer.js` | Sends email through Resend (skipped when not configured) |
 | `src/routes/auth.js` | Sign-up, sign-in, and Sign in with Google |
+| `src/routes/loginAttempts.js` | Sign-ins held for approval: holding them, the waiting device's status check, approve/deny from the bell or the email |
+| `src/routes/account.js` | Sign out, sign out other devices, change password |
+| `src/routes/search.js` | The Home tab's search (messages and assignments) |
 | `src/routes/ai.js` | AI study tools (Gemini) |
 | `src/routes/friends.js` | Study partners: suggestions, user search, friend requests, connections |
 | `src/routes/studyGroups.js` | Study groups: discover, create, join/leave, members, group chat, invites, read markers |
@@ -178,13 +191,13 @@ Production build of the frontend: `npm run build` (output in `Frontend/dist`).
 | `src/routes/resources.js` | Course resources: links and file uploads |
 | `src/routes/userSettings.js` | Settings: display name, notification switches, profile pictures, avatar color |
 | `src/routes/googleCalendar.js` | Google Calendar connect / sync / disconnect, and the OAuth callback |
-| `src/middleware/requireAuth.js` | Checks the login token and sets `req.user` |
+| `src/middleware/requireAuth.js` | Checks the login token and its session, and sets `req.user` (`id`, `sessionId`) |
 | `src/middleware/rateLimits.js` | Rate limits (see below) |
 | `src/dbConfig.js` | MySQL connection settings, including SSL |
 | `database/` | `schema.sql`, `seed.sql`, `verify.sql`, `migrations/`, `seed-files/`, and the `init` / `ensure` / `migrate` / `seedFiles` scripts |
 | `uploads/` | Uploaded resource files, and `uploads/avatars/` for profile pictures. Git-ignored; a Docker volume under Docker |
 
-Every route mounted after `app.use("/api", requireAuth)` in `server.js` requires a login token. The only exceptions are `/api/auth/*` and `GET /api/auth/google/callback` (Google redirects the browser there without a token, so it identifies the user from a signed `state` value instead). User-specific routes live under `/api/me/...`, always act as the logged-in user (`req.user.id`), and never take a user id from the request body. All SQL uses `?` placeholders.
+Every route mounted after `app.use("/api", requireAuth)` in `server.js` requires a login token for a live session. The only exceptions are `/api/auth/*` (including `/api/auth/login-attempts/*`, used by a device that is still waiting to sign in) and `GET /api/auth/google/callback` (Google redirects the browser there without a token, so it identifies the user from a signed `state` value instead). User-specific routes live under `/api/me/...`, always act as the logged-in user (`req.user.id`), and never take a user id from the request body. All SQL uses `?` placeholders.
 
 ## Permissions
 
@@ -223,23 +236,56 @@ Every route mounted after `app.use("/api", requireAuth)` in `server.js` requires
 **Sign in with Google:** the backend verifies Google's ID token with `google-auth-library` (it must be issued for our `GOOGLE_CLIENT_ID`), then:
 
 1. If the Google account is already linked (`users.google_sub`), it signs that user in.
-2. If a password account has the same email, it links it only when Google vouches for the address (an `@gmail.com` address, or `email_verified` with a Google Workspace domain). Otherwise it returns 409 and asks the user to sign in with their password, so nobody can take over an account with an unverified address.
+2. If a password account has the same email, it links it only when Google vouches for the address (an `@gmail.com` address, or `email_verified` with a Google Workspace domain). Otherwise it returns 409 and asks the user to sign in with their password, so nobody can take over an account with an unverified address. Linking also **removes the password**, cancels held sign-ins, and revokes every session: someone could have registered that address with a password before its owner arrived, and this locks them out.
 3. Otherwise it creates a new account with no password.
+
+Either way, the last step is the same as a password sign-in (see below), so a Google sign-in can also be held for approval.
 
 **Google Calendar:** the OAuth scope is `calendar.app.created`, so BuddyTech can only see and change calendars it created (a "BuddyTech" calendar), nothing else in the user's account. Refresh tokens are encrypted in the database and never sent to the browser. Disconnecting revokes the token with Google and forgets the link; the calendar stays in the user's account.
 
+## Sign-in sessions and approval
+
+**Sessions** (`sessions.js`, table `user_sessions`):
+
+- Every sign-in creates a session row and a login token (a JWT, 7 days) whose `jti` is the session id. `requireAuth` and the Socket.IO login accept a token only while its session exists, isn't revoked, and hasn't expired.
+- If the database can't be reached, `requireAuth` answers **503** rather than 401, so the frontend doesn't sign people out over a database hiccup.
+- **Sign out** (`POST /api/me/logout`) revokes this device's session; **sign out everywhere** revokes every other one; **changing the password** revokes every other one too. Revoking also closes those sessions' open sockets right away.
+- A socket is also closed when its token expires, since tokens are only checked when a socket connects.
+
+**Holding a sign-in for approval** (`loginAttempts.js`, table `login_attempts`):
+
+1. A correct password (or Google sign-in) ends in `finishSignIn()`. If the account has **no open app anywhere** (no live socket, `isUserOnline()`), it signs in normally: `200 { token, user }`.
+2. If the account **is** open somewhere, the sign-in is held instead:
+   - the response is **`202 { pending: true, attemptId, pollSecret, message }`**, with no token
+   - every open tab of the account gets a `login-attempt` socket event, which shows in the bell
+   - if email is configured, the account's address gets an email
+3. The owner approves or denies within **10 minutes**, from the bell (`POST /api/me/login-attempts/:id/approve` or `/deny`).
+4. The waiting device asks `POST /api/auth/login-attempts/:id/status` with its `pollSecret` every few seconds. Once approved, it gets `{ status: "approved", token, user }` **exactly once** (the attempt becomes `claimed`), within 5 minutes of the approval. Otherwise it gets `pending`, `denied`, or `expired`.
+
+Notes:
+
+- Only the device that started the attempt has the `pollSecret`, and the database stores only its SHA-256 hash (the same goes for the email token).
+- Approving or denying is a single `UPDATE ... WHERE status = 'pending'`, so two clicks can't both count.
+- Sign-out-everywhere, password changes, and Google linking deny every attempt that is still pending or approved-but-not-collected.
+- The email links to `APP_URL/login-attempt#token=...` (after `#`, so the token never reaches server logs). The backend side is `POST /api/auth/login-attempts/email/details` and `/email/decide`, but the frontend doesn't have that `/login-attempt` page yet.
+
 ## Rate limits
 
-Counts are kept in memory, so they reset when the backend restarts.
+Counts are kept in memory, so they reset when the backend restarts (except the held sign-in cap, which is counted in the database).
 
 | Limit | Applies to |
 |---|---|
-| 5 wrong passwords per email per 15 minutes | `POST /api/auth/login` (successful sign-ins don't count) |
-| 50 requests per IP per 15 minutes | every `/api/auth/*` route |
+| 5 wrong passwords per email per 15 minutes | `POST /api/auth/login` (only wrong passwords, i.e. 401s, count) |
+| 5 held sign-ins per account per hour that weren't approved (pending or denied) | `POST /api/auth/login`, `POST /api/auth/google` (database count) |
+| 50 requests per IP per 15 minutes | every `/api/auth/*` route except `/api/auth/login-attempts/*` |
+| 30 per waiting device per minute, and 120 per IP per minute | `POST /api/auth/login-attempts/:id/status` |
+| 20 per IP per 15 minutes | `POST /api/auth/login-attempts/email/details` and `/email/decide` |
 | 10 new accounts per IP per hour | `POST /api/auth/register` |
+| 15 messages per user per 30 seconds, all chats together | `POST /api/channels/:id/messages`, `/api/study-groups/:id/messages`, `/api/me/direct-messages/:userId` (every send counts) |
+| 5 per user per 15 minutes | `PUT /api/me/password` |
 | 20 per user per hour | `POST /api/me/friend-requests` |
 | 3 per user per day **to the same person** | `POST /api/me/friend-requests` |
-| 30 per user per minute | `GET /api/users/search` |
+| 30 per user per minute | `GET /api/users/search`, `GET /api/me/search` |
 | 30 per user per hour | `POST /api/study-groups/:id/invites` |
 | 3 per user per 15 minutes | `POST /api/me/avatar` (rejected uploads don't count) |
 | 10 per user per 15 minutes | `POST /api/me/google-calendar/sync` |
@@ -250,9 +296,10 @@ The friend request and group invite limits skip failed attempts (400 / 404 / 409
 
 The backend runs a Socket.IO server at path **`/api/socket.io`** (under `/api` so the Vite proxy and Docker setup already forward it). Clients only **listen** on the socket; sending messages, requests, and invites still goes through the REST routes, which then push the update out.
 
-- **Login:** the client passes its login token as `auth: { token }` when connecting. No valid token, no connection.
+- **Login:** the client passes its login token as `auth: { token }` when connecting. No live session, no connection. While connected, the socket marks its session as in use every 5 minutes, and it's closed when the token expires or the session is revoked.
 - **Rooms:**
-  - `user:<id>`: every open tab of that user, joined automatically.
+  - `user:<id>`: every open tab of that user, joined automatically. Whether this room has any sockets is how the backend decides if a new sign-in needs approval.
+  - `session:<id>`: every socket of one sign-in session, joined automatically, so revoking the session can close them.
   - `channel:<id>`: a course channel; only people in the course can join.
   - `group:<id>`: a study group chat; only people who can read it can join.
 - **Client → server:** `join` and `leave` with `{ type: "channel" | "group", id }`. `join` replies `{ ok: true }` or `{ error }`.
@@ -266,6 +313,10 @@ The backend runs a Socket.IO server at path **`/api/socket.io`** (under `/api` s
 | `direct-message` | `user:<id>` (both people) | a direct message is sent |
 | `friends-changed` | `user:<id>` | a friend request or connection involving you changes |
 | `group-invites-changed` | `user:<id>` (the invitee) | you're sent an invite, or one sent to you is accepted, declined, or cancelled |
+| `dm-unread-changed` | `user:<id>` | you read a direct message conversation (a new one arrives as `direct-message`) |
+| `channel-unread-changed` | `user:<id>` | someone else posts in a channel of your course, or you read a channel |
+| `login-attempt` | `user:<id>` (the account owner) | a sign-in to your account is held for approval: `{ id, ip, device, created_at }` |
+| `login-attempt-decided` | `user:<id>` | a held sign-in was approved or denied: `{ id, status }` (clears it in your other tabs) |
 
 Events carry ids, not full content; the frontend re-fetches through the REST routes, so the usual permission checks still apply. The frontend also re-checks every 10 seconds (friend data) and every 60 seconds (chat) as a safety net.
 
@@ -288,18 +339,37 @@ Events carry ids, not full content; the frontend re-fetches through the REST rou
 | Google sign-in popup errors with an origin mismatch | Add the address you open the app at (e.g. `http://localhost:5173`) as an authorized JavaScript origin on the OAuth client |
 | Planner says Google Calendar sync is not set up | Set all four `GOOGLE_*` settings; `GOOGLE_TOKEN_KEY` must be exactly 64 hex characters |
 | Google shows `redirect_uri_mismatch` | `GOOGLE_REDIRECT_URI` must exactly match an authorized redirect URI on the OAuth client |
+| Everyone was signed out after an update | Expected once after migration 021: older login tokens have no session. Sign in again |
+| Sign-in shows **Waiting for approval** | The account has the app open on another device. Approve it from that device's bell. A forgotten open tab elsewhere also counts: close it or sign out there |
+| `Too many sign-in attempts for this account` | 5 held sign-ins in the last hour weren't approved. Wait, or clear them: `DELETE FROM login_attempts WHERE user_id = <id>;` |
+| `Too many failed sign-in attempts. Please wait 15 minutes` | 5 wrong passwords for that email. Wait, or restart the backend (the count is in memory) |
+| `Email not configured; skipped "..."` in the log | Set `EMAIL_API_KEY` and `MAIL_FROM` if you want sign-in emails; otherwise it's harmless |
 
 ## API endpoints
 
-Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback` needs an `Authorization: Bearer <token>` header.
+Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback` needs an `Authorization: Bearer <token>` header for a live session.
 
 **Auth** (`routes/auth.js`)
 
-- `POST /api/auth/register` (`{ name, email, password }`)
-- `POST /api/auth/login` (`{ email, password }`)
+- `POST /api/auth/register` (`{ name, email, password }`): `201 { token, user }`
+- `POST /api/auth/login` (`{ email, password }`): `200 { token, user }`, or `202 { pending: true, attemptId, pollSecret, message }` when the sign-in is held for approval
 - `GET /api/auth/google/config`: `{ clientId }` (public; `null` when Google sign-in isn't set up)
-- `POST /api/auth/google` (`{ credential }`, the ID token from Google's button): returns `{ token, user }` like login
+- `POST /api/auth/google` (`{ credential }`, the ID token from Google's button): same responses as login (including `202` when held)
 - `GET /api/me`: the logged-in user (`{ id, name, email, created_at, avatar_color, has_avatar }`)
+
+**Held sign-ins** (`routes/loginAttempts.js`)
+
+- `POST /api/auth/login-attempts/:id/status` (`{ pollSecret }`): **public**; `{ status: "pending" | "denied" | "expired" }`, or `{ status: "approved", token, user }` once
+- `POST /api/auth/login-attempts/email/details` (`{ token }`): **public**; what the email's confirmation page shows. Changes nothing
+- `POST /api/auth/login-attempts/email/decide` (`{ token, decision: "approve" | "deny" }`): **public**; the email's approve/deny
+- `GET /api/me/login-attempts`: pending sign-ins to your account (`[{ id, ip, device, created_at, expires_at }]`)
+- `POST /api/me/login-attempts/:id/approve`, `POST /api/me/login-attempts/:id/deny`: `{ status }`; 404 if it was already handled or expired
+
+**Account** (`routes/account.js`)
+
+- `POST /api/me/logout`: signs out this device (204)
+- `POST /api/me/logout-everywhere`: signs out every other device and cancels held sign-ins (`{ signedOut }`)
+- `PUT /api/me/password` (`{ currentPassword, newPassword }`, at least 8 characters): also signs out every other device (`{ signedOut }`). A wrong current password is a 400, not a 401
 
 **Courses, channels, assignments** (`server.js`)
 
@@ -308,10 +378,10 @@ Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback
 - `GET /api/me/courses`: your courses, including your `role` in each
 - `GET /api/courses/:id/channels`, `GET /api/courses/:id/assignments`
 - `GET /api/courses/:id/members`: everyone in the course, teachers and TAs first
-- `GET /api/channels/:id/messages`, `POST /api/channels/:id/messages` (`{ content }`; the author is the logged-in user)
-- `GET /api/me/assignments`
+- `GET /api/channels/:id/messages`: also marks the channel as read for you; `POST /api/channels/:id/messages` (`{ content }`; the author is the logged-in user)
+- `GET /api/me/assignments`: includes `status` and `completed_at` (UTC, when you checked it off)
 - `POST /api/assignments` (`{ course_id, title, description?, due_date, personal? }`): also pushed to linked Google Calendars
-- `PATCH /api/assignments/:id/status` (`{ status }`: `todo`, `in_progress`, or `done`)
+- `PATCH /api/assignments/:id/status` (`{ status }`: `todo`, `in_progress`, or `done`): `completed_at` is set when it becomes `done` and cleared when it stops being done
 
 **Study partners** (`routes/friends.js`)
 
@@ -332,6 +402,7 @@ Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback
 - `POST /api/me/study-groups/:id`: join (public groups); `DELETE /api/me/study-groups/:id`: leave
 - `GET /api/study-groups/:id/members`: the group's members
 - `GET /api/study-groups/:id/messages?channel=general|homework|meetups`: also marks the channel as read for you
+- `POST /api/study-groups/:id/read`: marks every channel of the group read (used when a group is opened from the bell)
 - `POST /api/study-groups/:id/messages` (`{ channel, content }`, up to 2000 characters)
 - `POST /api/study-groups/:id/invites` (`{ user_id }`)
 - `GET /api/me/study-group-invites?direction=incoming|outgoing`: pending invites, including the group's `members`
@@ -340,15 +411,25 @@ Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback
 
 **Direct messages** (`routes/directMessages.js`)
 
-- `GET /api/me/direct-messages`: your conversations with current connections, newest first
-- `GET /api/me/direct-messages/:userId`: the conversation with one user
+- `GET /api/me/direct-messages`: your conversations with current connections, newest first, each with `unread` (their messages newer than your read marker)
+- `GET /api/me/direct-messages/:userId`: the conversation with one user; also marks it as read for you
 - `POST /api/me/direct-messages/:userId` (`{ content }`, up to 2000 characters): connections only
 
 **Notifications and activity** (`routes/notifications.js`)
 
-- `GET /api/me/notifications`: `{ accepted_requests, unread_group_messages }` for the bell (pending friend requests and invites come from their own routes)
+- `GET /api/me/notifications`: for the bell (pending friend requests, invites, and sign-in attempts come from their own routes):
+  - `accepted_requests`: `[{ id, other_user_name, responded_at }]`
+  - `unread_groups`: `[{ group_id, group_name, unread, channels: { general: n, ... }, latest_channel }]`, plus the total `unread_group_messages`
+  - `unread_direct`, plus the total `unread_direct_messages`
+  - `unread_channels`: `[{ channel_id, channel_name, course_id, course_code, unread }]`, plus the total `unread_channel_messages`
 - `POST /api/me/notifications/accepted/seen`: clears accepted requests from the bell
 - `GET /api/me/activity`: `{ messages, assignments }` for the dashboard's Recent Activity card
+
+**Search** (`routes/search.js`)
+
+- `GET /api/me/search?q=&date=YYYY-MM-DD`: `{ messages, assignments }`, only among things you can already see. `q` needs at least 2 characters unless `date` is given; the first 5 words count.
+  - **messages:** every word of `q` must appear in the message; up to 10 each from course channels, study groups, and direct messages (including ones you sent), newest first.
+  - **assignments:** every word must appear in the title, description, course code, or course name; with `date`, an assignment due that day also matches. Up to 15, soonest due first.
 
 **Resources** (`routes/resources.js`)
 

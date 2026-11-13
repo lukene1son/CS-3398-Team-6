@@ -46,7 +46,10 @@ function receiveAvatar(req, res, next) {
 }
 
 function removeAvatar(storedName) {
-    if (storedName) fs.unlink(path.join(AVATAR_DIR, storedName), () => {});
+    if (storedName) {
+        fs.unlink(path.join(AVATAR_DIR, storedName), () => {});
+        fs.unlink(thumbPath(storedName), () => {}); // its small copy too, if one was made
+    }
 }
 
 // Can viewerId see targetId's profile picture? Yes for yourself, classmates, and friends.
@@ -66,15 +69,61 @@ async function canSeeAvatar(viewerId, targetId) {
     return rows.length > 0;
 }
 
-// Sends the image file for a settings row, or 404 if there's no picture.
-function sendAvatar(res, row) {
+// Pictures are sent as a small copy ("thumb"), made the first time each one is asked for.
+// <Avatar> shows them at 24-72px, but uploads can be big animated GIFs (e.g. 800x600 at
+// 30 fps). Every chat message has an avatar, and decoding several of those at full size
+// over and over fills the browser's image memory, so pictures start dropping out.
+// 160px covers the largest (72px, Settings) on a 2x screen. Animated pictures stay
+// animated, with the same frames and timing, as WebP (about 20x smaller than the GIF).
+const AVATAR_THUMB_SIZE = 160;
+const thumbJobs = new Map(); // storedName -> Promise, so requests at the same time make it once
+
+function thumbPath(storedName) {
+    return path.join(AVATAR_DIR, `${storedName}.thumb.webp`);
+}
+
+// Resolves to the thumb's path, making it first if needed.
+function ensureThumb(storedName) {
+    const out = thumbPath(storedName);
+    if (fs.existsSync(out)) return Promise.resolve(out);
+    if (!thumbJobs.has(storedName)) {
+        // Written under a temporary name, then renamed, so a half-written file is never sent.
+        const tmp = `${out}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+        const job = sharp(path.join(AVATAR_DIR, storedName), { animated: true })
+            .resize(AVATAR_THUMB_SIZE, AVATAR_THUMB_SIZE, { fit: "cover" })
+            .webp({ quality: 80 })
+            .toFile(tmp)
+            .then(() => fs.promises.rename(tmp, out))
+            .then(() => out)
+            .catch((err) => {
+                fs.unlink(tmp, () => {});
+                throw err;
+            })
+            .finally(() => thumbJobs.delete(storedName));
+        thumbJobs.set(storedName, job);
+    }
+    return thumbJobs.get(storedName);
+}
+
+// Sends the picture for a settings row (its thumb), or 404 if there's no picture.
+async function sendAvatar(res, row) {
     if (!row || !row.avatar_stored_name) return res.status(404).json({ error: "No profile picture" });
+    const original = path.join(AVATAR_DIR, row.avatar_stored_name);
+    let file = original;
+    let type = row.avatar_mime_type;
+    try {
+        file = await ensureThumb(row.avatar_stored_name);
+        type = "image/webp";
+    } catch (error) {
+        // Couldn't make the thumb: send the original instead (or 404 below if it's gone).
+        if (fs.existsSync(original)) console.error("Error making avatar thumbnail:", error);
+    }
     res.set({
-        "Content-Type": row.avatar_mime_type,
+        "Content-Type": type,
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-cache",
     });
-    res.sendFile(path.join(AVATAR_DIR, row.avatar_stored_name), (err) => {
+    res.sendFile(file, (err) => {
         if (err && !res.headersSent) res.status(404).json({ error: "No profile picture" });
     });
 }
@@ -199,8 +248,7 @@ router.post("/me/avatar", avatarUploadLimiter, receiveAvatar, async (req, res) =
 // GET /api/me/avatar returns the image bytes.
 router.get("/me/avatar", async (req, res) => {
     try {
-        sendAvatar(res, await getSettingsRow(req.user.id));
-        
+        await sendAvatar(res, await getSettingsRow(req.user.id));
     } catch (error) {
         console.error("Error fetching avatar:", error);
         res.status(500).json({ error: "Failed to fetch profile picture" });
@@ -215,7 +263,7 @@ router.get("/users/:id/avatar", async (req, res) => {
         if (!Number.isInteger(targetId) || !(await canSeeAvatar(Number(req.user.id), targetId))) {
             return res.status(404).json({ error: "No profile picture" });
         }
-        sendAvatar(res, await getSettingsRow(targetId));
+        await sendAvatar(res, await getSettingsRow(targetId));
     } catch (error) {
         console.error("Error fetching avatar:", error);
         res.status(500).json({ error: "Failed to fetch profile picture" });

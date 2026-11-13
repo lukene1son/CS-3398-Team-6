@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 
 // Limits for the sign-in / sign-up routes, to stop password guessing.
@@ -42,6 +43,8 @@ const loginAccountLimiter = rateLimit({
     windowMs: FIFTEEN_MINUTES,
     limit: 5,
     skipSuccessfulRequests: true,
+    // Only a wrong password (401) counts. A held sign-in or another limiter's 429 isn't a guess.
+    requestWasSuccessful: (req, res) => res.statusCode !== 401,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     keyGenerator: (req) => {
@@ -131,7 +134,70 @@ const calendarSyncLimiter = rateLimit({
     handler: tooMany("You're syncing too often. Please wait a few minutes and try again."),
 });
 
+// Per user: 15 chat messages every 30 seconds, counted across course channels,
+// study groups and DMs together. Every send counts, even rejected ones: with
+// skipFailedRequests, a client that hangs up mid-request gets its count refunded
+// while the message is still saved, which would let it spam without limit.
+const messageLimiter = rateLimit({
+    windowMs: 30 * 1000,
+    limit: 15,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're sending messages too quickly. Please wait a few seconds."),
+});
+
+// The waiting device polls every few seconds while the owner decides. Two limits:
+//  - per poll secret: only the device holding the secret can use up its own budget
+//    (keying by attempt id would let anyone exhaust someone else's, since ids are sequential);
+//  - per IP: caps how many unauthenticated requests one address can send overall.
+const loginPollLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const secret = req.body && req.body.pollSecret;
+        return typeof secret === "string" && secret
+            ? `poll:${crypto.createHash("sha256").update(secret).digest("hex")}`
+            : `ip:${ipKeyGenerator(req.ip)}`;
+    },
+    handler: tooMany("Checking too often. Please wait a moment."),
+});
+
+const loginPollIpLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 120,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    handler: tooMany("Too many requests. Please wait a moment."),
+});
+
+// Per IP: the email link's confirmation page (details + approve/deny).
+const loginDecisionLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 20,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    handler: tooMany("Too many requests. Please wait a few minutes and try again."),
+});
+
+// Per user: password changes (each one checks the current password with bcrypt).
+const passwordChangeLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 5,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("Too many password change attempts. Please wait 15 minutes and try again."),
+});
+
 module.exports = {
+    messageLimiter,
+    loginPollLimiter,
+    loginPollIpLimiter,
+    loginDecisionLimiter,
+    passwordChangeLimiter,
     authIpLimiter,
     loginAccountLimiter,
     registerLimiter,

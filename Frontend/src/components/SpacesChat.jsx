@@ -46,12 +46,39 @@ function sidebarChannelStyle(active) {
   };
 }
 
-const sidebarHeadingStyle = { fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
+// Added to a sidebar row that can show an <UnreadDot>: the dot sits at the right end.
+const dotRowStyle = { display: "flex", alignItems: "center", gap: "0.5rem" };
+
+const sidebarHeadingStyle ={ fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
 const sidebarHintStyle = { fontSize: "0.8rem", color: "#94a3b8" };
 const sidebarListStyle = { listStyle: "none", padding: 0, margin: 0 };
 
 // Chat-sidebar heading that collapses/expands the section under it.
 // Shows how many items are hidden while collapsed.
+// Red unread dot for a sidebar row (same look as the bell's old dot). `info` is
+// { unread, viewed } or missing (nothing unread: no dot). The ring around it
+// (index.css .unread-ping) keeps pulsing until the notification has been seen
+// in the bell window, then only pulses 3 times each time the dot appears.
+function UnreadDot({ info, hidden = false }) {
+  if (!info || info.unread <= 0 || hidden) return null;
+  return (
+    <span
+      className={`unread-ping ${info.viewed ? "pulse-few" : "pulse"}`}
+      title={`${info.unread} unread`}
+      aria-label={`${info.unread} unread message${info.unread === 1 ? "" : "s"}`}
+      style={{
+        marginLeft: "auto",
+        flexShrink: 0,
+        width: "9px",
+        height: "9px",
+        background: "#ef4444",
+        borderRadius: "50%",
+        border: "2px solid white",
+      }}
+    />
+  );
+}
+
 function SectionHeader({ title, count, collapsed, onToggle, first = false }) {
   return (
     <h3 style={{ ...sidebarHeadingStyle, ...(first ? { marginTop: 0 } : {}) }}>
@@ -303,9 +330,15 @@ function formatTime(createdAt) {
  *
  * Props:
  *   user - the logged-in user from /api/me or /api/auth/login ({ id, name, email })
+ *   unread, groupChannelsUnread - unread chats for the sidebar's red dots (Dashboard loads them)
+ *   openTarget - a chat to open, clicked in the bell's window (a new nonce = open it)
  */
 export default function SpacesChat({
-  user
+  user,
+  unread = {},              // from Dashboard: { "dm-7": { unread, viewed }, "group-3": ..., "channel-2": ... }
+  groupChannelsUnread = {}, // from Dashboard: { [groupId]: { general: 2, homework: 1 } }
+  coursesUnread = {},       // from Dashboard: { [courseId]: { unread, viewed } }, all its channels together
+  openTarget = null,        // from Dashboard: a chat clicked in the bell, { type, id, channel?, courseId?, nonce }
 }) {
   const userId = user?.id;
   const [courses, setCourses] = useState([]);
@@ -319,7 +352,7 @@ export default function SpacesChat({
   const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
   const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
   const [activeTab, setActiveTab] = useState("chat");
-  
+
   // Sliding underline: measure the active tab button, then move the bar under it.
   const tabRowRef = useRef(null);
   const tabRefs = useRef({}); // tab id -> its <button>
@@ -342,6 +375,8 @@ export default function SpacesChat({
   const [partnerView, setPartnerView] = useState("connections");
   const bottomRef = useRef(null);
   const messageListRef = useRef(null);           // the scrolling message area
+  const redrawTimerRef = useRef(null);           // handleMessageListScroll's "scrolling stopped" timer
+  const redrawFlipRef = useRef(false);           // which of its two invisible backgrounds is on
   const lastScrolledTitleRef = useRef(null);     // chat we last auto-scrolled in
   const lastMessageCountRef = useRef(0);
   const connectingRef = useRef(new Set());       // partner ids with a request in flight (a ref, so a fast double click can't slip past)
@@ -424,6 +459,24 @@ export default function SpacesChat({
     setChatTarget({ type: "channel" });
     setSelectedCourseId(courseId);
     setSelectedChannelId(channelId);
+  }
+
+  // A chat clicked in the bell's window: open it once per click (each has a new nonce).
+  // Done during render rather than in an effect, so the right chat is on screen in the
+  // very first paint, even when Spaces is opening because of this click. Opening it
+  // loads its messages, which marks it read on the server and clears its dot.
+  const [handledOpen, setHandledOpen] = useState(null);
+  if (openTarget && openTarget.nonce !== handledOpen) {
+    setHandledOpen(openTarget.nonce);
+    if (openTarget.type === "dm") {
+      openDirectMessage({ id: openTarget.id });
+    } else if (openTarget.type === "group") {
+      openGroupChat(openTarget.id);
+      setGroupChannel(openTarget.channel || "general"); // its newest unread channel
+    } else if (openTarget.type === "channel") {
+      openChannel(openTarget.courseId, openTarget.id);
+      setActiveTab("chat");
+    }
   }
 
   const loadSuggested = useCallback(async () => {
@@ -1138,9 +1191,25 @@ export default function SpacesChat({
     lastMessageCountRef.current = visibleMessages.length;
     const nearBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 200;
     if (switchedChat || firstLoad || nearBottom) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      // "instant", not "smooth": an animated scroll while animated profile pictures (GIFs)
+      // are playing leaves the ones in this list frozen or flickering in Chromium until
+      // something redraws the list. "instant" also overrides Landing.css's scroll-behavior.
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
     }
   }, [visibleMessages.length, chatTitle]);
+
+  // Chromium workaround: after the message list scrolls, an animated profile picture
+  // (GIF) in it can freeze or flicker until the list is redrawn. Shortly after scrolling
+  // stops, flip an invisible background value on the list, which forces that redraw.
+  function handleMessageListScroll() {
+    clearTimeout(redrawTimerRef.current);
+    redrawTimerRef.current = setTimeout(() => {
+      const box = messageListRef.current;
+      if (!box) return;
+      redrawFlipRef.current = !redrawFlipRef.current;
+      box.style.backgroundColor = redrawFlipRef.current ? "rgba(0, 0, 0, 0.004)" : "rgba(0, 0, 0, 0)";
+    }, 150);
+  }
 
    // 4. Send a message. Course channels, study groups and DMs are all saved to the
   //    backend, then re-fetched so what you see == the DB.
@@ -1246,8 +1315,10 @@ export default function SpacesChat({
               return <li key={c.id} style={{
                 marginBottom: "0.4rem"
               }}>
-                <div onClick={() => openChannel(c.id, null)} style={sidebarItemStyle(isOpen && showingChannel)}>
-                  {c.course_code} {c.course_name}
+                <div onClick={() => openChannel(c.id, null)} style={{ ...sidebarItemStyle(isOpen && showingChannel), ...dotRowStyle }}>
+                  <span>{c.course_code} {c.course_name}</span>
+                  {/* Closed course: one dot for all its channels. Open: each channel has its own. */}
+                  <UnreadDot info={coursesUnread[c.id]} hidden={isOpen} />
                 </div>
 
                 {isOpen && <ul style={{
@@ -1255,9 +1326,14 @@ export default function SpacesChat({
                   padding: "0.3rem 0 0 0.8rem",
                   margin: 0
                 }}>
-                  {channels.map(ch => <li key={ch.id} onClick={() => openChannel(c.id, ch.id)} style={sidebarChannelStyle(showingChannel && channel?.id === ch.id)}>
-                    # {ch.name}
-                  </li>)}
+                  {channels.map(ch => {
+                    const isShowing = showingChannel && channel?.id === ch.id;
+                    return <li key={ch.id} onClick={() => openChannel(c.id, ch.id)} style={{ ...sidebarChannelStyle(isShowing), ...dotRowStyle }}>
+                      <span># {ch.name}</span>
+                      {/* No dot on the channel you're reading: it's marked read as it loads. */}
+                      <UnreadDot info={unread[`channel-${ch.id}`]} hidden={isShowing} />
+                    </li>;
+                  })}
                 </ul>}
               </li>;
             })}
@@ -1276,17 +1352,27 @@ export default function SpacesChat({
           <ul style={sidebarListStyle}>
             {myGroups.map(g => {
               const isOpen = activeGroup?.id === g.id;
+              const groupInfo = unread[`group-${g.id}`];
               return <li key={g.id} style={{ marginBottom: "0.4rem" }}>
-                <div onClick={() => openGroupChat(g.id)} style={sidebarItemStyle(isOpen)}>
-                  {g.name}
-                  {g.visibility === "private" && <span style={{ fontWeight: "400", color: "#64748b" }}> 🔒</span>}
-                  {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
+                <div onClick={() => openGroupChat(g.id)} style={{ ...sidebarItemStyle(isOpen), ...dotRowStyle }}>
+                  <span>
+                    {g.name}
+                    {g.visibility === "private" && <span style={{ fontWeight: "400", color: "#64748b" }}> 🔒</span>}
+                    {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
+                  </span>
+                  {/* Closed group: one dot for all its channels. Open: each channel has its own. */}
+                  <UnreadDot info={groupInfo} hidden={isOpen} />
                 </div>
 
                 {isOpen && <ul style={{ listStyle: "none", padding: "0.3rem 0 0 0.8rem", margin: 0 }}>
-                  {GROUP_CHANNELS.map(name => <li key={name} onClick={() => setGroupChannel(name)} style={sidebarChannelStyle(groupChannel === name)}>
-                    # {name}
-                  </li>)}
+                  {GROUP_CHANNELS.map(name => {
+                    const count = groupChannelsUnread[g.id]?.[name] ?? 0;
+                    return <li key={name} onClick={() => setGroupChannel(name)} style={{ ...sidebarChannelStyle(groupChannel === name), ...dotRowStyle }}>
+                      <span># {name}</span>
+                      <UnreadDot info={count > 0 ? { unread: count, viewed: groupInfo?.viewed ?? false } : null}
+                        hidden={groupChannel === name} />
+                    </li>;
+                  })}
                 </ul>}
               </li>;
             })}
@@ -1314,6 +1400,9 @@ export default function SpacesChat({
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {f.name}
               </span>
+              {/* While they've sent messages you haven't opened. Hidden for the open
+                  chat, which is being read right now. */}
+              <UnreadDot info={unread[`dm-${f.id}`]} hidden={activeFriend?.id === f.id} />
             </li>)}
           </ul>
         </>}
@@ -1372,7 +1461,7 @@ export default function SpacesChat({
           fontSize: "0.8rem"
         }}>{visibleErrors.map(text => <div key={text}>{text}</div>)}</div>}
 
-        <div style={{
+        <div ref={messageListRef} onScroll={handleMessageListScroll} style={{
           flex: 1,
           padding: "1rem",
           overflowY: "auto",

@@ -430,6 +430,35 @@ router.get("/study-groups/:id/messages", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch messages" });
     }
 });
+// POST /api/study-groups/:id/read
+// Marks every channel of the group read up to its newest message. Used when you
+// open a group from the bell, so its whole notification clears, not just one channel.
+router.post("/study-groups/:id/read", async (req, res) => {
+    try {
+        const groupId = toId(req.params.id);
+        if (!groupId) return res.status(400).json({ error: "Invalid group id" });
+
+        const access = await getGroupAccess(req.user.id, groupId);
+        if (!access || !access.canRead) return res.status(404).json({ error: "Study group not found" });
+
+        // GREATEST keeps a marker from going backwards.
+        await pool.query(
+            `INSERT INTO study_group_reads (user_id, group_id, channel, last_read_message_id)
+             SELECT ?, newest.group_id, newest.channel, newest.max_id
+             FROM (SELECT group_id, channel, MAX(id) AS max_id
+                   FROM study_group_messages WHERE group_id = ? GROUP BY group_id, channel) AS newest
+             ON DUPLICATE KEY UPDATE
+                 last_read_message_id = GREATEST(study_group_reads.last_read_message_id, newest.max_id)`,
+            [req.user.id, groupId]
+        );
+        emitTo(`user:${req.user.id}`, "group-unread-changed", {});
+        res.json({ ok: true });
+    } catch (error) {
+        console.error("Error marking study group read:", error);
+        res.status(500).json({ error: "Failed to mark the group read" });
+    }
+});
+
 // POST /api/study-groups/:id/messages  { channel, content }
 // Members and the course's teachers/TAs can post. Everyone else gets a 403.
 

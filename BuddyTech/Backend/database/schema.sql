@@ -20,6 +20,10 @@ DROP TABLE IF EXISTS course_resources;
 DROP TABLE IF EXISTS google_calendar_links;
 DROP TABLE IF EXISTS google_calendar_events;
 DROP TABLE IF EXISTS study_group_reads;
+DROP TABLE IF EXISTS direct_message_reads;
+DROP TABLE IF EXISTS channel_reads;
+DROP TABLE IF EXISTS login_attempts;
+DROP TABLE IF EXISTS user_sessions;
 
 
 
@@ -78,6 +82,16 @@ CREATE TABLE messages (
     INDEX idx_messages_channel_time (channel_id, created_at)
 );
 
+-- The last message each user has read in each course channel (for the bell).
+CREATE TABLE channel_reads (
+    user_id INT NOT NULL,
+    channel_id INT NOT NULL,
+    last_read_message_id INT NOT NULL,
+    PRIMARY KEY (user_id, channel_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+);
+
 CREATE TABLE assignments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     course_id INT NOT NULL,
@@ -94,6 +108,7 @@ CREATE TABLE assignment_progress (
     user_id INT NOT NULL,
     assignment_id INT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'todo',
+    completed_at DATETIME NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, assignment_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -184,6 +199,16 @@ CREATE TABLE direct_messages (
     INDEX idx_dm_receiver (receiver_id, sender_id, created_at)
 );
 
+-- The last direct message each user has read in each conversation (for the bell).
+CREATE TABLE direct_message_reads (
+    user_id INT NOT NULL,
+    other_user_id INT NOT NULL,
+    last_read_message_id INT NOT NULL,
+    PRIMARY KEY (user_id, other_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (other_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE course_resources (
     id INT AUTO_INCREMENT PRIMARY KEY,
     course_id INT NOT NULL,
@@ -217,4 +242,40 @@ CREATE TABLE google_calendar_events (
     PRIMARY KEY (user_id, assignment_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+);
+
+-- Server-side sign-in sessions. Every login token carries its session id (the JWT's
+-- "jti"), so the server can tell who is signed in, sign a device out, and refuse a
+-- token whose session was revoked. Tokens from before this migration have no jti
+-- and stop working, so everyone signs in again once after this is deployed.
+CREATE TABLE user_sessions (
+    id CHAR(36) PRIMARY KEY,                 -- crypto.randomUUID(), also the JWT's jti
+    user_id INT NOT NULL,
+    ip VARCHAR(45) NULL,                     -- 45 = longest IPv6 text form
+    user_agent VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME NULL,
+    INDEX idx_user_sessions_active (user_id, revoked_at, last_seen_at),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Sign-ins held for approval because the account already had an active session.
+-- Secrets are stored only as SHA-256 hashes: poll_secret_hash (the waiting device
+-- proves it started the attempt) and email_token_hash (the approve/deny email link).
+-- An attempt is expired once expires_at has passed; no status change is needed.
+CREATE TABLE login_attempts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    ip VARCHAR(45) NULL,
+    user_agent VARCHAR(255) NULL,
+    status ENUM('pending', 'approved', 'denied', 'claimed') NOT NULL DEFAULT 'pending',
+    poll_secret_hash CHAR(64) NOT NULL,
+    email_token_hash CHAR(64) NULL UNIQUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    decided_at DATETIME NULL,
+    INDEX idx_login_attempts_user (user_id, status, expires_at),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

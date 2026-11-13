@@ -1,8 +1,9 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const pool = require("../db");
-const jwt = require("jsonwebtoken");
 const { authIpLimiter, loginAccountLimiter, registerLimiter } = require("../middleware/rateLimits");
+const { createSession, revokeSessions, cancelLoginAttempts } = require("../sessions");
+const { finishSignIn } = require("./loginAttempts");
 const { OAuth2Client } = require("google-auth-library");
 const googleClient = new OAuth2Client();
 const crypto = require("crypto");
@@ -19,9 +20,6 @@ const router = express.Router();
 // Every auth route shares a per-IP cap; login and register add their own limits below.
 router.use(authIpLimiter);
 
-function makeToken(userId) {
-    return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
-}
 // POST /api/auth/register  { email, password }
 router.post("/register", registerLimiter, async (req, res) => {
     const body = req.body || {};
@@ -47,7 +45,8 @@ router.post("/register", registerLimiter, async (req, res) => {
         );
 
         const user = { id: result.insertId, name, email }; // never return the hash
-        res.status(201).json({ token: makeToken(user.id), user });
+        // A brand-new account can't have another session, so no approval step.
+        res.status(201).json({ token: await createSession(user.id, req), user });
 
     } catch (error) {
         if (error.code === "ER_DUP_ENTRY") {
@@ -84,10 +83,8 @@ router.post("/login", loginAccountLimiter, async (req, res) => {
             return res.status(401).json({ error: "Invalid email or password" });
         }
 
-        res.json({
-            token: makeToken(user.id),
-            user: { id: user.id, name: user.name, email: user.email }
-        });
+        // Signs in, or holds the sign-in for approval if the account is already signed in.
+        await finishSignIn(req, res, user);
     } catch (error) {
         console.error("Error logging in:", error);
         res.status(500).json({ error: "Failed to sign in" });
@@ -184,7 +181,12 @@ router.post("/google", async (req, res) => {
                 if (!emailTrusted) {
                     return res.status(409).json({ error: "An account with this email already exists. Please sign in with your password." });
                 }
-                await pool.query("UPDATE users SET google_sub = ? WHERE id = ?", [sub, existing.id]);
+                //    Google has now proven who owns this address. Anyone could have registered
+                //    it with a password before the owner arrived, so drop that password and
+                //    every session it created; from now on this account signs in with Google.
+                await pool.query("UPDATE users SET google_sub = ?, password_hash = NULL WHERE id = ?", [sub, existing.id]);
+                await cancelLoginAttempts(existing.id);
+                await revokeSessions(existing.id);
                 user = existing;
             } else {
                 // 3. Brand-new user: create an account with no password.
@@ -198,7 +200,7 @@ router.post("/google", async (req, res) => {
             }
         }
         if (payload.picture) await copyGoogleAvatar(user.id, payload.picture);
-        res.json({ token: makeToken(user.id), user });
+        await finishSignIn(req, res, user);
     } catch (error) {
         if (error.code === "ER_DUP_ENTRY") {
             return res.status(409).json({ error: "That account was just created. Please try again." });

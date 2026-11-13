@@ -7,7 +7,11 @@ const router = express.Router();
 // their own routes (friends.js, studyGroups.js). Runs after requireAuth.
 
 // GET /api/me/notifications
-// -> { accepted_requests: [{ id, other_user_name, responded_at }], unread_group_messages }
+// -> { accepted_requests: [{ id, other_user_name, responded_at }],
+//      unread_groups: [{ group_id, group_name, unread, channels: { general: n, ... }, latest_channel }],
+//      unread_group_messages, unread_direct, unread_direct_messages,
+//      unread_channels: [{ channel_id, channel_name, course_id, course_code, unread }],
+//      unread_channel_messages }
 router.get("/me/notifications", async (req, res) => {
     try {
         const me = req.user.id;
@@ -32,10 +36,12 @@ router.get("/me/notifications", async (req, res) => {
 
     
     // Other people's messages, newer than my read marker, in groups I'm a
-    // member of (and still in the course), counted per group. No marker yet = nothing read.
+    // member of (and still in the course), counted per group channel and then
+    // combined per group below. No marker yet = nothing read.
     const [unreadRows] = await pool.query(
         `
-        SELECT study_groups.id AS group_id, study_groups.name AS group_name, COUNT(*) AS unread
+        SELECT study_groups.id AS group_id, study_groups.name AS group_name,
+               messages.channel, COUNT(*) AS unread, MAX(messages.id) AS newest_id
         FROM study_group_members AS members
         JOIN study_groups ON study_groups.id = members.group_id
         JOIN course_members
@@ -50,17 +56,90 @@ router.get("/me/notifications", async (req, res) => {
           AND messages.user_id <> members.user_id
           AND messages.created_at >= members.joined_at
           AND messages.id > COALESCE(group_reads.last_read_message_id, 0)
-        GROUP BY study_groups.id, study_groups.name
+        GROUP BY study_groups.id, study_groups.name, messages.channel
+        ORDER BY newest_id DESC
+        `,
+        [me]
+    );
+    // One entry per group: total unread, per-channel counts (for the sidebar dots),
+    // and latest_channel, the channel with the newest unread message (opened from the bell).
+    const groupsById = new Map();
+    for (const row of unreadRows) { // newest first, so a group's first row is its latest channel
+        if (!groupsById.has(row.group_id)) {
+            groupsById.set(row.group_id, {
+                group_id: row.group_id, group_name: row.group_name,
+                unread: 0, channels: {}, latest_channel: row.channel
+            });
+        }
+        const group = groupsById.get(row.group_id);
+        group.unread += Number(row.unread);
+        group.channels[row.channel] = Number(row.unread);
+    }
+    const unreadGroups = [...groupsById.values()];
+
+    // Course channel messages from other people, newer than my read marker, in
+    // courses I'm in, counted per channel. No marker yet = nothing read.
+    const [unreadChannelRows] = await pool.query(
+        `
+        SELECT channels.id AS channel_id, channels.name AS channel_name,
+               courses.id AS course_id, courses.course_code, COUNT(*) AS unread
+        FROM course_members
+        JOIN channels ON channels.course_id = course_members.course_id
+        JOIN courses ON courses.id = channels.course_id
+        JOIN messages ON messages.channel_id = channels.id
+        LEFT JOIN channel_reads
+          ON channel_reads.user_id = course_members.user_id
+         AND channel_reads.channel_id = channels.id
+        WHERE course_members.user_id = ?
+          AND messages.user_id <> course_members.user_id
+          AND messages.id > COALESCE(channel_reads.last_read_message_id, 0)
+        GROUP BY channels.id, channels.name, courses.id, courses.course_code
         ORDER BY MAX(messages.id) DESC
         `,
         [me]
     );
-    const unreadGroups = unreadRows.map((row) => ({ ...row, unread: Number(row.unread) }));
+    const unreadChannels = unreadChannelRows.map((row) => ({ ...row, unread: Number(row.unread) }));
+
+    // Study Chats (DMs) sent to me that are newer than my read marker for that
+    // conversation, counted per sender. Only current connections, the same as
+    // the Study Chats list. No marker yet = nothing read.
+    const [unreadDirectRows] = await pool.query(
+        `
+        SELECT users.id AS user_id, users.name AS user_name,
+               users.avatar_color, users.avatar_stored_name IS NOT NULL AS has_avatar,
+               COUNT(*) AS unread
+        FROM direct_messages
+        JOIN users ON users.id = direct_messages.sender_id
+        LEFT JOIN direct_message_reads AS dm_reads
+          ON dm_reads.user_id = direct_messages.receiver_id
+         AND dm_reads.other_user_id = direct_messages.sender_id
+        WHERE direct_messages.receiver_id = ?
+          AND direct_messages.id > COALESCE(dm_reads.last_read_message_id, 0)
+          AND EXISTS (
+              SELECT 1 FROM friend_requests
+              WHERE friend_requests.status = 'accepted'
+                AND ((friend_requests.sender_id = ? AND friend_requests.receiver_id = users.id)
+                  OR (friend_requests.sender_id = users.id AND friend_requests.receiver_id = ?))
+          )
+        GROUP BY users.id, users.name, users.avatar_color, users.avatar_stored_name
+        ORDER BY MAX(direct_messages.id) DESC
+        `,
+        [me, me, me]
+    );
+    const unreadDirect = unreadDirectRows.map((row) => ({
+        ...row,
+        has_avatar: Boolean(row.has_avatar),
+        unread: Number(row.unread)
+    }));
 
     res.json({
         accepted_requests: accepted,
         unread_groups: unreadGroups,
-        unread_group_messages: unreadGroups.reduce((sum, group) => sum + group.unread, 0)
+        unread_group_messages: unreadGroups.reduce((sum, group) => sum + group.unread, 0),
+        unread_direct: unreadDirect,
+        unread_direct_messages: unreadDirect.reduce((sum, chat) => sum + chat.unread, 0),
+        unread_channels: unreadChannels,
+        unread_channel_messages: unreadChannels.reduce((sum, channel) => sum + channel.unread, 0)
     });
 
     } catch (error) {

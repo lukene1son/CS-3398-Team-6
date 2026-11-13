@@ -65,14 +65,35 @@ async function request(path, options = {}) {
 const delay = (ms = 400) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- Auth ---------- */
+// A sign-in to an account that's already signed in elsewhere is held (202, no token yet).
+// Returns the user, or { pending: true, attemptId, pollSecret, message } for a held sign-in.
+function finishSignIn(body) {
+  if (body.pending) {
+    return { pending: true, attemptId: body.attemptId, pollSecret: body.pollSecret, message: body.message };
+  }
+  setToken(body.token);
+  return body.user;
+}
+
 export async function login({ email, password }) {
-  const { token, user } = await request("/api/auth/login", {
+  const body = await request("/api/auth/login", {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({ email, password }),
   });
-  setToken(token);
-  return user;
+  return finishSignIn(body);
+}
+
+// Asks whether a held sign-in was approved.
+// -> { status: "pending" | "denied" | "expired" } or { status: "approved", user } (token is stored).
+export async function checkLoginAttempt({ attemptId, pollSecret }) {
+  const result = await request(`/api/auth/login-attempts/${attemptId}/status`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ pollSecret }),
+  });
+  if (result.status === "approved") setToken(result.token);
+  return result;
 }
 
 export async function register({ name, email, password }) {
@@ -87,13 +108,12 @@ export async function register({ name, email, password }) {
 
 // Exchange Google's ID token for a BuddyTech login, same result as login().
 export async function loginWithGoogle(credential) {
-  const { token, user } = await request("/api/auth/google", {
+  const body = await request("/api/auth/google", {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({ credential }),
   });
-  setToken(token);
-  return user;
+  return finishSignIn(body);
 }
 
 // -> { clientId } or { clientId: null } if the server has no Google client set up.
@@ -102,11 +122,14 @@ export function getGoogleSignInConfig() {
 }
 
 export function logout() {
+  const token = getToken();
   setToken(null);
-}
-
-export function getMe() {
-  return request("/api/me");
+  // Also end this device's session on the server. Otherwise it still counts as
+  // "signed in", and signing back in gets held for an approval nobody can give.
+  if (token) {
+    fetch("/api/me/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true })
+      .catch(() => { /* offline: the session still expires on its own */ });
+  }
 }
 
 /* ---------- Courses & assignments (for the logged-in user) ---------- */
@@ -181,13 +204,30 @@ export function sendChannelMessage(channelId, content) {
 }
 
 /* ---------- Bell notifications ---------- */
-// -> { accepted_requests, unread_group_messages }
+// -> { accepted_requests, unread_groups, unread_group_messages, unread_direct, unread_direct_messages,
+//      unread_channels, unread_channel_messages }
 export function getNotifications() {
   return request("/api/me/notifications");
 }
 
 export function clearAcceptedNotifications() {
   return request("/api/me/notifications/accepted/seen", { method: "POST" });
+}
+
+// Sign-ins to my account that are waiting for my approval (I'm already signed in here).
+// -> [{ id, ip, device: "Chrome on Windows", created_at, expires_at }]
+export function getLoginAttempts() {
+  return request("/api/me/login-attempts");
+}
+
+// decision: "approve" | "deny"
+export function decideLoginAttempt(attemptId, decision) {
+  return request(`/api/me/login-attempts/${attemptId}/${decision}`, { method: "POST" });
+}
+
+// Marks every channel of a study group read (opening it from the bell).
+export function markGroupRead(groupId) {
+  return request(`/api/study-groups/${groupId}/read`, { method: "POST" });
 }
 
 // -> { messages: [...], assignments: [...] } for the dashboard's Recent Activity card.
@@ -212,6 +252,15 @@ export function sendFriendRequest(receiverId) {
     body: JSON.stringify({ receiver_id: receiverId }),
   });
 }
+
+
+// Search messages and assignments. `date` (optional) is "YYYY-MM-DD".
+export function search(q, date) {
+  const params = new URLSearchParams({ q });
+  if (date) params.set("date", date);
+  return request(`/api/me/search?${params}`);
+}
+
 // Pending requests. direction "incoming" = sent to you, "outgoing" = sent by you.
 // Each item: { id, sender_id, receiver_id, status, created_at, other_user_id, other_user_name }
 export function getFriendRequests(direction = "incoming") {
@@ -433,13 +482,24 @@ export async function saveSettings(userId, settings) {
 // Profile pictures as blob: URLs for <img>. (<img src> can't send the login token,
 // so we fetch the image ourselves.) One download per user, shared by every <Avatar>.
 const avatarCache = new Map(); // userId -> Promise<blob URL | null>
+const avatarReady = new Map(); // userId -> blob URL, once downloaded (readable without waiting)
+
+// The picture's blob URL if it's already downloaded, else null. Lets a new <Avatar>
+// show the picture on its very first render instead of flashing the initial first.
+export function peekUserAvatarUrl(userId) {
+  return avatarReady.get(String(userId)) ?? null;
+}
 
 export function getUserAvatarUrl(userId) {
   if (USE_MOCK.settings) return Promise.resolve(null);
   const id = String(userId);
   if (!avatarCache.has(id)) {
     const promise = authFetch(`/api/users/${encodeURIComponent(id)}/avatar`)
-      .then(async (res) => URL.createObjectURL(await res.blob()))
+      .then(async (res) => {
+        const url = URL.createObjectURL(await res.blob());
+        if (avatarCache.get(id) === promise) avatarReady.set(id, url); // not forgotten meanwhile
+        return url;
+      })
       .catch((err) => {
         if (err.status === 404) return null; // no picture: show the initial
         avatarCache.delete(id);              // other errors: try again next time
@@ -455,6 +515,7 @@ export function forgetUserAvatar(userId) {
   const id = String(userId);
   const promise = avatarCache.get(id);
   avatarCache.delete(id);
+  avatarReady.delete(id);
   if (promise) promise.then((url) => url && URL.revokeObjectURL(url)).catch(() => {});
 }
 

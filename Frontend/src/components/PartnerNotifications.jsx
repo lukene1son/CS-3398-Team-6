@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, MessageSquare, Bell, Check, X } from 'lucide-react';
+import { Users, MessageSquare, Hash, Bell, Check, X, ChevronRight, ShieldAlert } from 'lucide-react';
 import Avatar from './Avatar';
 
 const rowStyle = {
@@ -13,7 +13,19 @@ const rowStyle = {
 };
 
 // `lead` goes on the left (icon or pictures); `actions` (optional) goes on the right.
-function Row({ lead, actions, children }) {
+// With `onOpen`, the whole row is a button (the chat rows: click to go to that chat).
+function Row({ lead, actions, onOpen, label, children }) {
+  if (onOpen) {
+    return (
+      <button type="button" className="notif-row-link" onClick={onOpen} aria-label={label}
+        style={{ ...rowStyle, width: '100%', border: 'none', borderBottom: rowStyle.borderBottom,
+          background: 'none', font: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
+        {lead}
+        <p style={{ margin: 0, flex: 1, minWidth: 0 }}>{children}</p>
+        <ChevronRight size={16} color="#94a3b8" style={{ flexShrink: 0 }} />
+      </button>
+    );
+  }
   return (
     <div style={rowStyle}>
       {lead}
@@ -122,6 +134,7 @@ export default function PartnerNotifications({
   busyKey,
   onRespond,
   onClearAccepted,
+  onOpenChat,
 }) {
   const {
     friendRequests = [],
@@ -129,13 +142,21 @@ export default function PartnerNotifications({
     accepted = [],
     unreadGroups = [],
     unreadGroupMessages = 0,
+    unreadDirect = [],
+    unreadDirectMessages = 0,
+    unreadChannels = [],
+    unreadChannelMessages = 0,
+    loginAttempts = [],
   } = notifications;
 
   const isEmpty =
-    friendRequests.length +
+      loginAttempts.length +
+      friendRequests.length +
       groupInvites.length +
       accepted.length +
-      unreadGroupMessages ===
+      unreadGroupMessages +
+      unreadDirectMessages +
+      unreadChannelMessages ===
     0;
 
   return (
@@ -148,8 +169,13 @@ export default function PartnerNotifications({
       }}
       style={{
         position: 'absolute',
-        top: '45px',
-        right: 0,
+        // Just under the header: the bell button is 32px tall, centered in the 70px
+        // header, so the header's bottom edge is ~52px below the bell's top. +8px gap.
+        top: '60px',
+        // Centered on the bell. The same translateX is in the notif-in keyframes
+        // (index.css), because an animated transform replaces this one while it plays.
+        left: '50%',
+        transform: 'translateX(-50%)',
         width: '340px',
         maxWidth: 'calc(100vw - 32px)',
         background: '#ffffff',
@@ -184,9 +210,42 @@ export default function PartnerNotifications({
         </div>
       ) : (
         <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+        {/* Sign-ins waiting for approval go first: they expire after 10 minutes. */}
+          {loginAttempts.map((attempt) => (
+            <Row
+              key={`signin-${attempt.id}`}
+              lead={<ShieldAlert size={22} color="#d97706" style={{ flexShrink: 0 }} />}
+              actions={
+                <RespondButtons
+                  label={`sign-in attempt from ${attempt.device}`}
+                  busy={busyKey === `loginAttempts-${attempt.id}`}
+                  onAccept={() => onRespond('loginAttempts', attempt.id, 'accept')}
+                  onDecline={() => onRespond('loginAttempts', attempt.id, 'decline')}
+                />
+              }
+            >
+              <strong>Sign-In attempt:</strong> {attempt.device}
+              {attempt.ip ? ` (${attempt.ip.replace(/^::ffff:/, '')})` : ''}. Was this you?
+            </Row>
+          ))}
+          {unreadChannels.map((ch) => (
+            <Row
+              key={`channel-${ch.channel_id}`}
+              onOpen={() => onOpenChat({ type: 'channel', id: ch.channel_id, courseId: ch.course_id })}
+              label={`Open ${ch.course_code} #${ch.channel_name}`}
+              lead={<Hash size={22} color="#2563eb" style={{ flexShrink: 0 }} />}
+            >
+              <strong>{ch.unread}</strong> new message
+              {ch.unread === 1 ? '' : 's'} in{' '}
+              <strong>{ch.course_code} #{ch.channel_name}</strong>.
+            </Row>
+          ))}
+
           {unreadGroups.map((group) => (
             <Row
               key={`unread-${group.group_id}`}
+              onOpen={() => onOpenChat({ type: 'group', id: group.group_id, channel: group.latest_channel })}
+              label={`Open ${group.group_name}`}
               lead={
                 <MessageSquare
                   size={22}
@@ -198,6 +257,27 @@ export default function PartnerNotifications({
               <strong>{group.unread}</strong> new message
               {group.unread === 1 ? '' : 's'} in{' '}
               <strong>{group.group_name}</strong>.
+            </Row>
+          ))}
+
+          {unreadDirect.map((chat) => (
+            <Row
+              key={`direct-${chat.user_id}`}
+              onOpen={() => onOpenChat({ type: 'dm', id: chat.user_id })}
+              label={`Open your chat with ${chat.user_name}`}
+              lead={
+                <Avatar
+                  name={chat.user_name}
+                  userId={chat.user_id}
+                  color={chat.avatar_color}
+                  hasAvatar={chat.has_avatar}
+                  size={32}
+                />
+              }
+            >
+              <strong>{chat.unread}</strong> new message
+              {chat.unread === 1 ? '' : 's'} from{' '}
+              <strong>{chat.user_name}</strong>.
             </Row>
           ))}
 
