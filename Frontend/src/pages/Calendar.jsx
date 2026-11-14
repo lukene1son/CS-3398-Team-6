@@ -4,8 +4,10 @@ import {
   ChevronRight,
   Plus,
   Clock,
+  ChevronDown,
   X
 } from 'lucide-react';
+import { courseAccent } from '../courseColors';
 
 import {
   createAssignment,
@@ -222,10 +224,21 @@ export default function Calendar({
     setViewDate(new Date(year, month + 1, 1));
   };
 
-  const upcomingAssignments = [...assignments]
-    .filter((assignment) => assignment.due_date)
-    .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
-    .slice(0, 5);
+  // Side list: every assignment, grouped by class (in the order of `courses`), each
+  // class soonest due first with no due date last. Each class collapses on its own.
+  const byDue = (a, b) => {
+    if (!a.due_date || !b.due_date) return !a.due_date - !b.due_date; // missing one goes after
+    return parseDue(a.due_date) - parseDue(b.due_date);
+  };
+  const assignmentGroups = courses
+    .map((course) => ({
+      course,
+      accent: courseAccent(courses, course.id),
+      items: assignments.filter((assignment) => assignment.course_id === course.id).sort(byDue)
+    }))
+    .filter((group) => group.items.length > 0);
+  const [collapsedCourses, setCollapsedCourses] = useState({}); // { [courseId]: true } = closed
+  const toggleCourse = (id) => setCollapsedCourses((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const resetForm = () => {
     setTitle('');
@@ -348,7 +361,7 @@ export default function Calendar({
           <div className="calendar-legend">
             <span>
               <i className="dot assignment-dot" />
-              Assignments
+              Tasks
             </span>
           </div>
 
@@ -379,7 +392,12 @@ export default function Calendar({
                         <div
                           className={assignment.status === 'done' ? 'calendar-event done' : 'calendar-event'}
                           key={assignment.id}
-                          style={{ marginTop: assignment.marginTop, height: EVENT_HEIGHT }}
+                          style={{
+                            marginTop: assignment.marginTop,
+                            height: EVENT_HEIGHT,
+                            // Its class's colour (Calendar.css .calendar-event reads it).
+                            '--course-color': courseAccent(courses, assignment.course_id)
+                          }}
                           title={`${assignment.title} (due ${formatTime(assignment.due)})`}
                           {...reopenProps(assignment)}
                         >
@@ -402,38 +420,60 @@ export default function Calendar({
         <aside className="calendar-right-column">
           <section className="side-card">
             <div className="side-card-heading">
-              <h3>Assignments</h3>
+              <h3>Tasks</h3>
               <span>{assignments.length} total</span>
             </div>
 
-            <div className="upcoming-list">
-              {upcomingAssignments.length === 0 ? (
+            {/* Scrolls on its own (Calendar.css .upcoming-list), with no visible scrollbar,
+                so the class headers keep the same width when one opens (index.css .no-scrollbar). */}
+            <div className="upcoming-list no-scrollbar">
+              {assignmentGroups.length === 0 ? (
                 <p className="empty-message">
-                  No assignments available.
+                  No tasks available.
                 </p>
               ) : (
-                upcomingAssignments.map((assignment) => (
-                  <div
-                    className={assignment.status === 'done' ? 'upcoming-assignment done' : 'upcoming-assignment'}
-                    key={assignment.id}
-                    {...reopenProps(assignment)}
-                  >
-                    <div className="upcoming-icon">
-                      <Clock size={16} />
-                    </div>
+                assignmentGroups.map(({ course, accent, items }) => {
+                  const open = !collapsedCourses[course.id];
+                  return (
+                    <section key={course.id} className="course-group" style={{ '--course-color': accent }}>
+                      <button
+                        type="button"
+                        className="course-group-toggle"
+                        onClick={() => toggleCourse(course.id)}
+                        aria-expanded={open}
+                      >
+                        <span className="course-group-dot" aria-hidden="true" />
+                        <strong>{course.course_code}</strong>
+                        <span className="course-group-count">{items.length}</span>
+                        <ChevronDown size={16} className={open ? 'expand-chevron open' : 'expand-chevron'} aria-hidden="true" />
+                      </button>
 
-                    <div>
-                      <p>{assignment.title}</p>
+                      {open && items.map((assignment) => (
+                        <div
+                          className={assignment.status === 'done' ? 'upcoming-assignment done' : 'upcoming-assignment'}
+                          key={assignment.id}
+                          {...reopenProps(assignment)}
+                        >
+                          <div className="upcoming-icon">
+                            <Clock size={16} />
+                          </div>
 
-                      <span>
-                        {assignment.course_code || 'BuddyTech'} ·{' '}
-                        {parseDue(assignment.due_date).toLocaleString([], {
-                          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                ))
+                          <div>
+                            <p>{assignment.title}</p>
+
+                            <span>
+                              {assignment.due_date
+                                ? parseDue(assignment.due_date).toLocaleString([], {
+                                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+                                  })
+                                : 'No due date'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                  );
+                })
               )}
             </div>
           </section>

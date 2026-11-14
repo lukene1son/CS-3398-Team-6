@@ -59,6 +59,8 @@ CREATE TABLE course_members (
     course_id INT NOT NULL,
     -- only ta/teacher can post course-wide assignments
     role ENUM('student', 'ta', 'teacher') NOT NULL DEFAULT 'student',
+    -- this member's colour for the course ('#16a34a'); NULL = default palette (migration 023)
+    color VARCHAR(7) NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
     UNIQUE (user_id, course_id)

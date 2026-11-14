@@ -183,12 +183,17 @@ router.get("/me/activity", async (req, res) => {
 
         // Three sources, each already limited, merged and re-sorted by time.
         // Each SELECT has the same columns in the same order, which UNION ALL needs.
+        // target_id / course_id / group_channel say where to open it on click:
+        //   space:  the channel's id and its course
+        //   group:  the group's id, its course, and which of its channels
+        //   direct: the sender (the person to open the chat with)
         const [messages] = await pool.query(
             `
             (SELECT 'space' AS kind, messages.id, LEFT(messages.content, 200) AS content, messages.created_at,
                     users.id AS author_id, users.name AS author_name, users.avatar_color AS author_avatar_color,
                     users.avatar_stored_name IS NOT NULL AS author_has_avatar,
-                    CONCAT(courses.course_code, ' · ', channels.name) AS place
+                    CONCAT(courses.course_code, ' · ', channels.name) AS place,
+                    channels.id AS target_id, courses.id AS course_id, NULL AS group_channel
              FROM messages
              JOIN channels ON channels.id = messages.channel_id
              JOIN courses ON courses.id = channels.course_id
@@ -202,7 +207,8 @@ router.get("/me/activity", async (req, res) => {
             UNION ALL
             (SELECT 'group' AS kind, group_messages.id, LEFT(group_messages.content, 200), group_messages.created_at,
                     users.id, users.name, users.avatar_color, users.avatar_stored_name IS NOT NULL,
-                    study_groups.name
+                    study_groups.name,
+                    study_groups.id, study_groups.course_id, group_messages.channel
              FROM study_group_messages AS group_messages
              JOIN study_groups ON study_groups.id = group_messages.group_id
              JOIN course_members
@@ -219,7 +225,8 @@ router.get("/me/activity", async (req, res) => {
             UNION ALL
             (SELECT 'direct' AS kind, direct_messages.id, LEFT(direct_messages.content, 200), direct_messages.created_at,
                     users.id, users.name, users.avatar_color, users.avatar_stored_name IS NOT NULL,
-                    'Direct message'
+                    'Direct message',
+                    users.id, NULL, NULL
              FROM direct_messages
              JOIN users ON users.id = direct_messages.sender_id
              WHERE direct_messages.receiver_id = ?

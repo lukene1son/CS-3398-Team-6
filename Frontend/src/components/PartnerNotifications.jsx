@@ -209,7 +209,7 @@ export default function PartnerNotifications({
           <p style={{ margin: 0 }}>No new notifications.</p>
         </div>
       ) : (
-        <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+        <div className="no-scrollbar" style={{ maxHeight: '320px', overflowY: 'auto' }}>
         {/* Sign-ins waiting for approval go first: they expire after 10 minutes. */}
           {loginAttempts.map((attempt) => (
             <Row

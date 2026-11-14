@@ -323,13 +323,23 @@ app.get("/api/me/courses", async (req, res) => {
                 courses.course_name,
                 courses.professor,
                 courses.university,
-                course_members.role
+                course_members.role,
+                course_members.color,
+                (SELECT COUNT(*) FROM channels WHERE channels.course_id = courses.id) AS channel_count,
+                (SELECT COUNT(*) FROM course_members AS cm WHERE cm.course_id = courses.id) AS member_count,
+                (SELECT COUNT(*) FROM study_groups
+                    JOIN study_group_members ON study_group_members.group_id = study_groups.id
+                    WHERE study_groups.course_id = courses.id
+                      AND study_group_members.user_id = ?) AS group_count
             FROM course_members
             JOIN courses
                 ON course_members.course_id = courses.id
             WHERE course_members.user_id = ?
+            -- Order joined. The default colours go by position in this list, so it must be stable.
+            ORDER BY course_members.id
             `,
-            [req.user.id]
+            // Two placeholders: one for group_count, one for the WHERE.
+            [req.user.id, req.user.id]
         );
 
         res.json(rows);

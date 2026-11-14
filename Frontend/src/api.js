@@ -131,6 +131,9 @@ export function logout() {
       .catch(() => { /* offline: the session still expires on its own */ });
   }
 }
+export function getMe() {
+  return request("/api/me");
+}
 
 /* ---------- Courses & assignments (for the logged-in user) ---------- */
 export function getMyCourses() {
