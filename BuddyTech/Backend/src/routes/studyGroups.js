@@ -411,6 +411,18 @@ router.get("/study-groups/:id/messages", async (req, res) => {
             `,
             [groupId, channel, MESSAGE_HISTORY_LIMIT]
         );
+        // Opening a channel marks it read up to its newest message (rows[0], since
+        // they're still newest-first here). GREATEST keeps the marker from going backwards.
+        if (rows.length > 0) {
+            const [marked] = await pool.query(
+                `INSERT INTO study_group_reads (user_id, group_id, channel, last_read_message_id)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE last_read_message_id = GREATEST(last_read_message_id, ?)`,
+                [req.user.id, groupId, channel, rows[0].id, rows[0].id]
+            );
+            // 0 = nothing changed, so the 60-second poll doesn't ping the bell every time.
+            if (marked.affectedRows > 0) emitTo(`user:${req.user.id}`, "group-unread-changed", {});
+        }
         // Fetched newest-first so LIMIT keeps the latest ones; send them oldest-first.
         res.json(rows.reverse());
     } catch (error) {
@@ -418,6 +430,35 @@ router.get("/study-groups/:id/messages", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch messages" });
     }
 });
+// POST /api/study-groups/:id/read
+// Marks every channel of the group read up to its newest message. Used when you
+// open a group from the bell, so its whole notification clears, not just one channel.
+router.post("/study-groups/:id/read", async (req, res) => {
+    try {
+        const groupId = toId(req.params.id);
+        if (!groupId) return res.status(400).json({ error: "Invalid group id" });
+
+        const access = await getGroupAccess(req.user.id, groupId);
+        if (!access || !access.canRead) return res.status(404).json({ error: "Study group not found" });
+
+        // GREATEST keeps a marker from going backwards.
+        await pool.query(
+            `INSERT INTO study_group_reads (user_id, group_id, channel, last_read_message_id)
+             SELECT ?, newest.group_id, newest.channel, newest.max_id
+             FROM (SELECT group_id, channel, MAX(id) AS max_id
+                   FROM study_group_messages WHERE group_id = ? GROUP BY group_id, channel) AS newest
+             ON DUPLICATE KEY UPDATE
+                 last_read_message_id = GREATEST(study_group_reads.last_read_message_id, newest.max_id)`,
+            [req.user.id, groupId]
+        );
+        emitTo(`user:${req.user.id}`, "group-unread-changed", {});
+        res.json({ ok: true });
+    } catch (error) {
+        console.error("Error marking study group read:", error);
+        res.status(500).json({ error: "Failed to mark the group read" });
+    }
+});
+
 // POST /api/study-groups/:id/messages  { channel, content }
 // Members and the course's teachers/TAs can post. Everyone else gets a 403.
 
@@ -468,6 +509,13 @@ router.post("/study-groups/:id/messages", async (req, res) => {
             [result.insertId]
         );
         emitTo(`group:${groupId}`, "group-message", { group_id: groupId, channel });
+
+        // Also tell the other members, wherever they are in the app, so their bell updates.
+        const [members] = await pool.query(
+            "SELECT user_id FROM study_group_members WHERE group_id = ? AND user_id <> ?",
+            [groupId, req.user.id]
+        );
+        members.forEach((member) => emitTo(`user:${member.user_id}`, "group-unread-changed", {}));
        res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending study group message:", error);

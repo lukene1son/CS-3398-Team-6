@@ -13,9 +13,22 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 const STORAGE_KEY = 'buddytech-user';
 
+// True if the JWT hasn't expired. (The browser can't verify the signature;
+// the backend still does that on every request.)
+function tokenIsLive(token) {
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(part));
+    return !exp || exp * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
 // Keep the user logged in across page refreshes
 function loadSavedUser() {
-    if (!getToken()) return null;
+    const token = getToken();
+    if (!token || !tokenIsLive(token)) return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -115,7 +128,7 @@ export default function App() {
     <Router>
       <Routes>
         {/* 1. Public Landing Page */}
-        <Route path="/" element={<HomeWrapper isLoggedIn={!!currentUser} />} />
+        <Route path="/" element={currentUser ? <Navigate to="/dashboard" replace /> : <HomeWrapper isLoggedIn={false} />} />
 
         {/* 2. Login Page */}
         <Route

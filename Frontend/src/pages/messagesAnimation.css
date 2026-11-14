@@ -1,0 +1,81 @@
+/* "Summarize notes" icon (Dashboard.jsx, MessagesIcon): two chat bubbles, 5.2s loop.
+   Plays while its AI Quick Actions row (.ai-action) is hovered. 1% of the loop = 52ms.
+     0-0.7s      white bubble pops in with a bounce (115%, 94%, settle)
+     0.7-1.5s    two squiggles write themselves into it
+     1.5-2.2s    smaller blue bubble pops in to the lower left, same bounce
+     2.2-3.0s    a white squiggle writes itself into it
+     3.0-4.2s    both wobble slightly, in opposite directions
+     4.2-4.8s    both shrink away; 4.8-5.2s pause
+   At rest it shows the finished picture. */
+
+.messages-anim {
+  --u: calc(22px / 24);
+  --paper: #ffffff;
+  display: block;
+  flex-shrink: 0;
+  width: calc(var(--u) * 24);
+  height: calc(var(--u) * 24);
+  overflow: visible;
+  color: #2563eb;
+}
+
+.messages-anim__b1,
+.messages-anim__b2 { transform-box: fill-box; }
+.messages-anim__b1 { transform-origin: 85% 100%; }   /* grows out of its tail (bottom right) */
+.messages-anim__b2 { transform-origin: 10% 100%; }   /* tail at bottom left */
+.messages-anim__shape1 { fill: var(--paper); stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+.messages-anim__shape2 { fill: currentColor; }
+
+/* Squiggles "write" by drawing their stroke left to right. "Not drawn yet" is offset
+   1.1 with a 2-long gap, so the hidden dash sits wholly before the line's start: a
+   dash of exactly zero length would still paint its round end caps as a dot. */
+.messages-anim__squig {
+  fill: none;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 0;
+}
+.messages-anim__squig--in1 { stroke: currentColor; }
+.messages-anim__squig--in2 { stroke: var(--paper); }
+
+.ai-action:hover .messages-anim__b1 { animation: messages-anim-bubble-1 5.2s infinite; }
+.ai-action:hover .messages-anim__b2 { animation: messages-anim-bubble-2 5.2s infinite; }
+.ai-action:hover .messages-anim__s1a { animation: messages-anim-write-1a 5.2s infinite; }
+.ai-action:hover .messages-anim__s1b { animation: messages-anim-write-1b 5.2s infinite; }
+.ai-action:hover .messages-anim__s2 { animation: messages-anim-write-2 5.2s infinite; }
+
+@keyframes messages-anim-bubble-1 {
+  0%    { transform: translate(0, 0) rotate(0deg) scale(0); }
+  6%    { transform: translate(0, 0) rotate(0deg) scale(1.15); }
+  10%   { transform: translate(0, 0) rotate(0deg) scale(0.94); }
+  13.5% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  58%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+  66%   { transform: translate(0.6px, -0.5px) rotate(3deg) scale(1); }
+  74%   { transform: translate(-0.4px, 0.3px) rotate(-2deg) scale(1); }
+  81%   { transform: translate(0, 0) rotate(0deg) scale(1); animation-timing-function: ease-in; }
+  92%   { transform: translate(0, 0) rotate(0deg) scale(0); }
+  100%  { transform: translate(0, 0) rotate(0deg) scale(0); }
+}
+@keyframes messages-anim-bubble-2 {
+  0%, 29% { transform: translate(0, 0) rotate(0deg) scale(0); }
+  35%   { transform: translate(0, 0) rotate(0deg) scale(1.15); }
+  39%   { transform: translate(0, 0) rotate(0deg) scale(0.94); }
+  42.5% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  58%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+  66%   { transform: translate(-0.5px, 0.4px) rotate(-3deg) scale(1); }
+  74%   { transform: translate(0.4px, -0.3px) rotate(2deg) scale(1); }
+  81%   { transform: translate(0, 0) rotate(0deg) scale(1); animation-timing-function: ease-in; }
+  92%   { transform: translate(0, 0) rotate(0deg) scale(0); }
+  100%  { transform: translate(0, 0) rotate(0deg) scale(0); }
+}
+@keyframes messages-anim-write-1a { 0%, 13.5% { stroke-dashoffset: 1.1; opacity: 0; } 13.51% { stroke-dashoffset: 1.1; opacity: 1; } 24%, 100% { stroke-dashoffset: 0; opacity: 1; } }
+@keyframes messages-anim-write-1b { 0%, 21% { stroke-dashoffset: 1.1; opacity: 0; } 21.01% { stroke-dashoffset: 1.1; opacity: 1; } 29%, 100% { stroke-dashoffset: 0; opacity: 1; } }
+@keyframes messages-anim-write-2  { 0%, 42.5% { stroke-dashoffset: 1.1; opacity: 0; } 42.51% { stroke-dashoffset: 1.1; opacity: 1; } 58%, 100% { stroke-dashoffset: 0; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-action:hover .messages-anim__b1,
+  .ai-action:hover .messages-anim__b2,
+  .ai-action:hover .messages-anim__squig { animation: none; }
+}

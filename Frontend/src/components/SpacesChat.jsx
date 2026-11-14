@@ -1,12 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-
 import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners, 
 sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend,
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
 getCourseMembers, getGroupMembers } from "../api";
+import { Users, Search } from "lucide-react";
 import Avatar from "./Avatar";
 import { onSocketEvent, watchRoom } from "../socket";
+import { courseAccent } from "../courseColors";
+
+// The sidebar's two views. The white pill slides to the active one (index.css .segment-pill).
+const SIDEBAR_VIEWS = [
+  { id: "spaces", label: "Study Spaces" },
+  { id: "partners", label: "Study Partners" },
+];
+// The Study Partners view's pages (shown in the main area).
+const PARTNER_VIEWS = [
+  { id: "connections", label: "My Connections", icon: Users },
+  { id: "suggested", label: "Find Study Partners", icon: Search },
+];
 
 const PARTNER_POLL_MS = 10000; // how often we poll server so other users' friend requests show up
 const POLL_MS = 60000; // safety net only; live updates come over the socket (socket.js)
@@ -40,12 +52,39 @@ function sidebarChannelStyle(active) {
   };
 }
 
-const sidebarHeadingStyle = { fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
+// Added to a sidebar row that can show an <UnreadDot>: the dot sits at the right end.
+const dotRowStyle = { display: "flex", alignItems: "center", gap: "0.5rem" };
+
+const sidebarHeadingStyle ={ fontSize: "1rem", fontWeight: "700", color: "#1e293b", margin: "1.5rem 0 0.5rem" };
 const sidebarHintStyle = { fontSize: "0.8rem", color: "#94a3b8" };
 const sidebarListStyle = { listStyle: "none", padding: 0, margin: 0 };
 
 // Chat-sidebar heading that collapses/expands the section under it.
 // Shows how many items are hidden while collapsed.
+// Red unread dot for a sidebar row (same look as the bell's old dot). `info` is
+// { unread, viewed } or missing (nothing unread: no dot). The ring around it
+// (index.css .unread-ping) keeps pulsing until the notification has been seen
+// in the bell window, then only pulses 3 times each time the dot appears.
+function UnreadDot({ info, hidden = false }) {
+  if (!info || info.unread <= 0 || hidden) return null;
+  return (
+    <span
+      className={`unread-ping ${info.viewed ? "pulse-few" : "pulse"}`}
+      title={`${info.unread} unread`}
+      aria-label={`${info.unread} unread message${info.unread === 1 ? "" : "s"}`}
+      style={{
+        marginLeft: "auto",
+        flexShrink: 0,
+        width: "9px",
+        height: "9px",
+        background: "#ef4444",
+        borderRadius: "50%",
+        border: "2px solid white",
+      }}
+    />
+  );
+}
+
 function SectionHeader({ title, count, collapsed, onToggle, first = false }) {
   return (
     <h3 style={{ ...sidebarHeadingStyle, ...(first ? { marginTop: 0 } : {}) }}>
@@ -285,6 +324,13 @@ function formatTime(createdAt) {
   });
 }
 
+// An assignment's due Date, e.g. "Fri, Nov 13, 2:30 PM" (same format as Home's formatDue).
+function formatDue(due) {
+  return due.toLocaleString([], {
+    weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+  });
+}
+
 /**
  * Spaces = the logged-in user's courses. Each course has channels. Each channel has messages.
  *
@@ -297,9 +343,17 @@ function formatTime(createdAt) {
  *
  * Props:
  *   user - the logged-in user from /api/me or /api/auth/login ({ id, name, email })
+ *   unread, groupChannelsUnread - unread chats for the sidebar's red dots (Dashboard loads them)
+ *   openTarget - a chat to open, clicked in the bell's window (a new nonce = open it)
  */
 export default function SpacesChat({
-  user
+  user,
+  unread = {},              // from Dashboard: { "dm-7": { unread, viewed }, "group-3": ..., "channel-2": ... }
+  groupChannelsUnread = {}, // from Dashboard: { [groupId]: { general: 2, homework: 1 } }
+  coursesUnread = {},       // from Dashboard: { [courseId]: { unread, viewed } }, all its channels together
+  openTarget = null,        // from Dashboard: a chat clicked in the bell, { type, id, channel?, courseId?, nonce }
+  assignments = [],         // from Dashboard: Home's Current Assignments (unfinished, soonest first, `due` is a Date or null)
+  onOpenPlanner,            // from Dashboard: switch to the Planner page
 }) {
   const userId = user?.id;
   const [courses, setCourses] = useState([]);
@@ -308,19 +362,29 @@ export default function SpacesChat({
   const [selectedCourseId, setSelectedCourseId] = useState(null);
   const [selectedChannelId, setSelectedChannelId] = useState(null);
   const [inputText, setInputText] = useState("");
-  const [sending, setSending] = useState(false);
+  const [pendingMessages, setPendingMessages] = useState([]);
+  const pendingCount = useRef(0); // makes each tempId unique
   const [status, setStatus] = useState("Connecting...");
   const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
   const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
-  const [activeTab, setActiveTab] = useState("chat");
+  // Which list the sidebar shows, and what the main area shows:
+  //   sidebarView: "spaces" (the open course's channels + groups) | "partners" (connections + DMs)
+  //   mainView:    "chat" (a channel, group or DM) | "partners" (Connections / Find Study Partners)
+  //                | "groups" (Discover / Invites)
+  const [sidebarView, setSidebarView] = useState("spaces");
+  const [mainView, setMainView] = useState("chat");
+
   const [partnerView, setPartnerView] = useState("connections");
   const bottomRef = useRef(null);
   const messageListRef = useRef(null);           // the scrolling message area
+  const redrawTimerRef = useRef(null);           // handleMessageListScroll's "scrolling stopped" timer
+  const redrawFlipRef = useRef(false);           // which of its two invisible backgrounds is on
   const lastScrolledTitleRef = useRef(null);     // chat we last auto-scrolled in
   const lastMessageCountRef = useRef(0);
   const connectingRef = useRef(new Set());       // partner ids with a request in flight (a ref, so a fast double click can't slip past)
   const [partnerSearch, setPartnerSearch] = useState("");
   const [partnerCourse, setPartnerCourse] = useState("all");
+  const [connectionSearch, setConnectionSearch] = useState("");
   const [suggestedPartners, setSuggestedPartners] = useState([]);
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [partnersError, setPartnersError] = useState("");
@@ -369,34 +433,91 @@ export default function SpacesChat({
     setErrors(prev => (prev[source] || "") === message ? prev : { ...prev, [source]: message });
   }, []);
 
-    // Which Chat-tab sidebar sections are collapsed (all open by default).
-  const [collapsed, setCollapsed] = useState({ spaces: false, groups: false, dms: false });
+  // Which sidebar sections are collapsed (all open by default).
+  const [collapsed, setCollapsed] = useState({ channels: false, groups: false, assignments: false, dms: false });
 
   function toggleSection(key) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
   }
 
-  // Show a study group's chat in the Chat tab.
+  // Show a study group's chat, under its course's tab.
   function openGroupChat(groupId) {
     if (chatTarget.type !== "group" || chatTarget.id !== groupId) setGroupChannel("general");
+    const group = myGroups.find(g => g.id === groupId);
+    if (group) setSelectedCourseId(group.course_id);
     setChatTarget({ type: "group", id: groupId });
-    setActiveTab("chat");
+    setSidebarView("spaces");
+    setMainView("chat");
   }
 
-  // "Message" on a connection: open the DM with them in the Chat tab. A chat you've
-  // never sent anything in shows in your sidebar right away, and is saved (and
-  // appears for them) when you send the first message.
+  // "Message" on a connection: open the DM with them. A chat you've never sent
+  // anything in shows in your sidebar right away, and is saved (and appears for
+  // them) when you send the first message.
   function openDirectMessage(friend) {
     setStartedDmIds(prev => (prev.includes(friend.id) ? prev : [...prev, friend.id]));
     setChatTarget({ type: "dm", id: friend.id });
-    setActiveTab("chat");
+    setSidebarView("partners");
+    setMainView("chat");
   }
 
-  // Course/channel clicks in the Chat sidebar.
+  // A course channel (channelId null = the course's first channel).
   function openChannel(courseId, channelId) {
     setChatTarget({ type: "channel" });
     setSelectedCourseId(courseId);
     setSelectedChannelId(channelId);
+    setMainView("chat");
+  }
+
+  // A course tab along the top (or a Study Spaces card on Home).
+  function openCourse(courseId) {
+    setSidebarView("spaces");
+    openChannel(courseId, null);
+  }
+
+  // The Study Spaces / Study Partners toggle. Spaces goes back to the open course's
+  // channel; Partners keeps an open DM, otherwise shows My Connections.
+  function changeSidebarView(view) {
+    if (view === sidebarView) return;
+    setSidebarView(view);
+    if (view === "spaces") {
+      setChatTarget({ type: "channel" });
+      setMainView("chat");
+    } else if (!activeFriend) {
+      setMainView("partners");
+    }
+  }
+
+  // My Connections / Find Study Partners in the Study Partners sidebar.
+  function openPartnerView(view) {
+    setPartnerView(view);
+    setMainView("partners");
+  }
+
+  // "Find or join a group" under a course: Discover, filtered to that course.
+  function openGroupFinder(forCourse) {
+    setGroupView("discover");
+    setGroupCourse(forCourse.course_code);
+    setMainView("groups");
+  }
+
+  // A chat clicked in the bell's window: open it once per click (each has a new nonce).
+  // Done during render rather than in an effect, so the right chat is on screen in the
+  // very first paint, even when Spaces is opening because of this click. Opening it
+  // loads its messages, which marks it read on the server and clears its dot.
+  const [handledOpen, setHandledOpen] = useState(null);
+  if (openTarget && openTarget.nonce !== handledOpen) {
+    setHandledOpen(openTarget.nonce);
+    if (openTarget.type === "dm") {
+      openDirectMessage({ id: openTarget.id });
+    } else if (openTarget.type === "group") {
+      openGroupChat(openTarget.id);
+      setGroupChannel(openTarget.channel || "general"); // its newest unread channel
+    } else if (openTarget.type === "channel") {
+      setSidebarView("spaces");
+      openChannel(openTarget.courseId, openTarget.id);
+    } else if (openTarget.type === "course") {
+      openCourse(openTarget.id); // a Study Spaces card on Home
+    }
   }
 
   const loadSuggested = useCallback(async () => {
@@ -740,6 +861,10 @@ export default function SpacesChat({
   const channel = channels.find(c => c.id === selectedChannelId) ?? channels[0];
   const messages = channel ? messagesByChannel[channel.id] ?? [] : [];
   const studentCourses = courses.filter(c => c.role === "student");
+  // My Connections, narrowed by its search box.
+  const shownFriends = friends.filter(f =>
+      f.name.toLowerCase().includes(connectionSearch.trim().toLowerCase())
+    );
 
   // DMs in the sidebar: saved conversations (newest first, including ones the other
   // person started), then ones you've opened but haven't sent anything in yet.
@@ -757,6 +882,17 @@ export default function SpacesChat({
   const activeFriendId = activeFriend?.id;
   const showingChannel = !activeGroup && !activeFriend;
 
+  // A group opened before its course was known (from the bell, before myGroups
+  // loaded): switch to its course's tab once it is. Guarded so it can't loop.
+  if (activeGroup && course && activeGroup.course_id !== course.id &&
+      courses.some(c => c.id === activeGroup.course_id)) {
+    setSelectedCourseId(activeGroup.course_id);
+  }
+
+  // The open course's groups and current assignments, for the Study Spaces sidebar.
+  const courseGroups = course ? myGroups.filter(g => g.course_id === course.id) : [];
+  const courseAssignments = course ? assignments.filter(a => a.course_id === course.id) : [];
+
   const chatTitle =
     activeGroup ? `${activeGroup.name} › #${groupChannel}` :
     activeFriend ? activeFriend.name :
@@ -772,7 +908,20 @@ export default function SpacesChat({
     activeFriend ? directMessages[activeFriend.id] ?? [] :
     messages;
   const canSend = Boolean(activeGroup || activeFriend || channel);
-
+   const chatKey =
+    activeGroup ? `group-${activeGroup.id}-${groupChannel}` :
+    activeFriend ? `dm-${activeFriend.id}` :
+    channel ? `channel-${channel.id}` : null;
+  // A sent message stays here until the reload brings back the saved copy; once that
+  // copy is in the list (same id), the temporary one is hidden so it never shows twice.
+  const loadedIds = new Set(visibleMessages.map(msg => msg.id));
+  const shownMessages = [
+    ...visibleMessages,
+    ...pendingMessages
+      .filter(p => p.chat === chatKey && !loadedIds.has(p.savedId))
+      .map(p => ({ id: p.tempId, user_id: userId, content: p.content, created_at: p.created_at,
+        avatar_color: user?.avatar_color, has_avatar: user?.has_avatar, pending: true })),
+  ];
   // Chat-tab banner: sidebar errors always, plus the errors for whatever chat is open.
   const visibleErrors = [
     errors.courses,
@@ -854,7 +1003,7 @@ export default function SpacesChat({
     // 4. Load the Find Study Partners view (pending requests + suggestions) when it's
   //    opened, and re-check every PARTNER_POLL_MS so the other person's actions show up
   useEffect(() => {
-    if (!userId || activeTab !== "partners" || partnerView !== "suggested") return;
+    if (!userId || mainView !== "partners" || partnerView !== "suggested") return;
     let cancelled = false;
     async function refresh(showSpinner) {
       if (showSpinner) setPartnersLoading(true);
@@ -877,18 +1026,18 @@ export default function SpacesChat({
       stopListening();
       stopReconnect();
     };
-  }, [userId, activeTab, partnerView, loadSuggested, loadRequests]);
+  }, [userId, mainView, partnerView, loadSuggested, loadRequests]);
 
   // 5. Load friends and friend requests for the Connections view (incoming requests are listed
-  //    there), the Chat tab's Direct Messages and the header member cards, re-checking every PARTNER_POLL_MS.
+  //    there), the sidebar's Study Chats and the header member cards, re-checking every PARTNER_POLL_MS.
+  //    Always on: every view of Spaces uses one of those.
   useEffect(() => {
-    const wantsFriends = activeTab === "chat" || (activeTab === "partners" && partnerView === "connections");
-    if (!userId || !wantsFriends) return;
+    if (!userId) return;
     let cancelled = false;
     async function refresh(showSpinner) {
       if (showSpinner) setListsLoading(true);
       try {
-        // On the Chat tab, requests are needed too: the header member cards show Request / Requested.
+        // Requests are needed too: the header member cards show Request / Requested.
         await Promise.all([loadFriends(), loadRequests()]);
         if (!cancelled) setListsError("");
       } catch (err) {
@@ -907,13 +1056,13 @@ export default function SpacesChat({
       stopListening();
       stopReconnect();
     };
-  }, [userId, activeTab, partnerView, loadFriends, loadRequests]);
+  }, [userId, loadFriends, loadRequests]);
 
 
   // Load on channel change + poll so messages from other users appear
-  // only while a course channel is actually on screen (not a DM, group, or other tab).
+  // only while a course channel is actually on screen (not a DM, group, or other view).
   useEffect(() => {
-    if (!channelId || activeTab !== "chat" || !showingChannel) return;
+    if (!channelId || mainView !== "chat" || !showingChannel) return;
     let cancelled = false;
     async function refresh() {
       try {
@@ -939,12 +1088,12 @@ export default function SpacesChat({
       stopWatching();
       stopListening();
     };
-  }, [channelId, activeTab, showingChannel, loadMessages, setErrorFor]);
+  }, [channelId, mainView, showingChannel, loadMessages, setErrorFor]);
 
-  // 6. Load your DM conversations while the Chat tab is open, re-checking every
+  // 6. Load your DM conversations (the Study Partners sidebar), re-checking every
   //    PARTNER_POLL_MS so a chat someone starts with you shows up in your sidebar.
-   useEffect(() => {
-    if (!userId || activeTab !== "chat") return;
+  useEffect(() => {
+    if (!userId) return;
     let cancelled = false;
     async function refresh() {
       try {
@@ -966,12 +1115,13 @@ export default function SpacesChat({
       stopReconnect();
       stopFriends();
     };
-  }, [userId, activeTab, loadConversations, setErrorFor]);
+  }, [userId, loadConversations, setErrorFor]);
 
   // 7. Load the open DM from the database and poll it like a course channel,
   //    so the other person's replies appear.
   useEffect(() => {
-    if (!activeFriendId) return;
+    // Only while it's on screen: loading marks it read, so it mustn't run behind another view.
+    if (!activeFriendId || mainView !== "chat") return;
     let cancelled = false;
     async function refresh() {
       try {
@@ -994,13 +1144,12 @@ export default function SpacesChat({
       stopListening();
       stopReconnect();
     };
-  }, [userId, activeFriendId, loadDirectMessages, setErrorFor]);
+  }, [userId, activeFriendId, mainView, loadDirectMessages, setErrorFor]);
   
   // 8. Load the groups whose chat you can open (yours + ones you teach) for the
-  //    Chat tab's sidebar, re-checking every PARTNER_POLL_MS.
+  //    Study Spaces sidebar and the Invite-to-group pickers, re-checking every PARTNER_POLL_MS.
   useEffect(() => {
-    const wantsGroups = activeTab === "chat" || (activeTab === "partners" && partnerView === "connections");
-    if (!userId || !wantsGroups) return;
+    if (!userId) return;
     let cancelled = false;
     async function refresh() {
       try {
@@ -1016,12 +1165,13 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [userId, activeTab, partnerView, loadMyGroups, setErrorFor]);
+  }, [userId, loadMyGroups, setErrorFor]);
 
   // 9. Load the open group channel from the database and poll it like a course
   //    channel, so other members' messages appear.
   useEffect(() => {
-    if (!activeGroupId) return;
+    // Only while it's on screen: loading marks it read, so it mustn't run behind another view.
+    if (!activeGroupId || mainView !== "chat") return;
     let cancelled = false;
     async function refresh() {
       try {
@@ -1043,12 +1193,12 @@ export default function SpacesChat({
       stopWatching();
       stopListening();
     };
-  }, [activeGroupId, groupChannel, loadGroupMessages, setErrorFor]);
+  }, [activeGroupId, groupChannel, mainView, loadGroupMessages, setErrorFor]);
 
-  // 10. Load Discover and your invites while the Study Groups tab is open,
+  // 10. Load Discover and your invites while the groups view is open,
   //     re-checking every PARTNER_POLL_MS so new groups and invites show up.
   useEffect(() => {
-    if (!userId || activeTab !== "groups") return;
+    if (!userId || mainView !== "groups") return;
     let cancelled = false;
     async function refresh() {
       try {
@@ -1068,12 +1218,12 @@ export default function SpacesChat({
       stopListening();
       stopReconnect();
     };
-  }, [userId, activeTab, loadDiscoverGroups, loadGroupInvites]);
+  }, [userId, mainView, loadDiscoverGroups, loadGroupInvites]);
 
   // 11. Load the people in the open space or group for the Chat header, and
   //     re-check every PARTNER_POLL_MS so people joining or leaving show up.
   useEffect(() => {
-    if (activeTab !== "chat") return;
+    if (mainView !== "chat") return;
     const load =
       activeGroupId ? () => loadGroupMembers(activeGroupId) :
       showingChannel && courseId ? () => loadCourseMembers(courseId) :
@@ -1094,7 +1244,7 @@ export default function SpacesChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeTab, activeGroupId, showingChannel, courseId, loadGroupMembers, loadCourseMembers]);
+  }, [mainView, activeGroupId, showingChannel, courseId, loadGroupMembers, loadCourseMembers]);
 
   // Auto-scroll when a new message arrives or the channel changes
   //    Always on a chat switch or first load; otherwise only if you're already near the
@@ -1104,198 +1254,314 @@ export default function SpacesChat({
     const switchedChat = lastScrolledTitleRef.current !== chatTitle;
     const firstLoad = lastMessageCountRef.current === 0;
     lastScrolledTitleRef.current = chatTitle;
-    lastMessageCountRef.current = visibleMessages.length;
+    lastMessageCountRef.current = shownMessages.length;
     const nearBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 200;
     if (switchedChat || firstLoad || nearBottom) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      // "instant", not "smooth": an animated scroll while animated profile pictures (GIFs)
+      // are playing leaves the ones in this list frozen or flickering in Chromium until
+      // something redraws the list. "instant" also overrides Landing.css's scroll-behavior.
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
     }
-  }, [visibleMessages.length, chatTitle]);
+  }, [shownMessages.length, chatTitle]);
 
-   // 4. Send a message. Course channels, study groups and DMs are all saved to the
-  //    backend, then re-fetched so what you see == the DB.
+  // Chromium workaround: after the message list scrolls, an animated profile picture
+  // (GIF) in it can freeze or flicker until the list is redrawn. Shortly after scrolling
+  // stops, flip an invisible background value on the list, which forces that redraw.
+  function handleMessageListScroll() {
+    clearTimeout(redrawTimerRef.current);
+    redrawTimerRef.current = setTimeout(() => {
+      const box = messageListRef.current;
+      if (!box) return;
+      redrawFlipRef.current = !redrawFlipRef.current;
+      box.style.backgroundColor = redrawFlipRef.current ? "rgba(0, 0, 0, 0.004)" : "rgba(0, 0, 0, 0)";
+    }, 150);
+  }
+
+  // 4. Send a message. It shows right away (faded) and the box clears, so sending feels
+  //    instant even on a slow connection. Then it's saved, and the chat re-fetched so
+  //    what you see == the DB. If saving fails, it disappears and the text comes back.
   async function handleSendMessage(e) {
     e.preventDefault();
     const content = inputText.trim();
-    if (!content || sending || !canSend) return;
+    if (!content || !canSend) return;
 
-    setSending(true);
+    // This chat, as it is now (the user may switch chats before the save finishes).
+    const group = activeGroup, friend = activeFriend, groupCh = groupChannel, chId = channelId;
+    const chat = chatKey, target = chatTitle;
+    const tempId = `pending-${++pendingCount.current}`;
+    const drop = () => setPendingMessages(prev => prev.filter(p => p.tempId !== tempId));
+
+    setPendingMessages(prev => [...prev, { tempId, chat, content, created_at: new Date().toISOString() }]);
+    setInputText("");
+    setSendError(null);
     try {
-      if (activeGroup) {
-        await sendGroupMessage(activeGroup.id, groupChannel, content);
-        setInputText("");
-        // A failed reload isn't a failed send; the poll will catch up.
-        await loadGroupMessages(activeGroup.id, groupChannel).catch(() => {});
-      } else if (activeFriend) {
-        await sendDirectMessage(activeFriend.id, content);
-        setInputText("");
-        await Promise.all([loadDirectMessages(activeFriend.id), loadConversations()]).catch(() => {});
-      } else {
-        await sendChannelMessage(channelId, content);
-        setInputText("");
-        await loadMessages().catch(() => {});
-      }
-      setSendError(null);
+      const saved = group ? await sendGroupMessage(group.id, groupCh, content)
+        : friend ? await sendDirectMessage(friend.id, content)
+        : await sendChannelMessage(chId, content);
+      setPendingMessages(prev => prev.map(p => p.tempId === tempId ? { ...p, savedId: saved.id } : p));
     } catch (err) {
-      setSendError({ target: chatTitle, text: `Message not sent: ${err.message}` });
-    } finally {
-      setSending(false);
+      drop();
+      setInputText(current => current || content); // don't overwrite something new they've typed
+      setSendError({ target, text: `Message not sent: ${err.message}` });
+      return;
     }
+    // A failed reload isn't a failed send; the poll will catch up.
+    if (group) await loadGroupMessages(group.id, groupCh).catch(() => {});
+    else if (friend) await Promise.all([loadDirectMessages(friend.id), loadConversations()]).catch(() => {});
+    else await loadMessages().catch(() => {});
+    drop();
   }
-  return <div>
-    {/* Spaces Tabs */}
-    <div style={{
-      display: "flex",
-      gap: "0.5rem",
-      marginBottom: "1rem",
-      borderBottom: "1px solid #e2e8f0"
-    }}>
-      <button onClick={() => setActiveTab("chat")} style={{
-        padding: "0.75rem 1rem",
-        border: "none",
-        borderBottom: activeTab === "chat" ? "3px solid #2563eb" : "3px solid transparent",
-        background: "transparent",
-        color: activeTab === "chat" ? "#2563eb" : "#64748b",
-        fontWeight: activeTab === "chat" ? "600" : "500",
-        cursor: "pointer"
-      }}>
-        Chat
-      </button>
 
-      <button onClick={() => setActiveTab("partners")} style={{
-        padding: "0.75rem 1rem",
-        border: "none",
-        borderBottom: activeTab === "partners" ? "3px solid #2563eb" : "3px solid transparent",
-        background: "transparent",
-        color: activeTab === "partners" ? "#2563eb" : "#64748b",
-        fontWeight: activeTab === "partners" ? "600" : "500",
-        cursor: "pointer"
-      }}>
-        Study Partners
-      </button>
+  return <div style={{
+    display: "flex",
+    flexDirection: "column",
+    height: "calc(100vh - 200px)",
+    border: "1px solid #e2e8f0",
+    borderRadius: "12px",
+    overflow: "hidden",
+    background: "#fff"
+  }}>
+    {/* Course tabs (Chrome-style). The open course's tab is raised and shows its full
+        name; each is outlined in its course colour (courseColors.js). index.css .course-tab */}
+    <nav aria-label="Your study spaces" className="course-tabs">
+      {courses.map(c => {
+        const active = sidebarView === "spaces" && c.id === course?.id;
+        const accent = courseAccent(courses, c.id);
+        return <button
+          key={c.id}
+          type="button"
+          className={active ? "course-tab active" : "course-tab"}
+          aria-current={active ? "page" : undefined}
+          onClick={() => openCourse(c.id)}
+          style={{ borderTopColor: active ? accent : `${accent}80` }} // 80 = 50% opacity
+        >
+          <span className="course-tab-dot" style={{ background: accent }} />
+          <strong>{c.course_code}</strong>
+          {active && <span className="course-tab-name">{c.course_name}</span>}
+          {/* The open course's channels have their own dots in the sidebar. */}
+          <UnreadDot info={coursesUnread[c.id]} hidden={active} />
+        </button>;
+      })}
+    </nav>
 
-      <button onClick={() => setActiveTab("groups")} style={{
-        padding: "0.75rem 1rem",
-        border: "none",
-        borderBottom: activeTab === "groups" ? "3px solid #2563eb" : "3px solid transparent",
-        background: "transparent",
-        color: activeTab === "groups" ? "#2563eb" : "#64748b",
-        fontWeight: activeTab === "groups" ? "600" : "500",
-        cursor: "pointer"
-      }}>
-        Study Groups
-      </button>
-    </div>
-    {/* Chat Tab */}
-    {activeTab === "chat" && <div style={{
-      display: "flex",
-      height: "calc(100vh - 200px)",
-      border: "1px solid #e2e8f0",
-      borderRadius: "12px",
-      overflow: "hidden",
-      background: "#fff"
-    }}>
+    <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
 
-      {/* Sidebar: courses, with the open course's channels underneath */}
-      <div style={{
-        width: "260px",
+      {/* Sidebar: the Study Spaces / Study Partners toggle, then that view's list */}
+      <div className="no-scrollbar" style={{
+        width: "270px",
+        flexShrink: 0,
         borderRight: "1px solid #e2e8f0",
         background: "#f8fafc",
         padding: "1rem",
         overflowY: "auto"
       }}>
-        <SectionHeader
-          title="Study Spaces"
-          count={courses.length}
-          collapsed={collapsed.spaces}
-          onToggle={() => toggleSection("spaces")}
-          first
-        />
-        {!collapsed.spaces && <>
+        <div className="segment" role="tablist" aria-label="Sidebar view">
+          {/* The white pill: one element that slides to the active button (like the main nav's .nav-pill). */}
+          <span
+            aria-hidden="true"
+            className="segment-pill"
+            style={{ transform: sidebarView === "partners" ? "translateX(calc(100% + 4px))" : "none" }}
+          />
+          {SIDEBAR_VIEWS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={sidebarView === id}
+              className={sidebarView === id ? "segment-btn active" : "segment-btn"}
+              onClick={() => changeSidebarView(id)}
+            >
+              {/* Reserves the bold width, so the text doesn't shift when it turns bold. */}
+              <span className="spaces-tab-label" data-label={label}>{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Study Spaces: the open course's channels and your study groups in it */}
+        {sidebarView === "spaces" && <>
           {courses.length === 0 && status === "Connected to Backend" && (
-            <p style={sidebarHintStyle}>You aren't in any courses yet.</p>
+            <p style={{ ...sidebarHintStyle, marginTop: "1rem" }}>You aren't in any courses yet.</p>
           )}
 
-          <ul style={sidebarListStyle}>
-            {courses.map(c => {
-              const isOpen = course?.id === c.id;
-              return <li key={c.id} style={{
-                marginBottom: "0.4rem"
-              }}>
-                <div onClick={() => openChannel(c.id, null)} style={sidebarItemStyle(isOpen && showingChannel)}>
-                  {c.course_code} {c.course_name}
-                </div>
+          {course && <>
+            <SectionHeader
+              title="Course Chats"
+              count={channels.length}
+              collapsed={collapsed.channels}
+              onToggle={() => toggleSection("channels")}
+            />
+            {!collapsed.channels && <ul style={sidebarListStyle}>
+              {channels.map(ch => {
+                const isShowing = mainView === "chat" && showingChannel && channel?.id === ch.id;
+                return <li key={ch.id} onClick={() => openChannel(course.id, ch.id)} style={{ ...sidebarChannelStyle(isShowing), ...dotRowStyle, marginBottom: "0.2rem" }}>
+                  <span># {ch.name}</span>
+                  {/* No dot on the channel you're reading: it's marked read as it loads. */}
+                  <UnreadDot info={unread[`channel-${ch.id}`]} hidden={isShowing} />
+                </li>;
+              })}
+            </ul>}
 
-                {isOpen && <ul style={{
-                  listStyle: "none",
-                  padding: "0.3rem 0 0 0.8rem",
-                  margin: 0
+            <SectionHeader
+              title="Study Groups"
+              count={courseGroups.length}
+              collapsed={collapsed.groups}
+              onToggle={() => toggleSection("groups")}
+            />
+            {!collapsed.groups && <>
+              {courseGroups.length === 0 && (
+                <p style={sidebarHintStyle}>You're not in any {course.course_code} study groups yet.</p>
+              )}
+              <ul style={sidebarListStyle}>
+                {courseGroups.map(g => {
+                  const isOpen = mainView === "chat" && activeGroup?.id === g.id;
+                  const groupInfo = unread[`group-${g.id}`];
+                  return <li key={g.id} style={{ marginBottom: "0.4rem" }}>
+                    <div onClick={() => openGroupChat(g.id)} style={{ ...sidebarItemStyle(isOpen), ...dotRowStyle }}>
+                      <span>
+                        {g.name}
+                        {g.visibility === "private" && <span style={{ fontWeight: "400", color: "#64748b" }}> 🔒</span>}
+                        {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
+                      </span>
+                      {/* Closed group: one dot for all its channels. Open: each channel has its own. */}
+                      <UnreadDot info={groupInfo} hidden={isOpen} />
+                    </div>
+
+                    {isOpen && <ul style={{ listStyle: "none", padding: "0.3rem 0 0 0.8rem", margin: 0 }}>
+                      {GROUP_CHANNELS.map(name => {
+                        const count = groupChannelsUnread[g.id]?.[name] ?? 0;
+                        return <li key={name} onClick={() => setGroupChannel(name)} style={{ ...sidebarChannelStyle(groupChannel === name), ...dotRowStyle }}>
+                          <span># {name}</span>
+                          <UnreadDot info={count > 0 ? { unread: count, viewed: groupInfo?.viewed ?? false } : null}
+                            hidden={groupChannel === name} />
+                        </li>;
+                      })}
+                    </ul>}
+                  </li>;
+                })}
+              </ul>
+              <button
+                type="button"
+                onClick={() => openGroupFinder(course)}
+                style={{
+                  width: "100%",
+                  marginTop: "0.4rem",
+                  padding: "0.55rem 0.6rem",
+                  background: mainView === "groups" ? "#e0e7ff" : "transparent",
+                  border: "1.5px dashed #cbd5e1",
+                  borderRadius: "8px",
+                  color: "#1d4ed8",
+                  fontWeight: "600",
+                  fontSize: "0.8rem",
+                  cursor: "pointer"
+                }}
+              >
+                Find or join a {course.course_code} group
+              </button>
+            </>}
+
+            {/* This course's unfinished assignments: the same list as Home's Current
+                Assignments, in a box that scrolls on its own. A click opens the Planner. */}
+            <SectionHeader
+              title="Current Assignments"
+              count={courseAssignments.length}
+              collapsed={collapsed.assignments}
+              onToggle={() => toggleSection("assignments")}
+            />
+            {!collapsed.assignments && (courseAssignments.length === 0 ? (
+              <p style={sidebarHintStyle}>No current {course.course_code} assignments.</p>
+            ) : (
+              <ul style={{ ...sidebarListStyle, maxHeight: "260px", overflowY: "auto", scrollbarWidth: "thin", paddingRight: "2px" }}>
+                {courseAssignments.map(a => {
+                  const late = a.due !== null && a.due < new Date();
+                  return <li key={a.id} style={{ marginBottom: "0.4rem" }}>
+                    <button
+                      type="button"
+                      onClick={onOpenPlanner}
+                      title="Open in Planner"
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.15rem",
+                        padding: "0.5rem 0.65rem",
+                        background: "#fff",
+                        border: "1px solid #e2e8f0",
+                        borderLeft: `3px solid ${courseAccent(courses, course.id)}`,
+                        borderRadius: "8px",
+                        font: "inherit",
+                        textAlign: "left",
+                        cursor: "pointer"
+                      }}
+                    >
+                      <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#1e293b" }}>{a.title}</span>
+                      <span style={{ fontSize: "0.75rem", color: late ? "#b91c1c" : "#64748b" }}>
+                        {late && <strong>LATE · </strong>}
+                        {a.due ? `Due ${formatDue(a.due)}` : "No due date"}
+                      </span>
+                    </button>
+                  </li>;
+                })}
+              </ul>
+            ))}
+          </>}
+        </>}
+
+        {/* Study Partners: connections, finding partners, and your direct messages */}
+        {sidebarView === "partners" && <>
+          <ul style={{ ...sidebarListStyle, marginTop: "1rem" }}>
+            {PARTNER_VIEWS.map(({ id, label, icon: Icon }) => {
+              const isOpen = mainView === "partners" && partnerView === id;
+              // Requests sent to you are answered on My Connections.
+              const badge = id === "connections" ? incomingRequests.length : 0;
+              return <li key={id} onClick={() => openPartnerView(id)} style={{ ...sidebarItemStyle(isOpen), ...dotRowStyle, marginBottom: "0.2rem" }}>
+                <Icon size={16} aria-hidden="true" style={{ flexShrink: 0 }} />
+                <span>{label}</span>
+                {badge > 0 && (
+                  <span
+                    aria-label={`${badge} partner request${badge === 1 ? "" : "s"}`}
+                    style={{ marginLeft: "auto", fontSize: "0.7rem", fontWeight: "700", color: "#fff", background: "#2563eb", borderRadius: "999px", padding: "0.05rem 0.45rem" }}
+                  >
+                    {badge}
+                  </span>
+                )}
+              </li>;
+            })}
+          </ul>
+
+          <SectionHeader
+            title="Study Chats"
+            count={dmFriends.length}
+            collapsed={collapsed.dms}
+            onToggle={() => toggleSection("dms")}
+          />
+          {!collapsed.dms && <>
+            {dmFriends.length === 0 && <p style={sidebarHintStyle}>Click "Message" on a connection to start a chat.</p>}
+            <ul style={sidebarListStyle}>
+              {dmFriends.map(f => {
+                const isOpen = mainView === "chat" && activeFriend?.id === f.id;
+                return <li key={f.id} onClick={() => openDirectMessage(f)} style={{
+                  ...sidebarItemStyle(isOpen),
+                  marginBottom: "0.4rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem"
                 }}>
-                  {channels.map(ch => <li key={ch.id} onClick={() => openChannel(c.id, ch.id)} style={sidebarChannelStyle(showingChannel && channel?.id === ch.id)}>
-                    # {ch.name}
-                  </li>)}
-                </ul>}
-              </li>;
-            })}
-          </ul>
-        </>}
-
-        {/* Study groups you belong to, each with its channels */}
-        <SectionHeader
-          title="Study Groups"
-          count={myGroups.length}
-          collapsed={collapsed.groups}
-          onToggle={() => toggleSection("groups")}
-        />
-        {!collapsed.groups && <>
-          {myGroups.length === 0 && <p style={sidebarHintStyle}>Join a group from Discover or accept an invite in the Study Groups tab.</p>}
-          <ul style={sidebarListStyle}>
-            {myGroups.map(g => {
-              const isOpen = activeGroup?.id === g.id;
-              return <li key={g.id} style={{ marginBottom: "0.4rem" }}>
-                <div onClick={() => openGroupChat(g.id)} style={sidebarItemStyle(isOpen)}>
-                  {g.name}
-                  {g.visibility === "private" && <span style={{ fontWeight: "400", color: "#64748b" }}> 🔒</span>}
-                  {g.access === "staff" && <span style={{ fontWeight: "400", color: "#64748b" }}> (teaching)</span>}
-                </div>
-
-                {isOpen && <ul style={{ listStyle: "none", padding: "0.3rem 0 0 0.8rem", margin: 0 }}>
-                  {GROUP_CHANNELS.map(name => <li key={name} onClick={() => setGroupChannel(name)} style={sidebarChannelStyle(groupChannel === name)}>
-                    # {name}
-                  </li>)}
-                </ul>}
-              </li>;
-            })}
-          </ul>
-        </>}
-
-        {/* DMs you've started with your connections */}
-        <SectionHeader
-          title="Study Chats"
-          count={dmFriends.length}
-          collapsed={collapsed.dms}
-          onToggle={() => toggleSection("dms")}
-        />
-        {!collapsed.dms && <>
-          {dmFriends.length === 0 && <p style={sidebarHintStyle}>Click "Message" on a connection to start a chat.</p>}
-          <ul style={sidebarListStyle}>
-            {dmFriends.map(f => <li key={f.id} onClick={() => openDirectMessage(f)} style={{
-              ...sidebarItemStyle(activeFriend?.id === f.id),
-              marginBottom: "0.4rem",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem"
-            }}>
-              <Avatar name={f.name} userId={f.id} color={f.avatar_color} hasAvatar={f.has_avatar} size={24} />
-              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {f.name}
-              </span>
-            </li>)}
-          </ul>
+                  <Avatar name={f.name} userId={f.id} color={f.avatar_color} hasAvatar={f.has_avatar} size={24} />
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {f.name}
+                  </span>
+                  {/* While they've sent messages you haven't opened. Hidden for the open
+                      chat, which is being read right now. */}
+                  <UnreadDot info={unread[`dm-${f.id}`]} hidden={isOpen} />
+                </li>;
+              })}
+            </ul>
+          </>}
         </>}
       </div>
 
       {/* Main chat area */}
-      <div style={{
+      {mainView === "chat" && <div style={{
         flex: 1,
         display: "flex",
         flexDirection: "column",
@@ -1347,7 +1613,7 @@ export default function SpacesChat({
           fontSize: "0.8rem"
         }}>{visibleErrors.map(text => <div key={text}>{text}</div>)}</div>}
 
-        <div style={{
+        <div ref={messageListRef} onScroll={handleMessageListScroll} className="no-scrollbar" style={{
           flex: 1,
           padding: "1rem",
           overflowY: "auto",
@@ -1355,10 +1621,10 @@ export default function SpacesChat({
           flexDirection: "column",
           gap: "0.75rem"
         }}>
-           {canSend && visibleMessages.length === 0 && <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+           {canSend && shownMessages.length === 0 && <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
             {activeFriend ? `This is the beginning of your conversation with ${activeFriend.name}.` : "No messages yet. Say hi!"}
           </p>}
-          {visibleMessages.map(msg => {
+          {shownMessages.map(msg => {
             const mine = msg.user_id === userId;
             const senderName = mine ? user?.name : msg.user_name ?? activeFriend?.name;
             return <div key={msg.id} style={{
@@ -1367,7 +1633,8 @@ export default function SpacesChat({
               gap: "0.5rem",
               flexDirection: mine ? "row-reverse" : "row",
               alignSelf: mine ? "flex-end" : "flex-start",
-              maxWidth: "70%"
+              maxWidth: "70%",
+              opacity: msg.pending ? 0.6 : 1 // still being saved
             }}>
               <Avatar name={senderName} userId={msg.user_id} color={msg.avatar_color} hasAvatar={msg.has_avatar} />
               <div style={{
@@ -1408,82 +1675,22 @@ export default function SpacesChat({
             borderRadius: "8px",
             outline: "none"
           }} />
-          <button type="submit" disabled={!canSend || sending} style={{
+          <button type="submit" disabled={!canSend} style={{
             padding: "0.7rem 1.2rem",
-            background: sending ? "#93c5fd" : "#2563eb",
+            background: "#2563eb",
             color: "#fff",
             border: "none",
             borderRadius: "8px",
             fontWeight: "600",
-            cursor: sending ? "default" : "pointer"
+            cursor: "pointer"
           }}>
-            {sending ? "Sending..." : "Send"}
+            Send
           </button>
         </form>
-      </div>
-    </div>}
-
-    {activeTab === "partners" && <div style={{
-      display: "flex",
-      height: "calc(100vh - 200px)",
-      border: "1px solid #e2e8f0",
-      borderRadius: "12px",
-      overflow: "hidden",
-      background: "#fff"
-    }}>
-      {/* Study Partners Sidebar */}
-      <div style={{
-        width: "220px",
-        borderRight: "1px solid #e2e8f0",
-        background: "#f8fafc",
-        padding: "1rem"
-      }}>
-        <h3 style={{
-          fontSize: "1rem",
-          fontWeight: "700",
-          color: "#1e293b",
-          marginBottom: "1rem"
-        }}>
-          Study Partners
-        </h3>
-
-        <div style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.4rem"
-        }}>
-
-          <button onClick={() => setPartnerView("connections")} style={{
-            textAlign: "left",
-            padding: "0.6rem 0.8rem",
-            border: "none",
-            borderRadius: "8px",
-            background: partnerView === "connections" ? "#e0e7ff" : "transparent",
-            color: partnerView === "connections" ? "#4338ca" : "#64748b",
-            fontWeight: partnerView === "connections" ? "600" : "400",
-            cursor: "pointer"
-          }}>
-            My Connections
-          </button>
-
-          <button onClick={() => setPartnerView("suggested")} style={{
-            textAlign: "left",
-            padding: "0.6rem 0.8rem",
-            border: "none",
-            borderRadius: "8px",
-            background: partnerView === "suggested" ? "#e0e7ff" : "transparent",
-            color: partnerView === "suggested" ? "#4338ca" : "#64748b",
-            fontWeight: partnerView === "suggested" ? "600" : "400",
-            cursor: "pointer"
-          }}>
-            Find Study Partners
-          </button>
-
-        </div>
-      </div>
+      </div>}
 
       {/* Study Partners Main Area */}
-      <div style={{
+      {mainView === "partners" && <div style={{
         flex: 1,
         padding: "1.5rem",
         overflowY: "auto"
@@ -1644,6 +1851,29 @@ export default function SpacesChat({
             <p style={{ color: "#64748b", marginBottom: "1rem" }}>
               Students you've connected with for studying.
             </p>
+            {friends.length > 0 && (
+              <input
+                type="text"
+                placeholder="Search connections..."
+                value={connectionSearch}
+                onChange={(e) => setConnectionSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  marginBottom: "1rem",
+                  padding: "0.7rem 1rem",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  outline: "none"
+                }}
+              />
+            )}
+
+            {friends.length > 0 && shownFriends.length === 0 && (
+              <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
+                No connections match "{connectionSearch}".
+              </p>
+            )}
 
             {listsLoading && (
               <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>Loading connections...</p>
@@ -1660,7 +1890,7 @@ export default function SpacesChat({
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {friends.map(f => (
+              {shownFriends.map(f => (
                 <div key={f.id} style={{ border: "1px solid #e2e8f0", borderRadius: "10px" }}>
                   <div style={{ ...partnerCardStyle, border: "none" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
@@ -1699,7 +1929,7 @@ export default function SpacesChat({
                     >
                       {myGroups.length === 0 ? (
                         <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-                          You're not in any study groups yet. Join or create one in the Study Groups tab.
+                          You're not in any study groups yet. Find one with "Find or join a group" under Study Spaces.
                         </span>
                       ) : (
                         <>
@@ -1781,54 +2011,33 @@ export default function SpacesChat({
             )}
           </div>
         )}
-      </div>
-    </div>}
-    {activeTab === "groups" && (
-      <div style={{ display: "flex", height: "calc(100vh - 200px)", border: "1px solid #e2e8f0", borderRadius: "12px", overflow: "hidden", background: "#fff" }}>
+      </div>}
 
-        {/* Study Groups Sidebar */}
-        <div style={{ width: "220px", flexShrink: 0, overflowY: "auto", borderRight: "1px solid #e2e8f0", background: "#f8fafc", padding: "1rem" }}>
-          <h3 style={{ fontSize: "1rem", fontWeight: "700", color: "#1e293b", marginBottom: "1rem" }}>
-            Study Groups
-          </h3>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            <button
-              onClick={() => changeGroupView("discover")}
-              style={{
-                textAlign: "left",
-                padding: "0.6rem 0.8rem",
-                border: "none",
-                borderRadius: "8px",
-                background: groupView === "discover" ? "#e0e7ff" : "transparent",
-                color: groupView === "discover" ? "#4338ca" : "#64748b",
-                fontWeight: groupView === "discover" ? "600" : "400",
-                cursor: "pointer",
-              }}
-            >
-              Discover
-            </button>
-
-            <button
-              onClick={() => changeGroupView("invites")}
-              style={{
-                textAlign: "left",
-                padding: "0.6rem 0.8rem",
-                border: "none",
-                borderRadius: "8px",
-                background: groupView === "invites" ? "#e0e7ff" : "transparent",
-                color: groupView === "invites" ? "#4338ca" : "#64748b",
-                fontWeight: groupView === "invites" ? "600" : "400",
-                cursor: "pointer",
-              }}
-            >
-              Invites
-            </button>
+      {/* Study Groups Main Area: Discover and Invites */}
+      {mainView === "groups" && <div style={{ flex: 1, minWidth: 0, padding: "1.5rem", overflowY: "auto" }}>
+          {/* Discover / Invites (this used to be the Study Groups tab's sidebar) */}
+          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.25rem" }}>
+            {[["discover", "Discover"], ["invites", "Invites"]].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => changeGroupView(id)}
+                aria-pressed={groupView === id}
+                style={{
+                  padding: "0.45rem 0.9rem",
+                  border: "1px solid",
+                  borderColor: groupView === id ? "#c7d2fe" : "#e2e8f0",
+                  borderRadius: "999px",
+                  background: groupView === id ? "#e0e7ff" : "#fff",
+                  color: groupView === id ? "#4338ca" : "#64748b",
+                  fontWeight: groupView === id ? "600" : "400",
+                  cursor: "pointer"
+                }}
+              >
+                {label}{id === "invites" && groupInvites.length > 0 ? ` (${groupInvites.length})` : ""}
+              </button>
+            ))}
           </div>
-        </div>
-
-        {/* Study Groups Main Area */}
-        <div style={{ flex: 1, minWidth: 0, padding: "1.5rem", overflowY: "auto" }}>
           {groupsError && (
             <p style={{ color: "#dc2626", fontSize: "0.9rem", marginBottom: "1rem" }}>{groupsError}</p>
           )}
@@ -2143,9 +2352,7 @@ export default function SpacesChat({
               </div>
             </div>
           )}
-        </div>
-      </div>
-    )}
-
+        </div>}
+    </div>
   </div>;
 }

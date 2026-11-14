@@ -190,9 +190,10 @@
 }
 
 .calendar-page-header h1 {
-  margin: 0;
-  font-size: 30px;
-  color: #0f172a;
+    margin: 0;
+    font-size: 1.6rem; /* same as the AI Tools title */
+    font-weight: 800;
+    color: #0f172a;
 }
 
 .page-subtitle {
@@ -359,7 +360,7 @@
 }
 
 .calendar-day {
-  min-height: 112px;
+  min-height: 160px;
   padding: 9px;
   border-right: 1px solid #e2e8f0;
   border-bottom: 1px solid #e2e8f0;
@@ -376,28 +377,71 @@
   color: #475569;
 }
 
+/* Each event is in its class's colour: Calendar.jsx sets --course-color (courseColors.js).
+   Tint = 10% of it on white; text = it darkened with 30% black so it stays readable. */
 .calendar-event {
-  margin-top: 7px;
-  background: #eff6ff;
-  border-left: 3px solid #2563eb;
-  padding: 6px 7px;
-  border-radius: 6px;
-  color: #1d4ed8;
-  font-size: 11px;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--course-color, #2563eb) 10%, #ffffff);
+    border-left: 3px solid var(--course-color, #2563eb);
+    padding: 4px 7px;
+    border-radius: 6px;
+    color: color-mix(in srgb, var(--course-color, #2563eb) 70%, #000000);
+    font-size: 11px;
+}
+
+.calendar-event strong,
+.calendar-event span {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .calendar-event strong {
-  display: block;
-  font-size: 11px;
-  line-height: 1.25;
+    font-size: 11px;
+    line-height: 1.25;
 }
 
 .calendar-event span {
-  display: block;
-  margin-top: 3px;
-  color: #64748b;
-  font-size: 10px;
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 10px;
 }
+/* Done assignments: grey bubble, title crossed out with a grey line. */
+.calendar-event.done {
+background: #f1f5f9;
+border-left-color: #94a3b8;
+color: #94a3b8;
+}
+
+    .calendar-event.done strong {
+        text-decoration: line-through;
+        text-decoration-color: #94a3b8;
+    }
+
+    .calendar-event.done span {
+        color: #94a3b8;
+    }
+    /* Done assignments can be clicked to un-mark them (Calendar.jsx adds role="button"). */
+    .calendar-event.done[role="button"],
+    .upcoming-assignment.done[role="button"] {
+        cursor: pointer;
+    }
+
+        .calendar-event.done[role="button"]:hover {
+            background: #e2e8f0;
+        }
+
+        .upcoming-assignment.done[role="button"]:hover p {
+            color: #64748b;
+        }
+
+        .calendar-event.done[role="button"]:focus-visible,
+        .upcoming-assignment.done[role="button"]:focus-visible {
+            outline: 2px solid #2563eb;
+            outline-offset: 2px;
+        }
 
 .loading-text {
   padding: 30px 20px;
@@ -435,9 +479,64 @@
   color: #2563eb;
 }
 
+/* Every assignment, grouped by class. Scrolls inside the card; the scrollbar is hidden
+   (.no-scrollbar), so it never takes width from the class headers. */
 .upcoming-list {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+/* A class in the list: a header that collapses its assignments.
+   Calendar.jsx sets --course-color on .course-group. */
+.course-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-top: 3px solid var(--course-color, #2563eb);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  color: #0f172a;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+    .course-group-toggle:hover {
+        background: #f1f5f9;
+    }
+
+    .course-group-toggle:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+
+.course-group-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--course-color, #2563eb);
+  flex-shrink: 0;
+}
+
+.course-group-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.course-group .upcoming-assignment {
+  padding-left: 4px;
 }
 
 .upcoming-assignment {
@@ -456,8 +555,8 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: #eff6ff;
-  color: #2563eb;
+  background: color-mix(in srgb, var(--course-color, #2563eb) 10%, #ffffff);
+  color: var(--course-color, #2563eb);
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -477,6 +576,17 @@
   font-size: 11px;
 }
 
+/* Done assignments in the side list: grey icon, title crossed out in grey. */
+.upcoming-assignment.done .upcoming-icon {
+    background: #f1f5f9;
+    color: #94a3b8;
+}
+
+.upcoming-assignment.done p {
+    color: #94a3b8;
+    text-decoration: line-through;
+}
+
 .empty-message {
   color: #64748b;
   font-size: 13px;
@@ -492,15 +602,28 @@
 }
 
 .google-calendar-button {
-  width: 100%;
-  border: none;
-  background: #2563eb;
-  color: white;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.google-calendar-button:hover:not(:disabled) {
+    background: #f8fafc;
+}
+
+.google-calendar-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .google-calendar-button:hover {

@@ -30,9 +30,27 @@ async function areConnected(a, b) {
     return rows.length > 0;
 }
 
+// Moves my read marker for this conversation up to messageId (never backwards).
+// Returns true only if it actually moved, so the bell isn't pinged on every poll.
+// UPDATE-then-INSERT (not ON DUPLICATE KEY) because its affectedRows is exact.
+async function markConversationRead(me, otherId, messageId) {
+    const [updated] = await pool.query(
+        `UPDATE direct_message_reads SET last_read_message_id = ?
+         WHERE user_id = ? AND other_user_id = ? AND last_read_message_id < ?`,
+        [messageId, me, otherId, messageId]
+    );
+    if (updated.affectedRows > 0) return true;
+    const [inserted] = await pool.query(
+        "INSERT IGNORE INTO direct_message_reads (user_id, other_user_id, last_read_message_id) VALUES (?, ?, ?)",
+        [me, otherId, messageId]
+    );
+    return inserted.affectedRows > 0;
+}
+
 // GET /api/me/direct-messages
 // Your conversations with current connections (the Chat tab's Direct Messages
-// section), newest first, with the last message for a preview.
+// section), newest first, with the last message for a preview and `unread`:
+// how many of their messages are newer than my read marker (no marker = none read).
 router.get("/me/direct-messages", async (req, res) => {
     try {
         const me = req.user.id;
@@ -44,7 +62,17 @@ router.get("/me/direct-messages", async (req, res) => {
                 users.avatar_color,
                 users.avatar_stored_name IS NOT NULL AS has_avatar,
                 last_message.content AS last_message,
-                last_message.created_at AS last_message_at
+                last_message.created_at AS last_message_at,
+                (
+                    SELECT COUNT(*) FROM direct_messages AS incoming
+                    WHERE incoming.sender_id = users.id
+                      AND incoming.receiver_id = ?
+                      AND incoming.id > COALESCE((
+                          SELECT last_read_message_id FROM direct_message_reads
+                          WHERE direct_message_reads.user_id = ?
+                            AND direct_message_reads.other_user_id = users.id
+                      ), 0)
+                ) AS unread
             FROM (
                 SELECT IF(sender_id = ?, receiver_id, sender_id) AS other_id, MAX(id) AS last_id
                 FROM direct_messages
@@ -61,9 +89,9 @@ router.get("/me/direct-messages", async (req, res) => {
             )
             ORDER BY last_message.id DESC
             `,
-            [me, me, me, me, me]
+            [me, me, me, me, me, me, me]
         );
-        res.json(rows);
+        res.json(rows.map((row) => ({ ...row, unread: Number(row.unread) })));
     } catch (error) {
         console.error("Error fetching conversations:", error);
         res.status(500).json({ error: "Failed to fetch conversations" });
@@ -99,6 +127,11 @@ router.get("/me/direct-messages/:userId", async (req, res) => {
             `,
             [me, otherId, otherId, me, MESSAGE_HISTORY_LIMIT]
         );
+        // Opening a conversation marks it read up to its newest message (rows[0],
+        // since they're still newest-first here). Same idea as study group channels.
+        if (rows.length > 0 && (await markConversationRead(me, otherId, rows[0].id))) {
+            emitTo(`user:${me}`, "dm-unread-changed", {});
+        }
         res.json(rows.reverse());
     } catch (error) {
         console.error("Error fetching direct messages:", error);

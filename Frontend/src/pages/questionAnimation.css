@@ -1,0 +1,80 @@
+/* "Practice questions" icon (Dashboard.jsx, QuestionIcon): draw the circle, draw the
+   question mark, rock it, then rewind. 8s loop (1% = 80ms). Plays while its
+   AI Quick Actions row (.ai-action) is hovered.
+     0s          blank
+     0-1.2s      circle draws, from the top, clockwise
+     1.2-2.0s    the question mark's curve draws; 2.0-2.2s its dot pops in
+     2.2-5.4s    the question mark rocks gently about its centre (6 deg each way, twice)
+     5.4-7.6s    rewind: the dot, then the curve, then the circle erase in reverse
+     7.6-8.0s    blank
+   The circle path starts at the top and runs clockwise, so drawing it (offset -> 0)
+   goes that way and erasing it runs it backwards.
+   "Not drawn" is offset 1.1 with a 2-long gap, so no zero-length dash ever paints a
+   dot; lines are also hidden outright while fully undrawn.
+   At rest it shows the finished circled question mark. */
+
+.question-anim {
+  --u: calc(22px / 24);
+  display: block;
+  flex-shrink: 0;
+  width: calc(var(--u) * 24);
+  height: calc(var(--u) * 24);
+  overflow: visible;
+  color: #2563eb;
+}
+
+.question-anim__ring,
+.question-anim__hook {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 0;
+}
+.question-anim__dot { fill: currentColor; transform-box: fill-box; transform-origin: center; }
+.question-anim__mark { transform-box: fill-box; transform-origin: 50% 50%; }
+
+.ai-action:hover .question-anim__ring { animation: question-anim-ring 8s infinite; }
+.ai-action:hover .question-anim__hook { animation: question-anim-hook 8s infinite; }
+.ai-action:hover .question-anim__dot  { animation: question-anim-dot 8s infinite; }
+.ai-action:hover .question-anim__mark { animation: question-anim-wobble 8s infinite; }
+
+@keyframes question-anim-ring {
+  0%    { stroke-dashoffset: 1.1; opacity: 0; }
+  0.01% { stroke-dashoffset: 1.1; opacity: 1; animation-timing-function: ease-in-out; }
+  15%   { stroke-dashoffset: 0; opacity: 1; }
+  80%   { stroke-dashoffset: 0; opacity: 1; animation-timing-function: ease-in-out; }
+  95%   { stroke-dashoffset: 1.1; opacity: 1; }
+  95.01%, 100% { stroke-dashoffset: 1.1; opacity: 0; }
+}
+@keyframes question-anim-hook {
+  0%, 15% { stroke-dashoffset: 1.1; opacity: 0; }
+  15.01%  { stroke-dashoffset: 1.1; opacity: 1; animation-timing-function: ease-in-out; }
+  25%     { stroke-dashoffset: 0; opacity: 1; }
+  70%     { stroke-dashoffset: 0; opacity: 1; animation-timing-function: ease-in-out; }
+  80%     { stroke-dashoffset: 1.1; opacity: 1; }
+  80.01%, 100% { stroke-dashoffset: 1.1; opacity: 0; }
+}
+@keyframes question-anim-dot {
+  0%, 25% { transform: scale(0); }
+  27.5%   { transform: scale(1); }
+  67.5%   { transform: scale(1); }
+  70%, 100% { transform: scale(0); }
+}
+@keyframes question-anim-wobble {
+  0%, 27.5% { transform: rotate(0deg); animation-timing-function: ease-in-out; }
+  32.5% { transform: rotate(6deg); animation-timing-function: ease-in-out; }
+  42.5% { transform: rotate(-6deg); animation-timing-function: ease-in-out; }
+  52.5% { transform: rotate(6deg); animation-timing-function: ease-in-out; }
+  62.5% { transform: rotate(-6deg); animation-timing-function: ease-in-out; }
+  67.5%, 100% { transform: rotate(0deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-action:hover .question-anim__ring,
+  .ai-action:hover .question-anim__hook,
+  .ai-action:hover .question-anim__dot,
+  .ai-action:hover .question-anim__mark { animation: none; }
+}

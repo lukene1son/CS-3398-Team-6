@@ -391,10 +391,6 @@ router.delete("/me/friends/:userId", async (req, res) => {
         if (!otherId) {
             return res.status(400).json({ error: "Invalid user id" });
         }
-        const [[request]] = await pool.query(
-            "SELECT receiver_id FROM friend_requests WHERE id = ? AND sender_id = ? AND status = 'pending'",
-            [requestId, req.user.id]
-        );
         // Only matches rows that involve the logged-in user, so you can only
         // remove your own friendships.
         const [result] = await pool.query(

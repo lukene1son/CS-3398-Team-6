@@ -31,3 +31,539 @@ a {
     font-size: 0.8rem;
     cursor: pointer;
 }
+
+/* Notifications window (PartnerNotifications.jsx): grows in on open, fades out on close. */
+.notif-window {
+    transform-origin: top center; /* grows out from under the bell */
+    animation: notif-in 0.2s ease-out;
+}
+
+.notif-window.closing {
+    animation: notif-out 0.1s ease-in forwards;
+}
+
+/* translateX(-50%) keeps the window centered on the bell (see PartnerNotifications.jsx). */
+@keyframes notif-in {
+    from {transform: translateX(-50%) scale(0.95);}
+    to {transform: translateX(-50%) scale(1);}
+}
+
+@keyframes notif-out {
+    from {opacity: 1;}
+    to {opacity: 0;}
+}
+
+/* Accept / decline icons in the notifications window: grow slightly on hover. */
+.notif-action {
+    transition: transform 0.15s ease-out;
+}
+
+.notif-action:hover:not(:disabled) {transform: scale(1.10);}
+
+/* Chat rows in the notifications window: click to go to that chat. */
+.notif-row-link:hover,
+.notif-row-link:focus-visible {background: #f8fafc !important; outline: none;}
+
+/* Unread dots in the Spaces sidebar (SpacesChat.jsx). A hoop starts at the dot's
+   outer edge and grows evenly from the center to --grow times the dot's diameter,
+   fading out as it goes, then rests (the growth is the first 30% of the 2s cycle = 0.6s).
+     .pulse      repeats until the chat's notification is seen in the bell window.
+     .pulse-few  plays 3 times when the dot appears (opening Spaces), for a chat that's
+                 still unread but whose notification was already seen. After the 3rd
+                 cycle the hoop stays at its end state (transparent), so the dot is still.
+                 Switching a dot from .pulse to .pulse-few doesn't restart the animation,
+                 so seeing the notification stops a dot within one cycle.
+
+   How it's drawn: the ::after box never moves or resizes. It sits a whole 8px
+   around the dot, so it lines up with the dot exactly, and the hoop is painted
+   inside it as a radial gradient whose radius (--ring-r) animates. Moving a box's
+   edges instead (inset/width) snaps them to whole pixels: the hoop jumps in
+   1px steps and can sit off-center. A gradient is drawn at fractional sizes,
+   so it grows smoothly, and the line keeps the same thickness the whole way. */
+@property --ring-r {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 0px;
+}
+
+.unread-ping {
+    position: relative;
+    --dot: 13px;    /* the dot's full width: 9px + its 2px border on each side */
+    --grow: 1.5;    /* largest hoop = 150% of the dot's width (up to ~2.1 fits the box) */
+    --ring-w: 1px;  /* hoop line thickness */
+}
+
+.unread-ping.pulse::after,
+.unread-ping.pulse-few::after {
+    content: "";
+    position: absolute;
+    inset: -10px; /* the dot's 2px border + 8px of room. Keep it whole pixels. */
+    pointer-events: none;
+    /* The hoop: a --ring-w band ending at --ring-r, with half-pixel soft edges. */
+    background: radial-gradient(circle closest-side,
+        transparent calc(var(--ring-r) - var(--ring-w) - 0.5px),
+        #ef4444 calc(var(--ring-r) - var(--ring-w) + 0.5px),
+        #ef4444 calc(var(--ring-r) - 0.5px),
+        transparent calc(var(--ring-r) + 0.5px));
+    /* linear, so the fade keeps pace with the growth */
+    animation: unread-ping 2s linear infinite;
+}
+
+.unread-ping.pulse-few::after {
+    animation-iteration-count: 3;
+    animation-fill-mode: forwards; /* stay at the end state (hoop faded out) afterwards */
+}
+
+@keyframes unread-ping {
+    0%      {--ring-r: calc(var(--dot) / 2); opacity: 1;}                    /* flush with the dot's edge */
+    30%, to {--ring-r: calc(var(--dot) / 2 * var(--grow)); opacity: 0;}
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+    .notif-window,
+    .notif-window.closing {animation-duration: 1ms;}
+    .notif-action {transition: none;}
+    .unread-ping.pulse::after,
+    .unread-ping.pulse-few::after {display: none;} /* the dot alone still shows it's unread */
+}
+
+/* Sidebar highlight (Dashboard.jsx): slides to the active page. */
+.nav-pill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #D1E7FF;
+    border-radius: 10px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Notification bell (Dashboard.jsx): when something new comes in, it rings twice.
+   One ring is 0.2s: it swings +15deg, through centre to -15deg, and back to rest,
+   growing ~10% and back as it goes. Then it holds still for 0.2s, then rings again:
+   0.6s in all (each 1% of the keyframes = 6ms).
+   It hangs from the top, like a real bell. Each keyframe's timing function covers the
+   step that starts there: a ring starts slowly and speeds up into the turn (ease-in),
+   goes through the middle at full speed so it leaves the turn fast (linear), and
+   settles at the end (ease-out). */
+.bell-icon {
+    display: inline-flex;
+    transform-origin: top center;
+}
+
+    .bell-icon.ring {
+        animation: bell-ring 0.6s;
+    }
+
+@keyframes bell-ring {
+    /* Ring 1: 0-0.2s */
+    0%      { transform: rotate(0deg) scale(1);       animation-timing-function: cubic-bezier(0.55, 0, 1, 1); }
+    8.33%   { transform: rotate(15deg) scale(1.05);   animation-timing-function: linear; }
+    16.67%  { transform: rotate(0deg) scale(1.1);     animation-timing-function: linear; }
+    25%     { transform: rotate(-15deg) scale(1.05);  animation-timing-function: cubic-bezier(0, 0, 0.45, 1); }
+    /* At rest: 0.2-0.4s */
+    33.33%,
+    66.67%  { transform: rotate(0deg) scale(1);       animation-timing-function: cubic-bezier(0.55, 0, 1, 1); }
+    /* Ring 2: 0.4-0.6s */
+    75%     { transform: rotate(15deg) scale(1.05);   animation-timing-function: linear; }
+    83.33%  { transform: rotate(0deg) scale(1.1);     animation-timing-function: linear; }
+    91.67%  { transform: rotate(-15deg) scale(1.05);  animation-timing-function: cubic-bezier(0, 0, 0.45, 1); }
+    100%    { transform: rotate(0deg) scale(1); }
+}
+
+/* Spaces sidebar toggle (SpacesChat.jsx): the white pill slides like .nav-pill. */
+.segment {
+    position: relative;
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: #e8edf4;
+    border-radius: 10px;
+}
+
+.segment-pill {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc(50% - 6px);
+    background: #ffffff;
+    border-radius: 7px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.segment-btn {
+    position: relative; /* keeps the text above the pill */
+    flex: 1;
+    padding: 8px 0;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: #475569;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+    /* 600 matches the bold width .spaces-tab-label reserves, so the text stays put. */
+    .segment-btn.active {
+        font-weight: 600;
+        color: #1d4ed8;
+    }
+
+/* Spaces course tabs (SpacesChat.jsx): Chrome-style. No overflow rule on purpose:
+   overflow-x: auto turns overflow-y into auto too, which showed a stray scrollbar. */
+.course-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;            /* room for the hover scale on each side */
+    padding: 12px 18px 0; /* room to grow upward */
+    background: #e8edf4;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.course-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px 10px;
+    background: transparent;
+    border: none;
+    border-top: 3px solid;
+    border-radius: 10px 10px 0 0;
+    font: inherit;
+    font-size: 14px;
+    color: #334155;
+    cursor: pointer;
+    transform-origin: bottom center; /* grows upward, stays attached to the panel */
+    transition: transform 0.3s ease-out, background 0.15s;
+}
+
+    /* 5% bigger while hovered; the open course's tab stays that size. */
+    .course-tab:hover,
+    .course-tab:focus-visible,
+    .course-tab.active {
+        transform: scale(1.05);
+        z-index: 1;
+    }
+
+    .course-tab:not(.active):hover {
+        background: #f1f5f9;
+    }
+
+    .course-tab.active {
+        background: #ffffff;
+        margin-bottom: -1px; /* covers the strip's bottom border so the tab joins the panel */
+        padding: 10px 20px 12px;
+        box-shadow: 0 -2px 6px rgba(15, 23, 42, 0.06);
+    }
+
+.course-tab-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.course-tab-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #475569;
+}
+
+/* Spaces tab labels: an invisible bold copy reserves the bold width,
+   so a tab doesn't get wider (and shove its neighbours) when selected. */
+.spaces-tab-label {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.spaces-tab-label::after {
+    content: attr(data-label);
+    font-weight: 600;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Home AI Quick Actions rows (Dashboard.jsx): grow 5% on hover, back in the same 0.2s,
+   like the Study Spaces cards. (Hovering also plays the row's icon: *Animation.css.) */
+.ai-action {
+    position: relative;
+    background: #ffffff;
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+    .ai-action:hover {
+        transform: scale(1.05);
+        z-index: 1;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+    }
+
+/* Home progress band (Dashboard.jsx ProgressBar): a bar eases to its new width when an
+   assignment is checked off. */
+.progress-bar__fill {
+    transition: width 0.4s ease-out;
+}
+
+    /* The course bars grow in from empty when Home opens. Only a `from` keyframe, so
+       each grows to its own width (set inline). It replays whenever Home is opened again. */
+    .progress-bar__fill--grow {
+        animation: progress-bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s backwards;
+    }
+
+@keyframes progress-bar-grow {
+    from { width: 0; }
+}
+
+/* Home Study Spaces cards (Dashboard.jsx): grow 5% on hover, back in the same 0.2s. */
+.space-card {
+    position: relative;
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+    .space-card:hover,
+    .space-card:focus-visible {
+        transform: scale(1.05);
+        z-index: 1;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    }
+
+.space-badge {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+
+.space-ellipsis {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Home planner (Dashboard.jsx): a checked-off task plays three steps, one after another:
+   1. 0.25s   a line draws through the title
+   2. 0.3s    the bubble shrinks to 70% and fades out
+   3. 0.25s   the row closes, so the tasks below slide up
+   Dashboard removes the task when step 3 (task-collapse) ends. */
+.task-row {
+    display: grid;
+    grid-template-rows: 1fr; /* animating this to 0fr closes the row smoothly */
+    margin-bottom: 0.75rem; /* the gap to the next task; closes along with the row */
+}
+
+.task-row-inner {
+    min-height: 0; /* lets the grid row shrink below the bubble's height */
+}
+
+/* Current Tasks rows grow 2% on hover (not while one is being checked off: that
+   plays its own shrink animation on the bubble). */
+.task-row:not(.leaving) .task-bubble {
+    transition: transform 0.2s ease-out;
+}
+
+    .task-row:not(.leaving) .task-bubble:hover {
+        transform: scale(1.02);
+    }
+
+.task-title {
+    /* The strike line is a 2px background stripe, so its width can grow;
+       text-decoration: line-through can't be animated across the text. */
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0 2px;
+}
+
+.task-row.leaving {
+    pointer-events: none; /* no second click while it's on its way out */
+    animation: task-collapse 0.25s ease-in-out 0.55s forwards;
+}
+
+    .task-row.leaving .task-row-inner {
+        overflow: hidden;
+    }
+
+    .task-row.leaving .task-title {
+        animation: task-strike 0.25s ease-out forwards;
+    }
+
+    .task-row.leaving .task-bubble {
+        animation: task-shrink 0.3s ease-in 0.25s forwards;
+    }
+
+@keyframes task-strike {
+    to {
+        background-size: 100% 2px;
+        color: #94a3b8;
+    }
+}
+
+@keyframes task-shrink {
+    to {
+        transform: scale(0.7);
+        opacity: 0;
+    }
+}
+
+@keyframes task-collapse {
+    to {
+        grid-template-rows: 0fr;
+        margin-bottom: 0;
+    }
+}
+
+.expand-chevron {
+    transition: transform 0.2s ease-out;
+}
+
+    .expand-chevron.open {
+        transform: rotate(180deg);
+    }
+
+/* Dashboard Recent Activity (Dashboard.jsx): section labels, assignment placards, message rows. */
+.activity-heading {
+    margin: 0 0 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.activity-placard {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    background: #ffffff; /* white on Home's grey Recent Activity panel */
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.activity-placard:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+    /* Done placards: grey, with a line drawn through the title. The line is a background
+   stripe (like .task-title), so a transition can grow it in when the class is added
+   and shrink it back out if the assignment is un-marked. */
+    .activity-placard.done {
+        background: #f1f5f9;
+    }
+
+.placard-title {
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0 2px;
+    transition: background-size 0.25s ease-out, color 0.25s ease-out;
+}
+
+.activity-placard.done .placard-title {
+    background-size: 100% 2px;
+}
+
+/* Past due and not done. */
+.late-pill {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
+}
+
+/* A message row: a white pill on Home's grey Recent Activity panel, round at both ends.
+   The avatar (30px) has 8px of padding on its top, bottom and left, so the pill is 46px
+   tall and the avatar sits dead centre in the left semicircle, ringed by 8px of white.
+   The right side has more padding so the text clears the right semicircle. */
+.activity-message {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 8px 18px 8px 8px;
+    background: #ffffff;
+    border: none;
+    border-radius: 999px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.activity-message:hover {
+    background: #f8fafc;
+}
+
+.activity-ellipsis {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Scrolls with the wheel/trackpad/keyboard, but draws no scroll bar */
+.no-scrollbar {
+    scrollbar-width: none; /* Firefox, and Chrome/Edge 121+ */
+}
+
+    .no-scrollbar::-webkit-scrollbar {
+        display: none; /* older Chrome/Edge and Safari */
+    }
+
+/* Near-instant instead of `none`, so the animation-end event that unmounts the window still fires. */
+@media (prefers-reduced-motion: reduce) {
+    .notif-window, .notif-window.closing {
+        animation-duration: 1ms;
+    }
+    .nav-pill {
+        transition: none;
+    }
+    .segment-pill,
+    .course-tab {
+        transition: none;
+    }
+    .bell-icon.ring {
+        animation: none; /* the red count pill still shows something came in */
+    }
+    .task-row.leaving,
+    .task-row.leaving .task-title,
+    .task-row.leaving .task-bubble {
+        animation-duration: 1ms;
+        animation-delay: 0s;
+    }
+    .activity-placard {
+        transition: none;
+    }
+    .expand-chevron,
+    .placard-title {
+        transition: none;
+    }
+    .space-card,
+    .ai-action,
+    .progress-bar__fill,
+    .task-row:not(.leaving) .task-bubble {
+        transition: none;
+    }
+    .progress-bar__fill--grow {
+        animation: none;
+    }
+}

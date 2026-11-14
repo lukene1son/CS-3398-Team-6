@@ -12,6 +12,9 @@ const pool = require("./db");
 const requireAuth = require("./middleware/requireAuth");
 const http = require("http");
 const { initRealtime, emitTo } = require("./realtime");
+const { verifySession, touchSession } = require("./sessions");
+const { messageLimiter } = require("./middleware/rateLimits");
+const loginAttempts = require("./routes/loginAttempts");
 
 const app = express();
 
@@ -23,20 +26,39 @@ app.set("trust proxy", process.env.TRUST_PROXY || "loopback, linklocal, uniquelo
 
 app.use(express.json());
 
+// Above the auth router on purpose: the waiting device polls every few seconds,
+// which would use up authIpLimiter's shared budget. These routes have their own limiters.
+app.use("/api/auth/login-attempts", loginAttempts.publicRouter);
 app.use("/api/auth", require("./routes/auth"));
+
+// Google sends the browser here with no login token, so this one route is public.
+const googleCalendarRouter = require("./routes/googleCalendar");
+app.get("/api/auth/google/callback", googleCalendarRouter.callback);
 
 // Every /api route registered BELOW this line requires a valid login token.
 app.use("/api", requireAuth);
+
+// Chat spam limit: 15 messages per 30 seconds per user, across all three kinds of chat.
+// Registered before the routers so it runs first; it calls next() while under the limit.
+app.post(
+    ["/api/channels/:id/messages", "/api/study-groups/:id/messages", "/api/me/direct-messages/:userId"],
+    messageLimiter
+);
 
 // Authenticated AI study helpers.
 app.use("/api/ai", require("./routes/ai"));
 
 app.use("/api", require("./routes/friends"));
 const studyGroupsRouter = require("./routes/studyGroups");
+app.use("/api", googleCalendarRouter);
 app.use("/api", studyGroupsRouter);
 app.use("/api", require("./routes/directMessages"));
+app.use("/api", require("./routes/notifications"));
 app.use("/api", require("./routes/resources"));
 app.use("/api", require("./routes/userSettings"));
+app.use("/api", require("./routes/search"));
+app.use("/api", loginAttempts.meRouter);
+app.use("/api", require("./routes/account"));
 
 // ---- Membership helpers: is the logged-in user in this course? ----
 async function getCourseRole(userId, courseId) {
@@ -59,6 +81,23 @@ async function canAccessChannel(userId, channelId) {
         [channelId, userId]
     );
     return rows.length > 0;
+}
+
+// Moves my read marker for a course channel up to messageId (never backwards).
+// True only if it moved. UPDATE-then-INSERT, so affectedRows is exact
+// (the same approach as markConversationRead in routes/directMessages.js).
+async function markChannelRead(userId, channelId, messageId) {
+    const [updated] = await pool.query(
+        `UPDATE channel_reads SET last_read_message_id = ?
+         WHERE user_id = ? AND channel_id = ? AND last_read_message_id < ?`,
+        [messageId, userId, channelId, messageId]
+    );
+    if (updated.affectedRows > 0) return true;
+    const [inserted] = await pool.query(
+        "INSERT IGNORE INTO channel_reads (user_id, channel_id, last_read_message_id) VALUES (?, ?, ?)",
+        [userId, channelId, messageId]
+    );
+    return inserted.affectedRows > 0;
 }
 
 async function canAccessAssignment(userId, assignmentId) {
@@ -210,6 +249,12 @@ app.get("/api/channels/:id/messages", async (req, res) => {
             [req.params.id]
         );
 
+        // Opening a channel marks it read up to its newest message (the last row,
+        // since they're oldest-first). Only ping the bell if the marker really moved.
+        if (rows.length > 0 && (await markChannelRead(req.user.id, Number(req.params.id), rows[rows.length - 1].id))) {
+            emitTo(`user:${req.user.id}`, "channel-unread-changed", {});
+        }
+
         res.json(rows);
     } catch (error) {
         console.error("Error fetching messages:", error);
@@ -243,6 +288,16 @@ app.post("/api/channels/:id/messages", async (req, res) => {
             [req.params.id, user_id, content]
         );
         emitTo(`channel:${Number(req.params.id)}`, "channel-message", { channel_id: Number(req.params.id) });
+
+        // Also tell the course's other members, wherever they are in the app, so their bell updates.
+        const [members] = await pool.query(
+            `SELECT course_members.user_id FROM channels
+             JOIN course_members ON course_members.course_id = channels.course_id
+             WHERE channels.id = ? AND course_members.user_id <> ?`,
+            [req.params.id, user_id]
+        );
+        members.forEach((member) => emitTo(`user:${member.user_id}`, "channel-unread-changed", {}));
+
         res.status(201).json({
             id: result.insertId,
             channel_id: Number(req.params.id),
@@ -268,13 +323,23 @@ app.get("/api/me/courses", async (req, res) => {
                 courses.course_name,
                 courses.professor,
                 courses.university,
-                course_members.role
+                course_members.role,
+                course_members.color,
+                (SELECT COUNT(*) FROM channels WHERE channels.course_id = courses.id) AS channel_count,
+                (SELECT COUNT(*) FROM course_members AS cm WHERE cm.course_id = courses.id) AS member_count,
+                (SELECT COUNT(*) FROM study_groups
+                    JOIN study_group_members ON study_group_members.group_id = study_groups.id
+                    WHERE study_groups.course_id = courses.id
+                      AND study_group_members.user_id = ?) AS group_count
             FROM course_members
             JOIN courses
                 ON course_members.course_id = courses.id
             WHERE course_members.user_id = ?
+            -- Order joined. The default colours go by position in this list, so it must be stable.
+            ORDER BY course_members.id
             `,
-            [req.user.id]
+            // Two placeholders: one for group_count, one for the WHERE.
+            [req.user.id, req.user.id]
         );
 
         res.json(rows);
@@ -302,7 +367,7 @@ app.get("/api/courses/:id/assignments", async (req, res) => {
                 assignments.course_id,
                 assignments.title,
                 assignments.description,
-                assignments.due_date,
+                DATE_FORMAT(assignments.due_date, '%Y-%m-%dT%H:%i:%s') AS due_date,
                 assignments.owner_user_id,
                 COALESCE(assignment_progress.status, 'todo') AS status
             FROM assignments
@@ -334,9 +399,10 @@ app.get("/api/me/assignments", async (req, res) => {
                 assignments.id,
                 assignments.title,
                 assignments.description,
-                assignments.due_date,
+                DATE_FORMAT(assignments.due_date, '%Y-%m-%dT%H:%i:%s') AS due_date,
                 assignments.owner_user_id,
                 COALESCE(assignment_progress.status, 'todo') AS status,
+                DATE_FORMAT(assignment_progress.completed_at, '%Y-%m-%dT%H:%i:%sZ') AS completed_at,
                 courses.id AS course_id,
                 courses.course_code,
                 courses.course_name
@@ -408,6 +474,10 @@ app.post("/api/assignments", async (req, res) => {
             [course_id, title, description || null, due_date, ownerUserId]
         );
 
+        // Push it to Google Calendar in the background. Not awaited, so the
+        // response never waits on Google.
+        googleCalendarRouter.syncNewAssignment(result.insertId);
+
         res.status(201).json({
             id: result.insertId,
             course_id,
@@ -443,13 +513,21 @@ app.patch("/api/assignments/:id/status", async (req, res) => {
         }
 
         // Insert this user's row the first time, update it after that.
+        // completed_at: set when it becomes 'done', kept if it was already done,
+        // cleared if it goes back to 'todo'/'in_progress'.
         await pool.query(
             `
-            INSERT INTO assignment_progress (user_id, assignment_id, status)
-            VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE status = ?
+            INSERT INTO assignment_progress (user_id, assignment_id, status, completed_at)
+            VALUES (?, ?, ?, IF(? = 'done', UTC_TIMESTAMP(), NULL))
+            ON DUPLICATE KEY UPDATE
+                completed_at = CASE
+                    WHEN ? <> 'done' THEN NULL
+                    WHEN status = 'done' THEN completed_at
+                    ELSE UTC_TIMESTAMP()
+                END,
+                status = ?
             `,
-            [req.user.id, req.params.id, status, status]
+            [req.user.id, req.params.id, status, status, status, status]
         );
 
         res.json({
@@ -472,6 +550,8 @@ const server = http.createServer(app);
 initRealtime(server, {
     canAccessChannel,
     getGroupAccess: studyGroupsRouter.getGroupAccess,
+    verifySession,
+    touchSession,
 });
 
 server.listen(PORT, () => {

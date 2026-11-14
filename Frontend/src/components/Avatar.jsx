@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getUserAvatarUrl } from "../api";
+import { getUserAvatarUrl, peekUserAvatarUrl } from "../api";
 import { avatarColor, getInitial } from "../avatarColors";
 
 // Profile picture if the user has one, otherwise their initials on their color.
@@ -7,6 +7,7 @@ import { avatarColor, getInitial } from "../avatarColors";
 export default function Avatar({ name, userId, color, hasAvatar = false, refreshKey, size = 28 }) {
   const key = `${userId}:${refreshKey ?? ""}`;
   const [pic, setPic] = useState({ key: null, url: null });
+  const [failedKey, setFailedKey] = useState(null); // the picture for this key wouldn't load
 
   useEffect(() => {
     if (!hasAvatar || userId == null) return;
@@ -19,13 +20,17 @@ export default function Avatar({ name, userId, color, hasAvatar = false, refresh
 
   const circle = { width: size, height: size, borderRadius: "50%", flexShrink: 0 };
 
-  if (hasAvatar && pic.key === key && pic.url) {
+  // The loaded picture, or (before the effect has run) one another Avatar already
+  // downloaded, so switching chats doesn't flash every initial before the pictures.
+  const url = pic.key === key ? pic.url : (hasAvatar && userId != null ? peekUserAvatarUrl(userId) : null);
+
+  if (hasAvatar && url && failedKey !== key) {
     return (
       <img
-        src={pic.url}
+        src={url}
         alt=""
         aria-hidden="true"
-        onError={() => setPic({ key: null, url: null })}
+        onError={() => setFailedKey(key)}
         style={{ ...circle, objectFit: "cover", display: "inline-block" }}
       />
     );

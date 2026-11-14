@@ -7,6 +7,23 @@
   background: linear-gradient(160deg, #eff6ff 0%, #f8fafc 60%, #e0e7ff 100%);
 }
 
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    color: #94a3b8;
+    font-size: 0.8rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #e2e8f0;
+}
+
 .login-card {
   width: 100%;
   max-width: 400px;
@@ -110,17 +127,19 @@
 }
 
 .btn-submit {
-  margin-top: 12px;
-  padding: 13px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s;
+    width: 100%; /* = 318px inside the card, same as the Google button */
+    height: 40px; /* Google's "large" button height (check in DevTools) */
+    margin-top: 12px;
+    padding: 0 12px;
+    background: #2563eb; /* BuddyTech blue */
+    color: white;
+    border: none;
+    border-radius: 4px; /* Google's rectangular shape has small corners */
+    font-size: 14px; /* Google: 14px text, line height 20 */
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
 }
 
 .btn-submit:hover:not(:disabled) {
@@ -169,4 +188,45 @@
 
 .link-btn:hover {
   text-decoration: underline;
+}
+/* Demo "Join with Canvas" button: same size as .btn-submit and Google's button.
+   Hard-stop circles centred on the logo, colours sampled from the Canvas banner. */
+.btn-canvas {
+  position: relative;
+  width: 318px;
+  height: 40px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  background: radial-gradient(circle at 25px 50%,
+    #d12c19 0 40px,
+    #7f2622 40px 100px,
+    #36212a 100px 165px,
+    #061c31 165px);
+  transition: filter 0.15s;
+}
+
+.btn-canvas svg {
+  position: absolute;
+  left: 12px;
+}
+
+.btn-canvas:hover {
+  filter: brightness(1.15);
+}
+
+.canvas-note {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
 }
