@@ -1,4 +1,5 @@
-/* Landing page extras (How it works + CTA). Imported by Home.jsx */
+/* The landing page (Home.jsx): the hero over the ASCII art, then the gradient bridge
+   (features, how it works, call to action). */
 
 html {
   scroll-behavior: smooth;
@@ -11,97 +12,656 @@ html {
   scroll-margin-top: 80px;
 }
 
-.how-section {
-  padding: 4rem 5%;
+/* ---------- Below the hero: the "gradient bridge" (Home.jsx) ----------
+   The dark hero carries on into the features (dark navy), fades to light between the two
+   sections, and the steps and call to action finish on the light page. */
+.bridge {
+  position: relative; /* holds the falling characters, which hang across the top edge */
+  background: #f8fafc;
+}
+
+/* The falling characters (public/ascii/rain.*): a looping video on black. screen blending
+   makes the black see-through, so only the characters show. heroSeam.js sizes and places it
+   to line up with the art's columns, starting inside the art's faded bottom edge. */
+.seam-rain {
+  position: absolute;
+  z-index: 2; /* over the hero's faded edge and the section's top, under the feature cards */
+  display: block;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* The dark part: starts the colour the hero ends on, and holds the drifting colour blobs.
+   clip (not hidden) crops the blobs without becoming a scroll container, which would stop
+   the feature cards' position: sticky from working inside it. */
+.bridge-dark {
+  position: relative;
+  overflow: hidden;
+  overflow: clip;
+  /* Fixed stops (not %), so the gradient keeps its look however tall the section gets (the
+     cards' scroll runway adds height); below 820px it stays at the last colour. */
+  background: linear-gradient(180deg, #050913 0, #0b1736 370px, #1e2a5a 820px) #1e2a5a;
+}
+
+/* The glows (the light-band glow and the blobs), faded out along the top so the colour
+   rises out of the dark instead of starting in a line at the seam. */
+.bridge-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 220px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 220px);
+}
+
+/* A faint light following the art's light band along the top of the section (heroSeam.js
+   sets --sweep-x and --sweep-a). Kept subtle so the moving characters stand out. */
+.sweep-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 560px 420px at var(--sweep-x, 50%) 120px,
+    rgba(96, 165, 250, calc(var(--sweep-a, 0) * 0.07)), transparent 70%);
+}
+
+/* Soft glows in the hero art's colours, drifting slowly behind the cards. The outer span
+   leans toward the light band (heroSeam.js sets its transform); the inner one drifts. */
+.bridge-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+}
+
+.bridge-blob-inner {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--blob-color);
+  animation: bridge-drift 22s ease-in-out infinite alternate;
+  animation-delay: var(--blob-delay, 0s);
+}
+
+.bridge-blob--teal { width: 420px; height: 420px; left: -80px; top: 40px; --blob-color: #0d9488; }
+.bridge-blob--violet { width: 380px; height: 380px; right: -60px; top: 160px; --blob-color: #7c3aed; --blob-delay: -5s; }
+.bridge-blob--amber { width: 300px; height: 300px; left: 40%; bottom: 40px; opacity: 0.35; --blob-color: #d97706; --blob-delay: -9s; }
+
+/* A slow, small drift: ambient, so it doesn't compete with the characters' motion. */
+@keyframes bridge-drift {
+  to { transform: translate(18px, -14px) scale(1.04); }
+}
+
+/* The dark part ends in a clean cut to the light page. Easing into it: a vignette in the
+   art's background colour (#050913, as at the hero's faded bottom edge) along the bottom and
+   the lower sides, over the glows but under the cards. */
+.bridge-dark {
+  padding-bottom: 5rem;
+}
+
+.bridge-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(0deg, #050913 0, rgba(5, 9, 19, 0.6) 70px, rgba(5, 9, 19, 0) 260px),
+    radial-gradient(ellipse 85% 120% at 50% 0%, rgba(5, 9, 19, 0) 55%, rgba(5, 9, 19, 0.75) 85%, #050913 100%);
+}
+
+/* The white part (the steps and the call to action), with a 3D scene behind it: paper planes
+   behind the steps, books falling in the margins (studyScene.js adds the canvas). clip keeps
+   the books inside it without making it a scroll container. */
+.bridge-light {
+  position: relative;
+  overflow: hidden;
+  overflow: clip;
+}
+
+.study-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bridge-section {
+  position: relative; /* above the blobs */
+  z-index: 3;         /* and above the falling characters */
   max-width: 1100px;
   margin: 0 auto;
+  padding: 5rem 5% 1rem;
 }
 
-.steps-grid {
+.bridge-section--light {
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+
+.bridge-head {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.bridge-head h2 {
+  font-size: 2.1rem;
+  margin-bottom: 0.5rem;
+  color: #ffffff;
+}
+
+.bridge-head p {
+  color: #c7d2fe;
+}
+
+.bridge-section--light .bridge-head h2 {
+  color: var(--text-dark);
+}
+
+.bridge-section--light .bridge-head p {
+  color: #475569;
+}
+
+/* Feature cards: frosted glass over the blobs. Each card's colour is --c (Home.jsx FEATURES). */
+.glass-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 2rem;
+  gap: 1.75rem;
 }
 
-.step-card {
-  background: #ffffff;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
+.glass-card {
   padding: 2rem;
-  transition: transform 0.2s, box-shadow 0.2s;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  transition: transform 0.25s, background 0.25s, rotate 0.6s ease-out;
 }
 
-.step-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+.glass-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  background: rgba(255, 255, 255, 0.13);
 }
 
-.step-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: var(--primary-blue);
-  color: #ffffff;
+/* While hovered, a card wobbles slowly, up to 2° either way, never quite the same twice:
+   uneven swings at uneven times, and each card on its own cycle length. It's on `rotate`
+   (separate from `transform`), so it adds to the lift and grow above. Home.jsx adds the class
+   on hover, and on leaving holds the tilt the card is at and eases it back to straight. */
+.glass-card--wobble {
+  animation: glass-wobble 4.8s ease-in-out infinite;
+}
+
+.glass-card--wobble:nth-child(2) { animation-duration: 5.6s; }
+.glass-card--wobble:nth-child(3) { animation-duration: 4.4s; }
+
+@keyframes glass-wobble {
+  0%   { rotate: 0deg; }
+  14%  { rotate: 1.2deg; }
+  33%  { rotate: -1.7deg; }
+  52%  { rotate: 2deg; }
+  71%  { rotate: -0.9deg; }
+  86%  { rotate: 1.5deg; }
+  100% { rotate: 0deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-card--wobble {
+    animation: none;
+  }
+}
+
+/* ---------- The cards' entrance (featureCardsPin.js) ----------
+   .glass-grid--armed: from page load until the entrance has played (only when the cards sit
+   side by side; not for reduced motion). The grid's box reaches up to the text's bottom
+   edge (the same spacing, as padding instead of the heading's margin), and anything above
+   it is cut off, so the cards wait entirely behind the text. They fade in over the gap as
+   they come out from under the text's bottom edge. */
+.glass-grid--armed {
+  position: relative; /* the cards are measured from here */
+  margin-top: -3rem;  /* .bridge-head's margin-bottom */
+  padding-top: 3rem;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 44px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 44px);
+}
+
+/* While it plays, the script moves the cards every frame (no transition, which would lag). */
+.glass-grid--armed .glass-card {
+  position: relative;
+  transition: background 0.25s;
+}
+
+.glass-grid--armed .glass-card:nth-child(1) { z-index: 3; }
+.glass-grid--armed .glass-card:nth-child(2) { z-index: 2; }
+.glass-grid--armed .glass-card:nth-child(3) { z-index: 1; }
+
+.glass-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 1rem;
+  color: #0b1224;
+  background: linear-gradient(135deg, var(--c), #ffffff);
+  margin-bottom: 1.1rem;
 }
 
-.step-number {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--primary-blue);
-  margin-bottom: 0.25rem;
+.glass-card h3 {
+  margin: 0 0 0.5rem;
+  color: #ffffff;
+  font-size: 1.2rem;
 }
 
-.step-card p {
-  color: var(--text-muted);
-  margin-top: 0.5rem;
+.glass-card p {
+  margin: 0;
+  color: #c7d2fe;
+  line-height: 1.55;
 }
 
-.cta-banner {
+/* How it works: a staircase of white cards, each step a little further right, with a big
+   gradient number in the step's colour (--c, Home.jsx STEPS). */
+.staircase {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.stair {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.4rem 1.75rem;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px -24px rgba(30, 42, 90, 0.45);
+}
+
+.stair:nth-child(2) { margin-left: 8%; }
+.stair:nth-child(3) { margin-left: 16%; }
+
+/* ---------- The steps' entrance (staircaseReveal.js) ----------
+   .staircase--armed: a step waits, tiny and see-through, tucked behind the step before it
+   (step 1: behind the line above), at --from-x/--from-y from its place. When scrolled to
+   (.stair--in) it grows out quickly with a little overshoot; scrolling back reverses it.
+   Earlier steps sit in front, so each comes out from behind the one before. */
+.staircase {
+  position: relative; /* the steps' positions (and --from-x/y) are measured from here */
+}
+
+.staircase--armed .stair {
+  position: relative;
+  transform-origin: 50% 0;
+  transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.3s ease-out;
+  transition-delay: var(--stagger, 0s);
+  /* The rocking runs whenever the step is armed and pauses while it's away, so leaving
+     doesn't snap the tilt back to 0. */
+  animation: stair-rock 7s ease-in-out infinite;
+}
+
+.staircase--armed .stair:nth-child(1) { z-index: 3; }
+.staircase--armed .stair:nth-child(2) { z-index: 2; }
+.staircase--armed .stair:nth-child(3) { z-index: 1; }
+
+.staircase--armed .stair:not(.stair--in) {
+  transform: translate(var(--from-x, 0px), var(--from-y, 0px)) scale(0.1);
+  opacity: 0;
+  animation-play-state: paused;
+  /* Going back: the entrance in reverse. A small wind-up, then it shrinks back behind the
+     step before it. It stays solid while it slides (that step, in front, hides it) and only
+     fades at the very end. */
+  transition-timing-function: cubic-bezier(0.7, -0.2, 0.8, 0.1), ease-in;
+  transition-duration: 0.4s, 0.12s;
+  transition-delay: var(--stagger, 0s), calc(var(--stagger, 0s) + 0.28s);
+}
+
+/* Step 1 tucks behind the "Three steps…" line, which is text, not a solid card, so it
+   fades the whole way back instead. */
+.staircase--armed .stair:nth-child(1):not(.stair--in) {
+  transition-duration: 0.4s, 0.35s;
+  transition-delay: var(--stagger, 0s), var(--stagger, 0s);
+}
+
+/* While shown, each slowly rocks a couple of degrees and back, each on its own timing.
+   The `rotate` property is separate from `transform`, so it doesn't fight the entrance. */
+.staircase--armed .stair:nth-child(2) { animation-duration: 8s; animation-delay: -2.5s; }
+.staircase--armed .stair:nth-child(3) { animation-duration: 7.5s; animation-delay: -5s; }
+
+@keyframes stair-rock {
+  0%, 100% { rotate: 0deg; }
+  25%      { rotate: 1.5deg; }
+  75%      { rotate: -1.5deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staircase--armed .stair {
+    animation: none;
+  }
+}
+
+.stair-number {
+  min-width: 64px;
+  font-size: 3rem;
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--c), #2563eb);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.stair h3 {
+  margin: 0 0 0.25rem;
+  color: var(--text-dark);
+}
+
+.stair p {
+  margin: 0;
+  color: #64748b;
+}
+
+/* Call to action: a slowly shifting blue → violet → teal gradient with faint ASCII text. */
+.bridge-section--cta {
+  padding-top: 1rem;
+}
+
+.gradient-cta {
+  position: relative;
+  overflow: hidden;
   max-width: 1000px;
-  margin: 2rem auto 0;
-  padding: 3.5rem 2rem;
+  margin: 0 auto;
+  border-radius: 24px;
+  padding: 4rem 2rem;
   text-align: center;
   color: #ffffff;
-  background: linear-gradient(135deg, var(--primary-blue), #2563eb);
-  border-radius: 20px;
+  background: linear-gradient(120deg, #1d4ed8, #7c3aed 55%, #0d9488);
+  background-size: 200% 200%;
+  animation: cta-shift 10s ease-in-out infinite alternate;
 }
 
-.cta-banner h2 {
-  font-size: 2rem;
+@keyframes cta-shift {
+  to { background-position: 100% 50%; }
+}
+
+.gradient-cta-ascii {
+  position: absolute;
+  inset: 0 0 auto 0; /* as tall as its text (two copies of the pattern); the panel clips it */
+  margin: 0;
+  animation: cta-ascii-drift 75s linear infinite;
+  font-family: Consolas, "Courier New", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 15px;
+  color: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Slowly drifts down by one copy of the pattern (half its height, 600px: 8px a second),
+   then starts over. It starts one copy up, so the second copy shows; it ends where the first
+   copy is in that same spot, so the loop is seamless. */
+@keyframes cta-ascii-drift {
+  from { transform: translateY(-50%); }
+  to   { transform: translateY(0); }
+}
+
+.gradient-cta > *:not(.gradient-cta-ascii) {
+  position: relative;
+}
+
+.gradient-cta h2 {
+  font-size: 2.1rem;
   margin-bottom: 0.5rem;
 }
 
-.cta-banner p {
+.gradient-cta p {
   opacity: 0.9;
   margin-bottom: 1.75rem;
 }
 
-.cta-button {
-  padding: 0.8rem 2rem;
-  background: #ffffff;
-  color: var(--primary-blue);
+.gradient-cta-button {
+  padding: 0.85rem 2rem;
   border: none;
-  border-radius: 10px;
-  font-size: 1rem;
+  border-radius: 12px;
+  font: inherit;
   font-weight: 700;
+  color: #1d4ed8;
+  background: #ffffff;
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.cta-button:hover {
+.gradient-cta-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 14px 28px -8px rgba(0, 0, 0, 0.4);
+}
+
+/* Reduced motion: the blobs and the gradient hold still. */
+@media (prefers-reduced-motion: reduce) {
+  .bridge-blob-inner,
+  .gradient-cta,
+  .gradient-cta-ascii {
+    animation: none;
+  }
 }
 
 .btn-outline:hover {
   background: var(--bg-soft);
+}
+
+/* ---------- Hero over the animated ASCII students (AsciiBackground.jsx) ----------
+   A full-width dark band: the art (dimmed with opacity), then a dark wash that's
+   heaviest at the edges and lightest behind the text, then the hero content on top. */
+.hero-stage {
+  position: relative;
+  overflow: hidden;
+  background: #000000;
+  min-height: min(78vh, 720px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-ascii {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* fills the band, cropping the art's edges rather than stretching it */
+  object-position: 50% 100%; /* pinned to the bottom: the hero's bottom edge is always the art's (the knees) */
+  opacity: 0.92;
+}
+
+/* The art's bottom 110px melts into the colour the section below starts with. The falling
+   characters' brightness and starting row assume this height (see the rain's pre-render). */
+.hero-bottom-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 110px;
+  background: linear-gradient(180deg, rgba(5, 9, 19, 0), #050913);
+}
+
+.hero-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(2, 6, 23, 0.45) 0%, rgba(2, 6, 23, 0.66) 60%, rgba(2, 6, 23, 0.8) 100%);
+}
+
+/* The content, above the art and the wash, recoloured for the dark band. */
+.hero-stage .hero {
+  position: relative;
+}
+
+.hero-stage .hero h1 {
+  color: #ffffff;
+}
+
+/* "BuddyTech" in the heading: the logo's blue (public/buddytech.webp, its pieces in
+   public/logo-pieces/). */
+.hero-stage .hero h1 .hero-highlight {
+  color: #1241dc;
+}
+
+/* ---------- The hero's entrance (Home.jsx) ---------- */
+
+/* The badge: hidden (holding its place) until the heading is typed, then it grows out from
+   behind the heading: it starts at 10% size, see-through, at its bottom edge (just above the
+   heading), and grows up to full size over 0.35s. */
+.hero-badge {
+  position: relative;
+  z-index: 0;
+  visibility: hidden;
+}
+
+.hero-badge.hero-badge-in {
+  visibility: visible;
+  transform-origin: 50% 100%;
+  animation: hero-badge-grow 0.35s ease-out both;
+}
+
+@keyframes hero-badge-grow {
+  from { opacity: 0; transform: translateY(70%) scale(0.1); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* The heading sits in front of the badge, so the badge comes from behind it. */
+.hero-heading {
+  position: relative;
+  z-index: 1;
+}
+
+/* The buttons: hidden (holding their places) until the subtitle is typed. Then "Find a Tech
+   Buddy" drops into the centre (0.2s), waits a moment, and moves over to its spot while
+   "Explore Features" slides out from behind it to its own (0.35s). Home.jsx measures the
+   distances: --enter-x / --enter-y. */
+.hero-find,
+.hero-explore {
+  position: relative;
+  visibility: hidden;
+}
+
+.hero-find {
+  z-index: 1; /* in front, so Explore Features is hidden behind it */
+}
+
+.hero-actions-in .hero-find,
+.hero-actions-in .hero-explore {
+  visibility: visible;
+  animation-duration: 0.65s;
+  animation-fill-mode: both;
+}
+
+.hero-actions-in .hero-find {
+  animation-name: hero-find-in;
+}
+
+.hero-actions-in .hero-explore {
+  animation-name: hero-explore-in;
+}
+
+/* Hovered, they wobble too (App.css btn-wobble). Their entrance is listed first, unchanged, so
+   it stays finished (an animation keeps going while its name stays in the same place in the
+   list); listing only the wobble would replace the entrance and undo its held last frame. */
+.hero-actions-in .hero-find:hover {
+  animation: hero-find-in 0.65s both, btn-wobble 2.6s ease-in-out infinite;
+}
+
+.hero-actions-in .hero-explore:hover {
+  animation: hero-explore-in 0.65s both, btn-wobble 2.6s ease-in-out infinite;
+}
+
+@keyframes hero-find-in {
+  0%   { opacity: 0; transform: translate(var(--enter-x, 0px), -28px); animation-timing-function: cubic-bezier(.2, .9, .3, 1.25); }
+  31%  { opacity: 1; transform: translate(var(--enter-x, 0px), 0); }  /* dropped into the centre */
+  46%  { transform: translate(var(--enter-x, 0px), 0); animation-timing-function: cubic-bezier(.3, 0, .2, 1); }
+  100% { opacity: 1; transform: translate(0, 0); }
+}
+
+@keyframes hero-explore-in {
+  0%   { opacity: 0; transform: translate(var(--enter-x, 0px), var(--enter-y, 0px)); }
+  45%  { opacity: 0; transform: translate(var(--enter-x, 0px), var(--enter-y, 0px)); }
+  46%  { opacity: 1; transform: translate(var(--enter-x, 0px), var(--enter-y, 0px)); animation-timing-function: cubic-bezier(.3, 0, .2, 1); } /* behind it */
+  100% { opacity: 1; transform: translate(0, 0); }
+}
+
+/* Reduced motion: everything is simply there. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-badge,
+  .hero-find,
+  .hero-explore {
+    visibility: visible;
+    animation: none !important;
+  }
+}
+
+/* ---------- The hero's typing effect (Home.jsx TypedText) ---------- */
+
+/* Not typed yet: in place (so nothing moves as it types) but invisible. */
+.typing-hidden {
+  visibility: hidden;
+}
+
+/* The cursor: zero width, so it never pushes the text; the bar is drawn just past it,
+   one line tall, in the text's own colour. */
+.typing-cursor {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: -0.12em;
+}
+
+.typing-cursor::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0.04em;
+  width: max(2px, 0.07em);
+  border-radius: 1px;
+  background: currentColor;
+}
+
+/* The full text for screen readers, which skip the typed copy (it's aria-hidden). */
+.typing-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.hero-stage .hero p {
+  color: #cbd5e1;
+}
+
+.hero-stage .badge {
+  background: rgba(37, 99, 235, 0.2);
+  color: #93c5fd;
+  border: 1px solid rgba(147, 197, 253, 0.3);
+}
+
+/* "Explore Features": frosted glass, like the feature cards below (.glass-card). */
+/* Explore Features on the dark hero: solid white with black text. (It used to be frosted
+   glass, but a backdrop blur over the moving ASCII art, while the button itself animates,
+   flickered noticeably; a plain fill doesn't have to redraw what's behind it.) */
+.hero-stage .btn-outline {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #ffffff;
+}
+
+.hero-stage .btn-outline:hover {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
 }
 
 @media (max-width: 700px) {
@@ -114,5 +674,13 @@ html {
   }
   .nav-anchor {
     display: none;
+  }
+  /* Phones: the staircase steps line up instead of stepping right. */
+  .stair:nth-child(n) {
+    margin-left: 0;
+  }
+  .stair {
+    padding: 1.2rem;
+    gap: 1rem;
   }
 }

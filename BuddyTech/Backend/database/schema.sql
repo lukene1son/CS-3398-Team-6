@@ -99,6 +99,9 @@ CREATE TABLE assignments (
     course_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT,
+    details TEXT NULL, -- longer write-up, only sent by GET /api/assignments/:id
+    grading ENUM('graded', 'participation') NULL, -- course assignments only (NULL = personal task)
+    extra_credit BOOLEAN NOT NULL DEFAULT FALSE,
     due_date DATETIME,
     owner_user_id INT NULL, -- NULL = whole course; set = personal task only this user sees
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
@@ -222,10 +225,14 @@ CREATE TABLE course_resources (
     stored_name VARCHAR(64) NULL,    -- files only: random name on disk, never sent to the browser
     mime_type VARCHAR(100) NULL,
     size_bytes INT NULL,
+    assignment_id INT NULL,          -- set = attached to this assignment (deleted with it)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
     FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_resources_course_time (course_id, created_at)
+    CONSTRAINT fk_resources_assignment
+        FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+    INDEX idx_resources_course_time (course_id, created_at),
+    INDEX idx_resources_assignment (assignment_id)
 );
 
 CREATE TABLE google_calendar_links (

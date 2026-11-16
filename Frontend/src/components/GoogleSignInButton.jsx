@@ -87,5 +87,7 @@ export default function GoogleSignInButton({ onLogin, onError, onPending }) {
   }, []);
 
   if (unavailable) return null;
-  return <div ref={buttonRef} style={{ display: "flex", justifyContent: "center", minHeight: 44 }} />;
+  // className: grows slightly on hover (Login.css). Google draws the button inside its own
+  // frame, which the page can't style, so the whole frame is scaled from out here.
+  return <div ref={buttonRef} className="btn-google" style={{ display: "flex", justifyContent: "center", minHeight: 44 }} />;
 }

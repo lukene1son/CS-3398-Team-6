@@ -11,11 +11,14 @@ const router = express.Router();
 //
 // Course resources (links and uploaded files):
 //   - anyone in the course can see the list and download files
-//   - only the course's teachers can add or delete them
+//   - teachers and TAs can add them, to the course or to a course-wide assignment
+//     (those show in a folder named after the assignment, and are deleted with it)
+//   - only teachers can delete them
 // Files are saved under BuddyTech/Backend/uploads with random names and are only
 // served through GET /api/resources/:id/file, which checks course membership.
 
-const MANAGER_ROLES = ["teacher"]; // add "ta" here to let TAs manage resources too
+const UPLOAD_ROLES = ["teacher", "ta"];
+const DELETE_ROLES = ["teacher"];
 const MAX_TITLE_LENGTH = 200;
 const MAX_URL_LENGTH = 2048;
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
@@ -98,14 +101,28 @@ function cleanTitle(value) {
     return title && title.length <= MAX_TITLE_LENGTH ? title : null;
 }
 
+// The file's path in uploads/. Stored names are random UUIDs (or seed-file names like
+// "seed-cs3398-welcome.pdf"): letters, digits, "-", "_" and single dots, never a slash
+// or "..". Anything else gets null, so no caller can reach a file outside uploads/.
+const SAFE_STORED_NAME = /^[\w-]+(\.[\w-]+)*$/;
+function uploadPath(storedName) {
+    return typeof storedName === "string" && SAFE_STORED_NAME.test(storedName)
+        ? path.join(UPLOAD_DIR, storedName)
+        : null;
+}
+
 function removeUpload(storedName) {
-    fs.unlink(path.join(UPLOAD_DIR, storedName), () => {}); // already gone is fine
+    const file = uploadPath(storedName);
+    if (file) fs.unlink(file, () => {}); // already gone is fine
 }
 
 // The columns the frontend gets. Never includes stored_name (the file's path on disk).
 const RESOURCE_COLUMNS = `
     course_resources.id,
     course_resources.course_id,
+    course_resources.assignment_id,
+    assignments.title AS assignment_title,
+    DATE_FORMAT(assignments.due_date, '%Y-%m-%dT%H:%i:%s') AS assignment_due_date,
     course_resources.type,
     course_resources.title,
     course_resources.url,
@@ -115,35 +132,69 @@ const RESOURCE_COLUMNS = `
     course_resources.created_at,
     users.name AS uploaded_by_name
 `;
+const RESOURCE_FROM = `
+    FROM course_resources
+    JOIN users ON users.id = course_resources.uploaded_by
+    LEFT JOIN assignments ON assignments.id = course_resources.assignment_id
+`;
 
 async function getResourceRow(id) {
     const [rows] = await pool.query(
-        `SELECT ${RESOURCE_COLUMNS}
-         FROM course_resources
-         JOIN users ON users.id = course_resources.uploaded_by
-         WHERE course_resources.id = ?`,
+        `SELECT ${RESOURCE_COLUMNS} ${RESOURCE_FROM} WHERE course_resources.id = ?`,
         [id]
     );
     return rows[0];
 }
 
-// Runs before anything that adds a resource: the course must exist in the URL and
-// the logged-in user must teach it. Runs BEFORE the upload is read, so students'
-// files are never written to disk.
-async function requireCourseManager(req, res, next) {
+// The two gates below run before anything that adds a resource, and BEFORE the
+// upload is read, so files from people who can't add resources never reach the disk.
+
+// /courses/:id/...: the logged-in user must be a teacher or TA of the course.
+async function requireCourseUploader(req, res, next) {
     try {
         const courseId = toId(req.params.id);
         if (!courseId) return res.status(400).json({ error: "Invalid course id" });
 
         const role = await getCourseRole(req.user.id, courseId);
         if (!role) return res.status(403).json({ error: "You are not in this course" });
-        if (!MANAGER_ROLES.includes(role)) {
-            return res.status(403).json({ error: "Only teachers can add resources" });
+        if (!UPLOAD_ROLES.includes(role)) {
+            return res.status(403).json({ error: "Only teachers and TAs can add resources" });
         }
         req.courseId = courseId;
+        req.assignmentId = null;
         next();
     } catch (error) {
         console.error("Error checking course role:", error);
+        res.status(500).json({ error: "Failed to check your course role" });
+    }
+}
+
+// /assignments/:id/...: a course-wide assignment (personal tasks are private, but
+// resources are seen by the whole course), and a teacher or TA of its course.
+async function requireAssignmentUploader(req, res, next) {
+    try {
+        const assignmentId = toId(req.params.id);
+        if (!assignmentId) return res.status(400).json({ error: "Invalid assignment id" });
+
+        const [rows] = await pool.query(
+            "SELECT course_id, owner_user_id FROM assignments WHERE id = ?",
+            [assignmentId]
+        );
+        const assignment = rows[0];
+        const role = assignment ? await getCourseRole(req.user.id, assignment.course_id) : null;
+        // 404 for "not in this course" too, so ids can't be probed.
+        if (!role) return res.status(404).json({ error: "Assignment not found" });
+        if (assignment.owner_user_id !== null) {
+            return res.status(400).json({ error: "Files can only be added to course assignments" });
+        }
+        if (!UPLOAD_ROLES.includes(role)) {
+            return res.status(403).json({ error: "Only teachers and TAs can add files to assignments" });
+        }
+        req.courseId = assignment.course_id;
+        req.assignmentId = assignmentId;
+        next();
+    } catch (error) {
+        console.error("Error checking assignment role:", error);
         res.status(500).json({ error: "Failed to check your course role" });
     }
 }
@@ -174,9 +225,7 @@ router.get("/courses/:id/resources", async (req, res) => {
         }
 
         const [rows] = await pool.query(
-            `SELECT ${RESOURCE_COLUMNS}
-             FROM course_resources
-             JOIN users ON users.id = course_resources.uploaded_by
+            `SELECT ${RESOURCE_COLUMNS} ${RESOURCE_FROM}
              WHERE course_resources.course_id = ?
              ORDER BY course_resources.created_at DESC, course_resources.id DESC`,
             [courseId]
@@ -188,9 +237,9 @@ router.get("/courses/:id/resources", async (req, res) => {
     }
 });
 
-// POST /api/courses/:id/resources  { title, url }
-// Teachers only. Adds a link.
-router.post("/courses/:id/resources", requireCourseManager, async (req, res) => {
+// Adds a link: { title, url }. Shared by the course and assignment routes below;
+// the gate before it has set req.courseId and req.assignmentId (null = course only).
+async function addLink(req, res) {
     try {
         const body = req.body || {};
         const title = cleanTitle(body.title);
@@ -203,19 +252,20 @@ router.post("/courses/:id/resources", requireCourseManager, async (req, res) => 
         }
 
         const [result] = await pool.query(
-            "INSERT INTO course_resources (course_id, uploaded_by, type, title, url) VALUES (?, ?, 'link', ?, ?)",
-            [req.courseId, req.user.id, title, url]
+            `INSERT INTO course_resources (course_id, assignment_id, uploaded_by, type, title, url)
+             VALUES (?, ?, ?, 'link', ?, ?)`,
+            [req.courseId, req.assignmentId, req.user.id, title, url]
         );
         res.status(201).json(await getResourceRow(result.insertId));
     } catch (error) {
         console.error("Error adding resource link:", error);
         res.status(500).json({ error: "Failed to add resource" });
     }
-});
+}
 
-// POST /api/courses/:id/resources/file  (multipart/form-data: file, title?)
-// Teachers only. Uploads one file. The title defaults to the file's name.
-router.post("/courses/:id/resources/file", requireCourseManager, receiveFile, async (req, res) => {
+// Uploads one file (multipart/form-data: file, title?). The title defaults to the
+// file's name. Shared like addLink.
+async function addFile(req, res) {
     const file = req.file;
     try {
         if (!file) {
@@ -233,17 +283,29 @@ router.post("/courses/:id/resources/file", requireCourseManager, receiveFile, as
 
         const [result] = await pool.query(
             `INSERT INTO course_resources
-             (course_id, uploaded_by, type, title, file_name, stored_name, mime_type, size_bytes)
-             VALUES (?, ?, 'file', ?, ?, ?, ?, ?)`,
-            [req.courseId, req.user.id, title, fileName, file.filename, mimeType, file.size]
+             (course_id, assignment_id, uploaded_by, type, title, file_name, stored_name, mime_type, size_bytes)
+             VALUES (?, ?, ?, 'file', ?, ?, ?, ?, ?)`,
+            [req.courseId, req.assignmentId, req.user.id, title, fileName, file.filename, mimeType, file.size]
         );
         res.status(201).json(await getResourceRow(result.insertId));
     } catch (error) {
-        if (file) removeUpload(file.filename); // don't leave an orphan file if the INSERT failed
+        // Don't leave an orphan file if the INSERT failed (for example, the assignment
+        // was deleted while this was uploading).
+        if (file) removeUpload(file.filename);
         console.error("Error uploading resource file:", error);
         res.status(500).json({ error: "Failed to upload file" });
     }
-});
+}
+
+// POST /api/courses/:id/resources              { title, url }
+// POST /api/courses/:id/resources/file         (multipart: file, title?)
+// POST /api/assignments/:id/resources          { title, url }
+// POST /api/assignments/:id/resources/file     (multipart: file, title?)
+// Teachers and TAs. Assignment ones go in that assignment's folder.
+router.post("/courses/:id/resources", requireCourseUploader, addLink);
+router.post("/courses/:id/resources/file", requireCourseUploader, receiveFile, addFile);
+router.post("/assignments/:id/resources", requireAssignmentUploader, addLink);
+router.post("/assignments/:id/resources/file", requireAssignmentUploader, receiveFile, addFile);
 
 // GET /api/resources/:id/file
 // Anyone in the resource's course can download it.
@@ -261,10 +323,11 @@ router.get("/resources/:id/file", async (req, res) => {
             [id, req.user.id]
         );
         // 404 for "not in this course" too, so ids can't be probed.
-        if (rows.length === 0) return res.status(404).json({ error: "File not found" });
+        const file = rows.length > 0 ? uploadPath(rows[0].stored_name) : null;
+        if (!file) return res.status(404).json({ error: "File not found" });
 
         res.download(
-            path.join(UPLOAD_DIR, rows[0].stored_name),
+            file,
             rows[0].file_name,
             { headers: { "X-Content-Type-Options": "nosniff" } },
             (err) => {
@@ -291,7 +354,7 @@ router.delete("/resources/:id", async (req, res) => {
         const resource = rows[0];
         const role = resource ? await getCourseRole(req.user.id, resource.course_id) : null;
         if (!role) return res.status(404).json({ error: "Resource not found" });
-        if (!MANAGER_ROLES.includes(role)) {
+        if (!DELETE_ROLES.includes(role)) {
             return res.status(403).json({ error: "Only teachers can delete resources" });
         }
 
@@ -303,5 +366,22 @@ router.delete("/resources/:id", async (req, res) => {
         res.status(500).json({ error: "Failed to delete resource" });
     }
 });
+
+// For server.js (plain functions, not HTTP routes).
+
+// An assignment's files and links, oldest first. Callers check access first.
+router.listAssignmentResources = async (assignmentId) => {
+    const [rows] = await pool.query(
+        `SELECT ${RESOURCE_COLUMNS} ${RESOURCE_FROM}
+         WHERE course_resources.assignment_id = ?
+         ORDER BY course_resources.created_at ASC, course_resources.id ASC`,
+        [assignmentId]
+    );
+    return rows;
+};
+
+// Removes files from uploads/ after their rows were deleted along with an assignment.
+// uploadPath refuses any name that could point outside uploads/.
+router.removeUploads = (storedNames) => storedNames.forEach(removeUpload);
 
 module.exports = router;

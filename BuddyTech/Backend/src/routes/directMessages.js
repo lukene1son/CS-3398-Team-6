@@ -63,6 +63,7 @@ router.get("/me/direct-messages", async (req, res) => {
                 users.avatar_stored_name IS NOT NULL AS has_avatar,
                 last_message.content AS last_message,
                 last_message.created_at AS last_message_at,
+                last_message.sender_id = ? AS last_from_me, -- the preview reads "You: ..." 
                 (
                     SELECT COUNT(*) FROM direct_messages AS incoming
                     WHERE incoming.sender_id = users.id
@@ -89,7 +90,7 @@ router.get("/me/direct-messages", async (req, res) => {
             )
             ORDER BY last_message.id DESC
             `,
-            [me, me, me, me, me, me, me]
+            [me, me, me, me, me, me, me, me]
         );
         res.json(rows.map((row) => ({ ...row, unread: Number(row.unread) })));
     } catch (error) {

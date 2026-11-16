@@ -80,7 +80,7 @@ router.post("/login", loginAccountLimiter, async (req, res) => {
             ? await bcrypt.compare(password, user.password_hash)
             : false;
         if (!ok) {
-            return res.status(401).json({ error: "Invalid email or password" });
+            return res.status(401).json({ error: "Incorrect email or password" });
         }
 
         // Signs in, or holds the sign-in for approval if the account is already signed in.

@@ -172,10 +172,9 @@ export default function PartnerNotifications({
         // Just under the header: the bell button is 32px tall, centered in the 70px
         // header, so the header's bottom edge is ~52px below the bell's top. +8px gap.
         top: '60px',
-        // Centered on the bell. The same translateX is in the notif-in keyframes
-        // (index.css), because an animated transform replaces this one while it plays.
-        left: '50%',
-        transform: 'translateX(-50%)',
+        // Right edge lined up with the bell icon's: the bell button has 6px of padding
+        // inside the wrapper this is positioned in, so the icon ends 6px from its right.
+        right: '6px',
         width: '340px',
         maxWidth: 'calc(100vw - 32px)',
         background: '#ffffff',

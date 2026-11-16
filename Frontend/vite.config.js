@@ -6,9 +6,17 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Production builds ship without source maps (also Vite's default; stated so it stays
+    // that way). Nothing from `env` above reaches the browser: only VITE_* variables would,
+    // through import.meta.env, and the app reads none. Keep secrets out of VITE_* names.
+    build: {
+      sourcemap: false,
+    },
+    // The dev server is for local development only (production serves the built files,
+    // Frontend/Dockerfile). Without allowedHosts: true, it answers only localhost and IP
+    // addresses, which blocks DNS-rebinding attacks from other websites.
     server: {
       host: '0.0.0.0',
-      allowedHosts: true,
       proxy: {
         '/api': {
           target: env.VITE_API_TARGET || 'http://localhost:3000',

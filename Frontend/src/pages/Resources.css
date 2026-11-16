@@ -1,0 +1,119 @@
+/* Resources page (Resources.jsx). Matches the dashboard: gray panels (#e3e8ef) holding
+   white rows, course-coloured chips and folder stripes (--c, from courseColors.js). */
+
+.res-page { max-width: 860px; color: #0f172a; }
+.res-page h1 { font-size: 1.6rem; font-weight: 800; margin: 0 0 0.25rem; }
+.res-lead { color: #64748b; margin: 0 0 1rem; }
+.res-error { background: #fef2f2; color: #b91c1c; padding: 0.5rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; }
+.res-empty { color: #94a3b8; font-size: 0.875rem; margin: 0; padding: 0.25rem 0.1rem; }
+.res-page button { font: inherit; cursor: pointer; }
+.res-page button:disabled { cursor: default; opacity: 0.6; }
+.res-page button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+/* Course chips */
+.res-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1.25rem; }
+.res-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; text-align: left;
+  padding: 7px 12px 7px 7px; border: 2px solid transparent; border-radius: 12px;
+  background: #ffffff; color: #0f172a; font-size: 13px; font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.res-chip b {
+  flex: none; display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 4px;
+  box-sizing: border-box; border-radius: 8px; color: #ffffff; font-size: 10px;
+}
+.res-chip[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 8%, #ffffff); }
+
+/* Gray sections */
+.res-section { background: #e3e8ef; border-radius: 18px; padding: 1.25rem; margin-bottom: 1.25rem; }
+.res-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 0.9rem; }
+.res-section-head h2 { margin: 0; font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.res-count { font-size: 12px; font-weight: 600; color: #64748b; background: rgba(255, 255, 255, 0.7); padding: 3px 9px; border-radius: 999px; }
+.res-section-hint { margin-left: auto; font-size: 12px; color: #64748b; }
+
+/* Assignment folders */
+.res-folders { display: flex; flex-direction: column; gap: 10px; }
+.res-folder {
+  background: #ffffff; border-radius: 14px; overflow: hidden; border-left: 4px solid var(--c);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.res-folder-toggle {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border: 0; background: none; color: #0f172a; text-align: left;
+}
+.res-folder-toggle:hover { background: #f8fafc; }
+.res-folder-ico {
+  flex: none; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+  color: var(--c); background: color-mix(in srgb, var(--c) 12%, #ffffff);
+}
+.res-folder-name { flex: 1; min-width: 0; }
+.res-folder-name strong { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-folder-name span { display: block; margin-top: 2px; font-size: 12px; color: #64748b; }
+.res-chev { flex: none; color: #94a3b8; transition: transform 0.2s; }
+.res-folder.open .res-chev { transform: rotate(180deg); }
+.res-folder-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+.res-folder.open .res-folder-body { grid-template-rows: 1fr; }
+.res-folder-inner { min-height: 0; overflow: hidden; }
+.res-folder-items { list-style: none; margin: 0; padding: 0 14px 12px 64px; display: flex; flex-direction: column; gap: 6px; }
+.res-folder-add { padding: 0 14px 12px 64px; }
+.res-add-to {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px;
+  border: 1px dashed #93c5fd; border-radius: 8px; background: none; color: #2563eb; font-size: 12px; font-weight: 600;
+}
+.res-add-to:hover { background: #eff6ff; }
+
+/* Rows: light gray inside a folder, white cards in Course resources */
+.res-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.res-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border-radius: 10px; background: #f8fafc; }
+.res-rows .res-row { background: #ffffff; padding: 10px 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); }
+.res-ico { flex: none; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: #dbeafe; color: #2563eb; }
+.res-ico.link { background: #ede9fe; color: #7c3aed; }
+.res-row-text { flex: 1; min-width: 0; }
+.res-row-text strong { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-row-text a { color: #2563eb; text-decoration: none; }
+.res-row-text a:hover { text-decoration: underline; }
+.res-row-text span { display: block; font-size: 12px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-actions { flex: none; display: flex; gap: 6px; }
+.res-btn { padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #0f172a; font-size: 12px; font-weight: 600; }
+.res-btn:hover:not(:disabled) { border-color: #cbd5e1; }
+.res-btn.primary { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+.res-btn.primary:hover:not(:disabled) { background: #1d4ed8; }
+.res-btn.danger { color: #dc2626; }
+
+/* Add form (course resources, or inside a folder) */
+.res-add {
+  margin-top: 0.75rem; padding: 0.9rem; border-radius: 14px; background: #ffffff;
+  display: flex; flex-direction: column; gap: 0.6rem; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.res-folder .res-add { margin-top: 0; background: #f8fafc; box-shadow: none; }
+.res-add-tabs { display: flex; gap: 0.4rem; }
+.res-tab { padding: 0.35rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 0.8rem; font-weight: 600; }
+.res-tab.on { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+.res-add-fields { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* Every box and the button share one height, so nothing jumps between Add link and Upload file. */
+.res-input {
+  flex: 1 1 0; min-width: 160px; height: 2.5rem; box-sizing: border-box;
+  padding: 0.6rem 0.8rem; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; font: inherit; font-size: 0.9rem; background: #ffffff;
+}
+.res-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
+.res-input.wide { flex: 2 1 0; min-width: 200px; }
+/* Top padding = (box height - 2px border - 1.75rem button) / 2, which centres the
+   Choose File button (its height is set in index.css). */
+.res-input.resource-file-input { padding: calc((2.5rem - 2px - 1.75rem) / 2) 0.8rem 0; }
+.res-submit {
+  flex-shrink: 0; width: 8rem; height: 2.5rem; border: none; border-radius: 8px;
+  background: #2563eb; color: #ffffff; font-weight: 600; white-space: nowrap;
+}
+.res-hint { margin: 0; font-size: 0.75rem; color: #94a3b8; }
+
+@media (max-width: 600px) {
+  .res-section { padding: 0.9rem; }
+  .res-folder-items, .res-folder-add { padding-left: 14px; }
+  .res-row { flex-wrap: wrap; }
+  .res-actions { width: 100%; justify-content: flex-end; }
+  .res-section-hint { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .res-folder-body, .res-chev { transition: none; }
+}

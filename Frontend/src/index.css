@@ -34,7 +34,7 @@ a {
 
 /* Notifications window (PartnerNotifications.jsx): grows in on open, fades out on close. */
 .notif-window {
-    transform-origin: top center; /* grows out from under the bell */
+    transform-origin: top right; /* grows out from under the bell, which is at its right edge */
     animation: notif-in 0.2s ease-out;
 }
 
@@ -42,10 +42,9 @@ a {
     animation: notif-out 0.1s ease-in forwards;
 }
 
-/* translateX(-50%) keeps the window centered on the bell (see PartnerNotifications.jsx). */
 @keyframes notif-in {
-    from {transform: translateX(-50%) scale(0.95);}
-    to {transform: translateX(-50%) scale(1);}
+    from {transform: scale(0.95);}
+    to {transform: scale(1);}
 }
 
 @keyframes notif-out {
@@ -134,7 +133,7 @@ a {
     top: 0;
     left: 0;
     right: 0;
-    background: #D1E7FF;
+    background: #2563eb;
     border-radius: 10px;
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -276,6 +275,76 @@ a {
     color: #475569;
 }
 
+/* Spaces sidebar, open study group (SpacesChat.jsx): the ▸ that folds its channel list
+   turns to point down when the list is open. */
+.group-fold-arrow {
+    display: inline-block;
+    transition: transform 0.2s ease-out;
+}
+
+.group-fold-arrow.open {
+    transform: rotate(90deg);
+}
+
+/* Its channel list unfolding, one channel at a time, top to bottom: each starts at 10%
+   size and see-through at the top of its own row (the bottom edge of the row above) and
+   grows to full size over 0.1s, then the next one starts, so each seems to grow out from
+   behind the one above. Each row's animation-delay (0.1s × its position, set in
+   SpacesChat.jsx) staggers them; "backwards" holds a waiting row at its start until its turn.
+   Meanwhile the list's height opens one row (GROUP_CHANNEL_ROW, 30px) per 0.1s, so what's
+   below slides down in step. The keyframes assume the 3 channels in GROUP_CHANNELS. */
+.group-channels {
+    animation: group-channels-open 0.3s linear;
+}
+
+@keyframes group-channels-open {
+    0%     { max-height: 0.3rem; animation-timing-function: ease-out; }
+    33.33% { max-height: calc(0.3rem + 30px); animation-timing-function: ease-out; }
+    66.66% { max-height: calc(0.3rem + 60px); animation-timing-function: ease-out; }
+    100%   { max-height: calc(0.3rem + 90px); }
+}
+
+.group-channel {
+    transform-origin: top center;
+    animation: group-channel-grow 0.1s ease-out backwards;
+}
+
+@keyframes group-channel-grow {
+    from { opacity: 0; transform: scale(0.1); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* The open row's highlight: skates between rows like .nav-pill.
+   Group channels: top/left match that list's padding (0.3rem top, 0.8rem left in SpacesChat.jsx).
+   Other sidebar lists (Course Chats, the partner links, Study Chats; SpacesChat.jsx RowPill):
+   no padding. Fades out when none of the list's rows is open. */
+.group-channel-pill,
+.sidebar-row-pill {
+    position: absolute;
+    top: 0.3rem;
+    left: 0.8rem;
+    right: 0;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.sidebar-row-pill {
+    top: 0;
+    left: 0;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    border-radius: 6px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s;
+}
+
+/* Spaces sidebar "Find or join a group" (SpacesChat.jsx): grows ~5% on hover, so it reads as a button. */
+.group-finder-btn {
+    transition: transform 0.08s ease-out;
+}
+
+.group-finder-btn:hover {
+    transform: scale(1.05);
+}
+
 /* Spaces tab labels: an invisible bold copy reserves the bold width,
    so a tab doesn't get wider (and shove its neighbours) when selected. */
 .spaces-tab-label {
@@ -307,6 +376,92 @@ a {
         z-index: 1;
         box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
     }
+
+/* Home welcome heading (Dashboard.jsx): the ✋ waves when Home opens, pivoting at the
+   wrist (its bottom middle), a little smaller each swing. It rests tilted 20° left, the
+   way 👋 is drawn. It replays whenever Home is opened again, like the progress bars' grow-in. */
+.welcome-wave-wrap {
+    position: relative;
+    display: inline-block;
+    margin-left: 0.3em; /* room for the left-hand arcs, clear of the name */
+}
+
+.welcome-wave {
+    display: inline-block; /* transforms don't apply to inline text */
+    transform: rotate(-20deg);
+    transform-origin: 50% 90%;
+    animation: welcome-wave 1.4s ease-in-out 0.3s both;
+}
+
+/* Two pairs of blue arcs: ")" off the fingertips (top right) and "(" off the heel of the
+   hand (bottom left), the same size, gap and tilt, mirrored. Each pair is the same SVG;
+   the left one is turned half round, so its arcs face and move the other way.
+   They take turns with the swings: the hand changes direction every 0.21s (15% of the
+   1.4s wave), so each ripple lasts 0.42s and peaks at a swing's end. The right pair peaks
+   on the 3 swings right (0.21s, 0.63s, 1.05s into the wave), the left pair on the 2 swings
+   left in between (0.42s, 0.84s). The outer arc follows the inner by 0.08s. */
+.welcome-wave-lines {
+    position: absolute;
+    width: 0.32em;
+    height: 0.4em;
+    overflow: visible;
+    pointer-events: none;
+}
+
+    .welcome-wave-lines--right {
+        left: 80%;
+        top: -0.15em;
+        transform: rotate(-20deg);
+    }
+
+    /* The emoji's box is wider than the hand on its right, so the fingertip arcs already
+       sit clear of the hand; these need the extra 0.2em to sit as far from the heel. */
+    .welcome-wave-lines--left {
+        right: calc(80% + 0.2em);
+        bottom: 0;
+        transform: rotate(160deg);
+    }
+
+.welcome-wave-line {
+    opacity: 0;
+    animation: welcome-wave-line 0.42s ease-out 0.3s 3 both;
+}
+
+    .welcome-wave-lines--right .welcome-wave-line--outer {
+        animation-delay: 0.38s;
+    }
+
+    .welcome-wave-lines--left .welcome-wave-line {
+        animation-delay: 0.51s;
+        animation-iteration-count: 2;
+    }
+
+    .welcome-wave-lines--left .welcome-wave-line--outer {
+        animation-delay: 0.59s;
+    }
+
+@keyframes welcome-wave-line {
+    0%   { opacity: 0; transform: translateX(-3px); }
+    50%  { opacity: 1; }
+    100% { opacity: 0; transform: translateX(3px); }
+}
+
+@keyframes welcome-wave {
+    0%   { transform: rotate(-20deg); }
+    15%  { transform: rotate(-4deg); }
+    30%  { transform: rotate(-28deg); }
+    45%  { transform: rotate(-6deg); }
+    60%  { transform: rotate(-24deg); }
+    75%  { transform: rotate(-12deg); }
+    100% { transform: rotate(-20deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .welcome-wave,
+    .welcome-wave-line {
+        animation: none;
+    }
+}
 
 /* Home progress band (Dashboard.jsx ProgressBar): a bar eases to its new width when an
    assignment is checked off. */
@@ -374,6 +529,72 @@ a {
     transition: transform 0.2s ease-out;
 }
 
+/* The grow-in for lists: Home (Current Tasks, Recent Activity, Latest Messages), the
+   Planner's Tasks list and the Tasks page. On Home, when
+   Home opens (sign-in, refresh, or coming back to Home), the rows appear top down, one
+   every --grow-every. Each row opens from no height (so the grey panel lengthens as they
+   come in) while its item grows from tiny and see-through to full size.
+   --grow-step is the row's place in line, set in Dashboard.jsx. A row added later, or
+   opened by "Show N more", grows in the same way.
+   `backwards` holds the first frame (no height, tiny) while a row waits its turn, and
+   lets go afterwards, so the hover grows and the checked-off animation still work. */
+:root {
+    --grow-time: 0.3s;     /* each row */
+    --grow-every: 0.045s;  /* between one row starting and the next */
+    --grow-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.task-row:not(.leaving),
+.grow-in-row {
+    animation: grow-in-open var(--grow-time) var(--grow-ease) calc(0.1s + var(--grow-step, 0) * var(--grow-every)) backwards;
+}
+
+.task-row:not(.leaving) .task-bubble,
+.grow-in-item {
+    animation: grow-in-pop var(--grow-time) var(--grow-ease) calc(0.1s + var(--grow-step, 0) * var(--grow-every)) backwards;
+}
+
+/* Only `from`: each row opens to its own height and gap. Task rows keep their gap below
+   (margin-bottom), the activity rows above (margin-top, see .grow-in-row). */
+@keyframes grow-in-open {
+    from {
+        grid-template-rows: 0fr;
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+}
+
+@keyframes grow-in-pop {
+    from {
+        transform: scale(0.15);
+        opacity: 0;
+    }
+}
+
+/* A Recent Activity row: the same grid trick as .task-row (opening 0fr → 1fr). The gap
+   sits above each row but the first, so there's none left over below the last. */
+.grow-in-row {
+    display: grid;
+    grid-template-rows: 1fr;
+}
+
+    .grow-in-row + .grow-in-row {
+        margin-top: var(--grow-gap, 0.5rem);
+    }
+
+.grow-in-cell {
+    min-height: 0; /* lets the row shrink below its item's height */
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .task-row:not(.leaving),
+    .task-row:not(.leaving) .task-bubble,
+    .grow-in-row,
+    .grow-in-item {
+        animation: none;
+    }
+}
+
     .task-row:not(.leaving) .task-bubble:hover {
         transform: scale(1.02);
     }
@@ -430,16 +651,7 @@ a {
         transform: rotate(180deg);
     }
 
-/* Dashboard Recent Activity (Dashboard.jsx): section labels, assignment placards, message rows. */
-.activity-heading {
-    margin: 0 0 0.5rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #94a3b8;
-}
-
+/* Dashboard Recent Activity and Latest Messages (Dashboard.jsx): assignment placards, message rows. */
 .activity-placard {
     display: flex;
     flex-direction: column;
@@ -506,11 +718,15 @@ a {
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, transform 0.2s ease-out;
 }
 
-.activity-message:hover {
+/* Grows 2% on hover, like the Current Tasks bubbles (the pills are full width, so 5% would
+   push past the panel's edges). */
+.activity-message:hover,
+.activity-message:focus-visible {
     background: #f8fafc;
+    transform: scale(1.02);
 }
 
 .activity-ellipsis {
@@ -521,10 +737,47 @@ a {
 }
 
 /* Scrolls with the wheel/trackpad/keyboard, but draws no scroll bar */
+/* Spaces chat (SpacesChat.jsx): floats over the bottom of the message list when messages
+   arrive while you're scrolled up. Pops in from slightly below. */
+.new-message-btn {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 999px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    animation: new-message-in 0.2s ease-out;
+}
+
+    .new-message-btn:hover {
+        background: #1d4ed8;
+    }
+
+/* translateX(-50%) is repeated: the animated transform replaces the one above while it plays. */
+@keyframes new-message-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* html: no scrollbar on the page itself, on every page (it still scrolls with the wheel,
+   trackpad and keys). Boxes that scroll inside a page keep theirs unless they use .no-scrollbar. */
+html,
 .no-scrollbar {
     scrollbar-width: none; /* Firefox, and Chrome/Edge 121+ */
 }
 
+    html::-webkit-scrollbar,
     .no-scrollbar::-webkit-scrollbar {
         display: none; /* older Chrome/Edge and Safari */
     }
@@ -534,7 +787,9 @@ a {
     .notif-window, .notif-window.closing {
         animation-duration: 1ms;
     }
-    .nav-pill {
+    .nav-pill,
+    .group-channel-pill,
+    .sidebar-row-pill {
         transition: none;
     }
     .segment-pill,
@@ -567,3 +822,93 @@ a {
         animation: none;
     }
 }
+
+/* The blue "+ Add task" pill: Dashboard's Current Tasks header and the Planner's month bar.
+   34px tall (the Planner's month arrows, and the Dashboard's View all tasks pill), fully
+   rounded, a soft blue shadow; a darker blue while hovered. */
+.add-task-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 34px;
+    padding: 0 0.95rem 0 0.75rem;
+    border: none;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+    .add-task-button:hover:not(:disabled) {
+        background: #1d4ed8;
+    }
+
+    .add-task-button:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
+
+/* How a course assignment counts (components/TaskTags.jsx): hover cards and the Assignments page. */
+.task-tags {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+    .task-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px 2px 6px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .task-tag.graded {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    .task-tag.participation {
+        background: #ccfbf1;
+        color: #0f766e;
+    }
+
+    .task-tag.extra {
+        background: #fef3c7;
+        color: #b45309;
+    }
+
+/* The thin scrollbar for boxes that scroll on their own: a 4px slate thumb on a pale track.
+   Used by the Planner's Tasks list, the Assignments page's list, and the Chat page's sidebar
+   (Study Spaces and Study Partners). scrollbar-gutter keeps its space even when nothing
+   overflows, so the contents don't shift sideways when it appears. */
+.thin-scroll {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;            /* Firefox, and Chrome/Edge 121+ */
+    scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+    /* Older Chrome/Edge and Safari. */
+    .thin-scroll::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    .thin-scroll::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 999px;
+    }
+
+    .thin-scroll::-webkit-scrollbar-thumb {
+        background: #94a3b8;
+        border-radius: 999px;
+    }

@@ -1,17 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
-import { getMyCourses, getResources, addResourceLink, uploadResourceFile, deleteResource, downloadResourceFile, viewResourceFile, VIEWABLE_TYPES } from "../api";
-
-const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "1.25rem" };
-const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none" };
-const primaryButton = { padding: "0.6rem 1.2rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 600, cursor: "pointer" };
-const smallButton = { padding: "0.35rem 0.75rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "6px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" };
-const tabButton = (active) => ({ ...smallButton, background: active ? "#2563eb" : "#f1f5f9", color: active ? "#fff" : "#475569", borderColor: active ? "#2563eb" : "#cbd5e1" });
-const smallPrimaryButton = { ...smallButton, background: "#2563eb", color: "#fff", border: "1px solid #2563eb" };
-// Every box and the submit button in the teacher's add form share this size, so
-// nothing jumps when switching between "Add link" and "Upload file".
-const FIELD_HEIGHT = "2.5rem";
-const fieldInput = { ...input, height: FIELD_HEIGHT, boxSizing: "border-box" };
-const submitButton = { ...primaryButton, height: FIELD_HEIGHT, width: "8rem", flexShrink: 0, whiteSpace: "nowrap" };
+import { BookOpen, CheckSquare, ChevronDown, FileText, Folder, Link2, Plus } from "lucide-react";
+import {
+  getMyCourses, getResources, addResourceLink, uploadResourceFile, addAssignmentLink, uploadAssignmentFile,
+  deleteResource, downloadResourceFile, viewResourceFile, VIEWABLE_TYPES,
+} from "../api";
+import { courseAccent } from "../courseColors";
+import "./Resources.css";
 
 // What the file picker offers. Code files are shown as plain text by View and keep
 // their extension when downloaded (the backend's CODE_EXTENSIONS must match this list).
@@ -25,20 +19,41 @@ const ACCEPTED_FILES = [
   ".asm", ".s", ".v", ".vhd", ".m",
 ].join(",");
 const MAX_FILE_MB = 20; // same limit as the backend (routes/resources.js)
+const UPLOAD_ROLES = ["teacher", "ta"]; // same as the backend: TAs add, only teachers delete
 
 function formatSize(bytes) {
   if (!bytes) return "";
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+const shortDate = (value) => new Date(value).toLocaleDateString([], { month: "short", day: "numeric" });
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-// Resources for the course picked in the dropdown. Everyone in the course can view
-// and download; only the course's teachers see the add form and Delete buttons.
-// (The backend enforces the same rules, so hiding the form is just for a clean UI.)
+// The course's resources split in two: a folder for each assignment that has files or
+// links (soonest due first), and everything else (the course's own resources).
+function groupResources(items) {
+  const folders = new Map();
+  const general = [];
+  for (const r of items) {
+    if (!r.assignment_id) { general.push(r); continue; }
+    if (!folders.has(r.assignment_id)) {
+      folders.set(r.assignment_id, { id: r.assignment_id, title: r.assignment_title, due: r.assignment_due_date, items: [] });
+    }
+    folders.get(r.assignment_id).items.push(r);
+  }
+  const sorted = [...folders.values()].sort((a, b) => (a.due || "").localeCompare(b.due || ""));
+  return { folders: sorted, general };
+}
+
+// Resources for the course picked in the chips. Everyone in the course can view and
+// download; teachers and TAs see the add forms; only teachers see Delete.
+// (The backend enforces the same rules, so hiding them is just for a clean UI.)
 export default function Resources() {
   const [courses, setCourses] = useState([]);
   const [coursesLoaded, setCoursesLoaded] = useState(false);
   const [selectedCourseId, setSelectedCourseId] = useState(null);
   const [itemsByCourse, setItemsByCourse] = useState({});
+  const [openFolders, setOpenFolders] = useState({}); // assignment id -> open? (unset: closed)
+  const [formFolder, setFormFolder] = useState(null); // assignment id whose "Add to this folder" form is open
   const [mode, setMode] = useState("link"); // "link" | "file"
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
@@ -50,8 +65,11 @@ export default function Resources() {
 
   const courseId = selectedCourseId ?? courses[0]?.id;
   const course = courses.find((c) => c.id === courseId);
-  const isTeacher = course?.role === "teacher";
+  const canAdd = UPLOAD_ROLES.includes(course?.role);
+  const canDelete = course?.role === "teacher";
   const items = courseId ? itemsByCourse[courseId] : undefined;
+  const { folders, general } = groupResources(items ?? []);
+  const accent = courseAccent(courses, courseId);
 
   // Your courses, each with your role in it (from GET /api/me/courses).
   useEffect(() => {
@@ -88,6 +106,8 @@ export default function Resources() {
 
   function changeCourse(id) {
     setSelectedCourseId(id);
+    setFormFolder(null);
+    resetForm();
     setError("");
   }
 
@@ -98,7 +118,8 @@ export default function Resources() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function handleAdd(e) {
+  // assignmentId: add to that assignment's folder; null: to the course's own resources.
+  async function handleAdd(e, assignmentId) {
     e.preventDefault();
     if (!courseId || saving) return;
     if (mode === "link" && (!title.trim() || !url.trim())) return setError("Enter a title and a link.");
@@ -107,11 +128,13 @@ export default function Resources() {
 
     setSaving(true);
     try {
-      const created = mode === "link"
-        ? await addResourceLink(courseId, { title: title.trim(), url: url.trim() })
-        : await uploadResourceFile(courseId, file, title.trim());
+      const link = { title: title.trim(), url: url.trim() };
+      const created = assignmentId
+        ? mode === "link" ? await addAssignmentLink(assignmentId, link) : await uploadAssignmentFile(assignmentId, file, title.trim())
+        : mode === "link" ? await addResourceLink(courseId, link) : await uploadResourceFile(courseId, file, title.trim());
       setItemsByCourse((prev) => ({ ...prev, [courseId]: [created, ...(prev[courseId] ?? [])] }));
       resetForm();
+      setFormFolder(null);
       setError("");
     } catch (err) {
       setError(err.message);
@@ -166,114 +189,182 @@ export default function Resources() {
     }
   }
 
-  return (
-    <div style={{ maxWidth: "800px" }}>
-      <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0f172a", marginBottom: "0.25rem" }}>Resources</h1>
-      <p style={{ color: "#64748b", marginBottom: "1rem" }}>
-        Shared links and study material for each of your courses.
-      </p>
+  function openFolderForm(id) {
+    resetForm();
+    setError("");
+    setFormFolder(id);
+  }
 
-      {error && <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "0.5rem 1rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.85rem" }}>{error}</div>}
+  const renderRow = (r) => (
+    <li key={r.id} className="res-row">
+      <span className={r.type === "file" ? "res-ico" : "res-ico link"} aria-hidden="true">
+        {r.type === "file" ? <FileText size={16} /> : <Link2 size={16} />}
+      </span>
+      <div className="res-row-text">
+        <strong>
+          {r.type === "file" ? r.title : <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title}</a>}
+        </strong>
+        <span>
+          {r.type === "file" ? `${r.file_name} · ${formatSize(r.size_bytes)}` : r.url}
+          {` · Added ${shortDate(r.created_at)} by ${r.uploaded_by_name}`}
+        </span>
+      </div>
+      <div className="res-actions">
+        {r.type === "file" && VIEWABLE_TYPES.includes(r.mime_type) && (
+          <button type="button" className="res-btn" onClick={() => handleView(r)} disabled={busyId === r.id}>View</button>
+        )}
+        {r.type === "file" && (
+          <button type="button" className="res-btn primary" onClick={() => handleDownload(r)} disabled={busyId === r.id}>
+            {busyId === r.id ? "..." : "Download"}
+          </button>
+        )}
+        {canDelete && (
+          <button type="button" className="res-btn danger" onClick={() => handleDelete(r)} disabled={busyId === r.id}>Delete</button>
+        )}
+      </div>
+    </li>
+  );
+
+  // The add form: to a folder (assignmentId) or to the course's own resources (null).
+  const renderAddForm = (assignmentId) => (
+    <form className="res-add" onSubmit={(e) => handleAdd(e, assignmentId)}>
+      <div className="res-add-tabs">
+        <button type="button" className={mode === "link" ? "res-tab on" : "res-tab"} onClick={() => setMode("link")}>Add link</button>
+        <button type="button" className={mode === "file" ? "res-tab on" : "res-tab"} onClick={() => setMode("file")}>Upload file</button>
+        {assignmentId && <button type="button" className="res-tab" onClick={() => setFormFolder(null)}>Cancel</button>}
+      </div>
+      <div className="res-add-fields">
+        <input
+          className="res-input"
+          placeholder={mode === "file" ? "Title (defaults to file name)" : "Title"}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={200}
+          aria-label="Title"
+        />
+        {mode === "link" ? (
+          <input className="res-input wide" placeholder="https://..." value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Link" />
+        ) : (
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="res-input wide resource-file-input"
+            accept={ACCEPTED_FILES}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            aria-label="File"
+          />
+        )}
+        <button type="submit" disabled={saving} className="res-submit">
+          {saving ? (mode === "file" ? "Uploading..." : "Adding...") : mode === "file" ? "Upload" : "Add"}
+        </button>
+      </div>
+      {mode === "file" && (
+        <p className="res-hint">PDF, image, text, Office, zip, or code files (.js, .py, .cpp, .sql, ...), up to {MAX_FILE_MB} MB.</p>
+      )}
+    </form>
+  );
+
+  return (
+    <div className="res-page">
+      <h1>Resources</h1>
+      <p className="res-lead">Shared links and study material for each of your courses.</p>
+
+      {error && <div className="res-error" role="alert">{error}</div>}
 
       {coursesLoaded && courses.length === 0 ? (
-        <p style={{ color: "#94a3b8" }}>You aren't in any courses yet.</p>
+        <p className="res-empty">You aren't in any courses yet.</p>
       ) : (
         <>
-          <select
-            value={courseId ?? ""}
-            onChange={(e) => changeCourse(Number(e.target.value))}
-            style={{ ...input, marginBottom: "1rem", background: "#fff" }}
-          >
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>{c.course_code} {c.course_name}</option>
-            ))}
-          </select>
-
-          <div style={{ ...card, marginBottom: "1rem" }}>
-            {items === undefined ? (
-              <p style={{ color: "#94a3b8" }}>Loading...</p>
-            ) : items.length === 0 ? (
-              <p style={{ color: "#94a3b8" }}>
-                {isTeacher ? "No resources yet. Add the first one below." : "Your teacher hasn't shared any resources for this course yet."}
-              </p>
-            ) : (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {items.map((r) => (
-                  <li key={r.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem" }}>
-                    <div style={{ minWidth: 0 }}>
-                      {r.type === "file" ? (
-                        <span style={{ color: "#0f172a", fontWeight: 600 }}>📄 {r.title}</span>
-                      ) : (
-                        <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb", fontWeight: 600, textDecoration: "none" }}>🔗 {r.title}</a>
-                      )}
-                      <div style={{ fontSize: "0.75rem", color: "#94a3b8", overflowWrap: "anywhere" }}>
-                        {r.type === "file" ? `${r.file_name} · ${formatSize(r.size_bytes)}` : r.url}
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                        Added {new Date(r.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
-                      {r.type === "file" && VIEWABLE_TYPES.includes(r.mime_type) && (
-                        <button onClick={() => handleView(r)} disabled={busyId === r.id} style={smallButton}>
-                          View
-                        </button>
-                      )}
-                      {r.type === "file" && (
-                        <button onClick={() => handleDownload(r)} disabled={busyId === r.id} style={smallPrimaryButton}>
-                          {busyId === r.id ? "..." : "Download"}
-                        </button>
-                      )}
-                      {isTeacher && (
-                        <button onClick={() => handleDelete(r)} disabled={busyId === r.id} style={{ ...smallButton, color: "#dc2626" }}>
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <div className="res-chips" role="group" aria-label="Course">
+            {courses.map((c) => {
+              const color = courseAccent(courses, c.id);
+              return (
+                <button
+                  type="button"
+                  key={c.id}
+                  className="res-chip"
+                  style={{ "--c": color }}
+                  aria-pressed={c.id === courseId}
+                  onClick={() => changeCourse(c.id)}
+                >
+                  <b style={{ background: color }}>{c.course_code.split(" ")[0]}</b>
+                  {c.course_code} · {c.course_name}
+                </button>
+              );
+            })}
           </div>
 
-          {isTeacher && (
-            <form onSubmit={handleAdd} style={{ ...card, display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                <button type="button" onClick={() => setMode("link")} style={tabButton(mode === "link")}>Add link</button>
-                <button type="button" onClick={() => setMode("file")} style={tabButton(mode === "file")}>Upload file</button>
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                <input
-                  style={{ ...fieldInput, flex: "1 1 0", minWidth: "160px" }}
-                  placeholder={mode === "file" ? "Title (defaults to file name)" : "Title"}
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  maxLength={200}
-                />
-                {mode === "link" ? (
-                  <input style={{ ...input, flex: 2, minWidth: "200px" }} placeholder="https://..." value={url} onChange={(e) => setUrl(e.target.value)} />
+          {items === undefined ? (
+            <p className="res-empty">Loading...</p>
+          ) : (
+            <>
+              <section className="res-section" aria-labelledby="res-assignments">
+                <div className="res-section-head">
+                  <h2 id="res-assignments"><CheckSquare size={18} color="#2563eb" /> Assignments</h2>
+                  <span className="res-count">{plural(folders.length, "folder")}</span>
+                  <span className="res-section-hint">Files your teachers attached to each assignment</span>
+                </div>
+                {folders.length === 0 ? (
+                  <p className="res-empty">No assignment files yet. Files added to an assignment show up here in their own folder.</p>
                 ) : (
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="resource-file-input"
-                    accept={ACCEPTED_FILES}
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                    // Top padding = (box height - 2px border - 1.75rem button) / 2, which centers the
-                    // Choose File button (its height is set in index.css).
-                    style={{ ...fieldInput, flex: "2 1 0", minWidth: "200px", background: "#fff", padding: `calc((${FIELD_HEIGHT} - 2px - 1.75rem) / 2) 0.8rem 0` }}
-                  />
+                  <div className="res-folders">
+                    {folders.map((folder) => {
+                      const open = Boolean(openFolders[folder.id]); // every folder starts closed
+                      return (
+                        <div key={folder.id} className={open ? "res-folder open" : "res-folder"} style={{ "--c": accent }}>
+                          <button
+                            type="button"
+                            className="res-folder-toggle"
+                            aria-expanded={open}
+                            onClick={() => setOpenFolders((prev) => ({ ...prev, [folder.id]: !open }))}
+                          >
+                            <span className="res-folder-ico" aria-hidden="true"><Folder size={20} /></span>
+                            <span className="res-folder-name">
+                              <strong>{folder.title}</strong>
+                              <span>{plural(folder.items.length, "item")}</span>
+                            </span>
+                            <ChevronDown size={18} className="res-chev" aria-hidden="true" />
+                          </button>
+                          {/* grid 0fr -> 1fr: opens to its real height without measuring it */}
+                          <div className="res-folder-body">
+                            <div className="res-folder-inner">
+                              <ul className="res-folder-items">
+                                {folder.items.map(renderRow)}
+                              </ul>
+                              {canAdd && (
+                                <div className="res-folder-add">
+                                  {formFolder === folder.id ? renderAddForm(folder.id) : (
+                                    <button type="button" className="res-add-to" onClick={() => openFolderForm(folder.id)}>
+                                      <Plus size={13} strokeWidth={2.6} /> Add to this folder
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-                <button type="submit" disabled={saving} style={submitButton}>
-                  {saving ? (mode === "file" ? "Uploading..." : "Adding...") : mode === "file" ? "Upload" : "Add"}
-                </button>
-              </div>
-              {mode === "file" && (
-                <p style={{ margin: 0, fontSize: "0.75rem", color: "#94a3b8" }}>
-                  PDF, image, text, Office, zip, or code files (.js, .py, .cpp, .sql, ...), up to {MAX_FILE_MB} MB.
-                </p>
-              )}
-            </form>
+              </section>
+
+              <section className="res-section" aria-labelledby="res-course">
+                <div className="res-section-head">
+                  <h2 id="res-course"><BookOpen size={18} color="#2563eb" /> Course resources</h2>
+                  <span className="res-count">{plural(general.length, "item")}</span>
+                </div>
+                {general.length === 0 ? (
+                  <p className="res-empty">
+                    {canAdd ? "No course resources yet. Add the first one below." : "Your teacher hasn't shared any resources for this course yet."}
+                  </p>
+                ) : (
+                  <ul className="res-rows">{general.map(renderRow)}</ul>
+                )}
+                {/* One form at a time: hidden while a folder's form is open (they share fields). */}
+                {canAdd && formFolder === null && renderAddForm(null)}
+              </section>
+            </>
           )}
         </>
       )}

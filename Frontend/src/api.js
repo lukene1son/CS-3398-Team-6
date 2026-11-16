@@ -152,7 +152,7 @@ export function updateAssignmentStatus(id, status) {
   });
 }
 
-// data: { course_id, title, description?, due_date, personal? }
+// data: { course_id, title, description?, details?, due_date, personal? }
 // personal defaults to true on the backend (only you see it). Teachers/TAs can
 // send personal: false to post it for the whole course.
 export function createAssignment(data) {
@@ -397,6 +397,11 @@ export function getGroupMembers(groupId) {
 }
 
 /* ---------- Resources (teachers add/delete; everyone in the course can view) ---------- */
+// One assignment with its details and attached files and links: { ..., details, resources }.
+export function getAssignment(id) {
+  return request(`/api/assignments/${id}`);
+}
+
 export function getResources(courseId) {
   return request(`/api/courses/${courseId}/resources`);
 }
@@ -415,6 +420,22 @@ export function uploadResourceFile(courseId, file, title) {
   if (title) form.append("title", title);
   form.append("file", file);
   return request(`/api/courses/${courseId}/resources/file`, { method: "POST", body: form });
+}
+
+// The same two, attached to a course-wide assignment (they show in its Resources folder).
+export function addAssignmentLink(assignmentId, { title, url }) {
+  return request(`/api/assignments/${assignmentId}/resources`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ title, url }),
+  });
+}
+
+export function uploadAssignmentFile(assignmentId, file, title) {
+  const form = new FormData();
+  if (title) form.append("title", title);
+  form.append("file", file);
+  return request(`/api/assignments/${assignmentId}/resources/file`, { method: "POST", body: form });
 }
 
 export function deleteResource(resourceId) {

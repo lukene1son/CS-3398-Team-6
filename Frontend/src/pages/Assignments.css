@@ -1,0 +1,155 @@
+/* The Assignments page (Assignments.jsx). The dashboard's look: gray panels (#e3e8ef) holding white
+   cards, course colours (--c, from courseColors.js) on stripes, chips and checkboxes. */
+
+.tp-page { padding: 1.75rem 2rem 2.5rem; display: flex; flex-direction: column; gap: 1rem; color: #0f172a; min-width: 0; }
+.tp-page button { font: inherit; cursor: pointer; }
+.tp-page button:focus-visible, .tp-page a:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+/* Counts and Add task (the top row) */
+.tp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.tp-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.tp-stat {
+  display: flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px;
+  background: #ffffff; border: 1px solid #e2e8f0; font-size: 12.5px; font-weight: 600; color: #334155; font-variant-numeric: tabular-nums;
+}
+.tp-stat b { font-size: 14px; color: #0f172a; }
+.tp-stat.late b { color: #b91c1c; }
+.tp-stat.done b { color: #059669; }
+
+/* Course chips and status filters */
+.tp-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.tp-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px;
+  border: 2px solid transparent; border-radius: 12px; background: #ffffff; color: #0f172a;
+  font-size: 13px; font-weight: 600; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.tp-chip.all { padding-left: 12px; }
+.tp-chip b {
+  display: grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 7px; color: #ffffff; font-size: 10px;
+}
+.tp-chip[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 8%, #ffffff); }
+.tp-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.tp-filters button {
+  border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; padding: 6px 12px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 600;
+}
+.tp-filters button[aria-pressed="true"] { background: #0f172a; border-color: #0f172a; color: #ffffff; }
+.tp-error { background: #fef2f2; color: #b91c1c; padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; }
+
+/* The two panes: a narrower list (its cards are shorter side to side) and the chosen task
+   taking the rest. */
+.tp-panes { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+
+/* List */
+.tp-list { background: #e3e8ef; border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.tp-group { display: flex; flex-direction: column; gap: 6px; }
+.tp-group-label { margin: 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
+.tp-group-label.late { color: #b91c1c; }
+.tp-empty { margin: 0; padding: 18px 8px; text-align: center; color: #94a3b8; font-size: 13px; }
+.tp-item {
+  width: 100%; border: 0; text-align: left; background: #ffffff; border-radius: 12px; padding: 10px 12px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 10px; align-items: center;
+  border-left: 4px solid var(--c); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); color: #0f172a;
+  transition: transform 0.15s ease-out, background-color 0.3s, border-color 0.3s;
+}
+.tp-item:hover { transform: scale(1.015); }
+.tp-item.on { box-shadow: 0 0 0 2px var(--c), 0 6px 16px -10px rgba(15, 23, 42, 0.4); }
+.tp-item.done { border-left-color: #94a3b8; background: #f8fafc; }
+.tp-check {
+  grid-row: span 2; width: 18px; height: 18px; box-sizing: border-box; border-radius: 5px; border: 2px solid var(--c);
+  display: grid; place-items: center; color: #ffffff; transition: background-color 0.3s, border-color 0.3s;
+}
+.tp-item.done .tp-check { background: #94a3b8; border-color: #94a3b8; }
+.tp-title-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.tp-title-row strong { font-size: 14px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The cross-out line: a 1.5px stripe that draws across when the task is done (like the Planner). */
+.tp-strike {
+  background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px;
+  transition: background-size 0.4s cubic-bezier(0.22, 1, 0.36, 1), color 0.3s;
+}
+.tp-item.done .tp-strike { background-size: 100% 1.5px; color: #94a3b8; }
+.tp-att { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; }
+.tp-att.f { background: #dbeafe; color: #2563eb; }
+.tp-att.l { background: #ede9fe; color: #7c3aed; }
+.tp-when {
+  font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 6px; white-space: nowrap;
+  color: var(--c); background: color-mix(in srgb, var(--c) 10%, #ffffff);
+}
+.tp-when.late { color: #b91c1c; background: #fee2e2; }
+.tp-when.done { color: #059669; background: #d1fae5; }
+.tp-meta { grid-column: 2 / 4; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: #64748b; }
+.tp-code { flex: none; font-weight: 700; color: var(--c); }
+.tp-sum { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-me { flex: none; font-size: 11px; font-weight: 600; color: #64748b; background: #f8fafc; padding: 1px 7px; border-radius: 999px; }
+
+/* The chosen task */
+.tp-detail {
+  position: sticky; top: 12px; min-width: 0; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px;
+  padding: 20px; display: flex; flex-direction: column; gap: 16px;
+}
+.tp-d-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tp-cchip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 5px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 10%, #ffffff);
+}
+.tp-cchip i { width: 16px; height: 16px; border-radius: 5px; background: var(--c); }
+.tp-d-due { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: #64748b; }
+.tp-d-due.late { color: #b91c1c; }
+.tp-detail h2 { margin: 0; font-size: 1.35rem; font-weight: 800; line-height: 1.25; text-wrap: balance; }
+.tp-d-tags { margin-top: 8px; }
+.tp-d-by { margin: 6px 0 0; font-size: 12.5px; color: #64748b; }
+.tp-d-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tp-btn-done {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px 0 12px; border: 0; border-radius: 999px;
+  background: #2563eb; color: #ffffff; font-size: 13px; font-weight: 600; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+.tp-btn-done:hover { background: #1d4ed8; }
+.tp-btn-done.is-done { background: #d1fae5; color: #059669; box-shadow: none; }
+.tp-btn-done.is-done:hover { background: #a7f3d0; }
+.tp-btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border: 1px solid #e2e8f0;
+  border-radius: 999px; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600;
+}
+.tp-btn-ghost:hover { border-color: #cbd5e1; }
+.tp-d-sec h3 { margin: 0 0 8px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b; }
+.tp-d-summary { margin: 0; font-size: 14px; font-weight: 600; color: #334155; line-height: 1.5; }
+.tp-d-details { margin: 0; font-size: 14px; line-height: 1.65; color: #334155; white-space: pre-line; max-width: 68ch; }
+.tp-d-none { margin: 0; font-size: 13px; color: #94a3b8; font-style: italic; }
+.tp-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tp-files li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border-radius: 10px; background: #f8fafc; }
+.tp-f-ico { flex: none; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: #dbeafe; color: #2563eb; }
+.tp-f-ico.link { background: #ede9fe; color: #7c3aed; }
+.tp-f-text { flex: 1; min-width: 0; }
+.tp-f-text strong { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-f-text span { display: block; font-size: 11.5px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-f-btn {
+  flex: none; padding: 5px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;
+  color: #334155; font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.tp-f-btn.primary { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+.tp-f-btn:disabled { opacity: 0.6; cursor: default; }
+.tp-d-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 12px; color: #64748b; }
+.tp-d-folder b { color: #0f172a; font-weight: 600; }
+
+/* Wide screens: the list scrolls on its own (thin scrollbar, index.css .thin-scroll), down to
+   the window's bottom: 100vh minus the 70px top bar, this page's 28px top / 40px bottom
+   padding, and the counts and filter rows above it (about 110px). */
+@media (min-width: 1101px) {
+  .tp-list { max-height: calc(100vh - 70px - 68px - 110px); min-height: 300px; }
+}
+
+@media (max-width: 1100px) {
+  .tp-panes { grid-template-columns: minmax(0, 1fr); }
+  .tp-detail { position: static; }
+}
+
+@media (max-width: 600px) {
+  .tp-page { padding: 1rem; }
+  .tp-files li { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-item, .tp-strike, .tp-check { transition: none; }
+}

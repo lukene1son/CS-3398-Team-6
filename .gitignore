@@ -5,4 +5,7 @@ node_modules/
 *.crt
 *.csv
 npm-debug.log
+# Build output and deploy archives (the archive can hold uploads / user data)
+dist/
+*.tar.gz
 BuddyTech/Backend/uploads/

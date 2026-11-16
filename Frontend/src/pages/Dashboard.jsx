@@ -2,8 +2,8 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
   Search, Bell,
-  Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus} from 'lucide-react';
-import { getMyAssignments, getMyCourses, updateAssignmentStatus, createAssignment,
+  Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2} from 'lucide-react';
+import { getMyAssignments, getMyCourses, updateAssignmentStatus,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
     respondToFriendRequest, respondToGroupInvite, getActivity, markGroupRead,
     getLoginAttempts, decideLoginAttempt} from '../api';
@@ -14,8 +14,12 @@ import PartnerNotifications from '../components/PartnerNotifications';
 import CalendarView from './Calendar';
 import AITools from './AITools';
 import Resources from './Resources';
+import AssignmentsPage from './Assignments';
 import SettingsPage from './SettingsPage';
 import Avatar from '../components/Avatar';
+import AnimatedLogo from '../components/AnimatedLogo';
+import AddTaskModal from '../components/AddTaskModal';
+import { useTaskHoverCard } from '../components/useTaskHoverCard';
 // One colour per course: the Study Spaces card stripes, Recent Activity placards and Spaces course tabs.
 import { courseAccent } from '../courseColors';
 // AI Quick Actions icons: each animates while its row (.ai-action) is hovered.
@@ -211,29 +215,65 @@ function formatDue(value) {
 }
 
 // The sidebar's pages, top to bottom. The highlight slides to the active one.
+// Each has its own icon colour; on the active page's pill the icon turns white.
 const NAV_ITEMS = [
-  { id: 'home', label: 'Home', icon: Home },
-  { id: 'spaces', label: 'Spaces', icon: Users },
-  { id: 'planner', label: 'Planner', icon: Calendar },
-  { id: 'ai', label: 'AI Tools', icon: Sparkles },
-  { id: 'resources', label: 'Resources', icon: BookOpen },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'home', label: 'Home', icon: Home, color: '#2563eb' },
+  { id: 'spaces', label: 'Chat', icon: Users, color: '#c4b5fd' }, // the 'spaces' tab: course chats, groups, DMs
+  { id: 'assignments', label: 'Tasks', icon: CheckSquare, color: '#86efac' }, // the Assignments page
+  { id: 'planner', label: 'Planner', icon: Calendar, color: '#93c5fd' },
+  { id: 'ai', label: 'AI Tools', icon: Sparkles, color: '#5eead4' },
+  { id: 'resources', label: 'Resources', icon: BookOpen, color: '#fcd34d' },
+  { id: 'settings', label: 'Settings', icon: Settings, color: '#94a3b8' },
 ];
+const SIDEBAR_NAVY = '#0f172a'; // the main sidebar's background
+const NAV_TEXT = '#cbd5e1';     // a page's label when it isn't the active one
 const NAV_ROW = 44; // px: height of one sidebar button
 const NAV_GAP = 6;  // px: space between buttons
 
-const ACTIVITY_ASSIGNMENT_PREVIEW = 3; // Recent Activity assignments shown before "Show N more"
+const ACTIVITY_ASSIGNMENT_PREVIEW = 4; // Recent Activity assignments shown before "Show N more"
 const ACTIVITY_DAYS_BACK = 2;   // Recent Activity lists assignments due from the start of the day 2 days ago...
 const ACTIVITY_DAYS_AHEAD = 7;  // ...through the end of the day 7 days from now
-const MESSAGE_PREVIEW = 4; // Recent Activity messages shown before "Show N more"
-const ASSIGNMENT_PREVIEW = 8; // Current Tasks shown before "Show N more"
+// Whichever of Current Tasks and Recent Activity comes out shorter is stretched to line up
+// their bottoms (see Home's two-column grid); its "Show N more" centres in the extra grey.
+const MESSAGE_PREVIEW = 5; // Latest Messages shown before "Show N more"
+const ASSIGNMENT_PREVIEW = 7; // Current Tasks shown before "Show N more"
+
+// A row's place in Home's top-down grow-in (index.css, --grow-step). The first `preview`
+// rows go in order after `after` earlier rows; rows opened by "Show N more" count from 0
+// again, so they don't wait behind the ones already showing.
+function growStep(index, preview, after = 0) {
+  return index < preview ? after + index : index - preview;
+}
 
 // Home's sections (Study Spaces, Current Tasks, AI Quick Actions, Recent Activity) sit on
 // rounded grey panels, so the white items inside them stand out from the page.
 const PANEL = { background: '#e3e8ef', borderRadius: '18px', padding: '1.25rem' };
 // White items on a panel get a soft shadow instead of a border, which would blur into the grey.
 const ON_PANEL_SHADOW = '0 1px 2px rgba(15, 23, 42, 0.06)';
-const STALE_LATE_DAYS = 14;    // unfinished work this many days late drops off Home (it stays on the Planner page)
+// A Current Tasks row's file or link icon, shown when it has at least one: the hover card's
+// icon and colours (blue paperclip, purple link) on a small tile. The hover card gives the counts.
+const ATTACHMENT_STYLES = {
+  file: { Icon: Paperclip, color: '#2563eb', background: '#dbeafe', label: 'Has files' },
+  link: { Icon: Link2, color: '#7c3aed', background: '#ede9fe', label: 'Has links' }
+};
+function AttachmentBadge({ kind, count }) {
+  if (!(Number(count) > 0)) return null;
+  const { Icon, color, background, label } = ATTACHMENT_STYLES[kind];
+  return (
+    <span title={label} aria-label={label} style={{ display: 'grid', placeItems: 'center', flexShrink: 0, width: 26, height: 26, borderRadius: 7, background, color }}>
+      <Icon size={15} strokeWidth={2.2} aria-hidden="true" />
+    </span>
+  );
+}
+// The two pills under the Current Tasks heading (Add task, View all tasks): one height.
+const TASK_HEADER_BUTTON = {
+  display: 'inline-flex', alignItems: 'center', height: 34, border: 'none', borderRadius: 999,
+  font: 'inherit', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap'
+};
+// px: the Home heading's picture. With its 3px gradient ring and 3px white gap it is 80px
+// across, reaching almost down to the Study Spaces heading below it.
+const WELCOME_AVATAR = 68;
+const STALE_LATE_DAYS = 14;   // unfinished work this many days late drops off Home (it stays on the Planner page)
 
 // Study Spaces cards: at most 3 per row, sharing the left column's width (about 235px
 // each on a 1440px screen). The 180px floor drops them to 2, then 1, on narrow screens.
@@ -458,7 +498,7 @@ useEffect(() => {
   };
 }, [showNotifications, closing, closeNotifications]);
 
-  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [showAddTask, setShowAddTask] = useState(false);
   // Tasks playing the check-off animation. They stay on screen until it ends.
   const [leavingIds, setLeavingIds] = useState([]);
 
@@ -482,7 +522,7 @@ useEffect(() => {
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = sessionStorage.getItem('buddytechActiveTab');
 
-    return ['home', 'spaces', 'planner', 'ai', 'resources', 'settings'].includes(savedTab)
+    return ['home', 'spaces', 'assignments', 'planner', 'ai', 'resources', 'settings'].includes(savedTab)
       ? savedTab
       : 'home';
   });
@@ -500,6 +540,7 @@ useEffect(() => {
   const handleDashboardLogout = () => {
     sessionStorage.removeItem('buddytechActiveTab');
 
+    // App sends you to the landing page (App.jsx handleLogout).
     if (onLogout) {
       onLogout();
     }
@@ -601,67 +642,57 @@ useEffect(() => {
     ));
   };
 
-  // Un-marking from the Calendar (a premature or accidental check-off): back to 'todo'.
-  // Updated on screen first; put back to 'done' if the save fails.
-  const reopenTask = async (id) => {
+  // Checking off or un-marking from the Planner (a click on the task). No row animation
+  // there, so it changes on screen at once, and goes back if the save fails.
+  const setTaskDone = async (id, done) => {
     const before = tasks.find((task) => task.id === id);
     setTasks((current) => current.map((task) =>
-      task.id === id ? { ...task, status: 'todo', completed_at: null } : task
+      task.id === id
+        ? { ...task, status: done ? 'done' : 'todo', completed_at: done ? new Date().toISOString() : null }
+        : task
     ));
     try {
-      await updateAssignmentStatus(id, 'todo');
+      await updateAssignmentStatus(id, done ? 'done' : 'todo');
     } catch (error) {
       console.error(error);
       setTasks((current) => current.map((task) =>
-        task.id === id ? { ...task, status: 'done', completed_at: before?.completed_at ?? null } : task
+        task.id === id ? { ...task, status: before?.status ?? 'todo', completed_at: before?.completed_at ?? null } : task
       ));
     }
   };
 
-  const handleAddTask = async (e) => {
-    e.preventDefault();
+  // The hover cards' "See full description": the Assignments page, with that task selected
+  // (a new nonce each time, so the same task can be opened twice in a row).
+  const [assignmentFocus, setAssignmentFocus] = useState(null);
+  const openAssignment = (task) => {
+    openCount.current += 1;
+    setAssignmentFocus({ id: task.id, nonce: openCount.current });
+    changeTab('assignments');
+  };
+  const hoverCard = useTaskHoverCard({ courses, onOpen: openAssignment });
 
-    if (!newTaskTitle.trim()) return;
-
-    const course = courses[0];
-    if (!course) return; // user isn't in any course yet
-
-    // Due at the end of today (local time), so a new task doesn't show up already LATE.
-    const today = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const dueToday = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())} 23:59:00`;
-
-    try {
-      const created = await createAssignment({
-        course_id: course.id,
-        title: newTaskTitle,
-        description: 'Created from BuddyTech dashboard',
-        due_date: dueToday
-      });
-
-      setTasks((current) => [
-        ...current,
-        {
-          ...created,
-          course_code: course.course_code,
-          course_name: course.course_name,
-          due_date: dueToday
-        }
-      ]);
-
-      setNewTaskTitle('');
-    } catch (error) {
-      console.error(error);
-    }
+  // Called by the Add Task popup once the task exists (before its files finish uploading).
+  const handleTaskCreated = (created, course) => {
+    setTasks((current) => [
+      ...current,
+      { ...created, course_code: course.course_code, course_name: course.course_name }
+    ]);
   };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc', fontFamily: 'inherit' }}>
+      {activeTab === 'home' && hoverCard.card}
+      {showAddTask && (
+        <AddTaskModal courses={courses} onClose={() => setShowAddTask(false)} onCreated={handleTaskCreated} />
+      )}
       {/* Sidebar */}
-      <aside style={{ width: '240px', flexShrink: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: '1.5rem 1rem', position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2rem', paddingLeft: '0.5rem' }}>
-          <img src="/buddytech.webp" alt="Logo" style={{ height: '32px' }} onError={(e) => e.target.style.display='none'} />
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1d4ed8' }}>BuddyTech</h2>
+      {/* Navy sidebar (SIDEBAR_NAVY); the nav pill is BuddyTech blue (index.css .nav-pill). */}
+      {/* overflowX hidden: nothing in the sidebar may ever scroll it sideways. */}
+      <aside style={{ width: '240px', flexShrink: 0, overflowX: 'hidden', background: SIDEBAR_NAVY, borderRight: 'none', display: 'flex', flexDirection: 'column', padding: '1.5rem 1rem', position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}>
+        {/* The logo, as wide as the nav bubbles below it, its left edge lined up with the Home
+            bubble. Builds itself letter by letter when the page loads (AnimatedLogo.jsx). */}
+        <div style={{ marginBottom: '2rem' }}>
+          <AnimatedLogo white finishPulse={false} />
         </div>
 
         <nav style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: NAV_GAP, flex: 1 }}>
@@ -672,36 +703,64 @@ useEffect(() => {
             style={{ height: NAV_ROW, transform: `translateY(${activeIndex * (NAV_ROW + NAV_GAP)}px)` }}
           />
 
-          {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => changeTab(id)}
-              aria-current={activeTab === id ? 'page' : undefined}
-              style={{
-                position: 'relative', // keeps the button's text above the highlight
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                height: NAV_ROW,
-                padding: '0 1rem',
-                background: 'transparent',
-                color: activeTab === id ? '#1d4ed8' : '#64748b',
-                border: 'none',
-                borderRadius: '10px',
-                fontWeight: activeTab === id ? 600 : 400,
-                cursor: 'pointer',
-                textAlign: 'left'
-              }}
-            >
-              <Icon size={18} /> {label}
-            </button>
-          ))}
+          {NAV_ITEMS.map(({ id, label, icon: Icon, color }) => {
+            const active = activeTab === id;
+            // Spaces: a red dot while any chat has unread messages (same red as the bell's count).
+            const dot = id === 'spaces' && unreadTotal(notifications) > 0;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => changeTab(id)}
+                aria-current={active ? 'page' : undefined}
+                aria-label={dot ? `${label} (unread messages)` : undefined}
+                style={{
+                  position: 'relative', // keeps the button's text above the highlight
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  height: NAV_ROW,
+                  padding: '0 1rem',
+                  background: 'transparent',
+                  color: active ? '#ffffff' : NAV_TEXT, // white and bold once the pill is on it
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: active ? 700 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                <Icon size={18} color={active ? '#ffffff' : color} /> {label}
+                {dot && (
+                  <span aria-hidden="true" style={{ marginLeft: 'auto', width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+                )}
+              </button>
+            );
+          })}
         </nav>
 
+        {/* Profile chip: picture, name and email, just above Sign Out. Long text is cut off with "…".
+            A pill like the Recent Activity message bubbles (index.css .activity-message): 8px
+            round the avatar, extra right padding so the text clears the round end. Light grey,
+            since a white pill wouldn't show on the white sidebar. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '8px 18px 8px 8px', marginBottom: '0.75rem', background: '#f1f5f9', borderRadius: '999px', boxShadow: ON_PANEL_SHADOW }}>
+          <Avatar
+            name={displayName}
+            userId={user?.id}
+            color={user?.avatar_color}
+            hasAvatar={user?.has_avatar}
+            refreshKey={user?.avatar_refresh}
+            size={38}
+          />
+          <div style={{ fontSize: '0.85rem', minWidth: 0 }}>
+            <p style={{ fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</p>
+            <p title={user?.email} style={{ color: '#64748b', margin: 0, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email || "Student Account"}</p>
+          </div>
+        </div>
+
         {onLogout && (
-          <button onClick={handleDashboardLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
-            <LogOut size={16} /> Sign Out
+          <button onClick={handleDashboardLogout} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', background: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+            <LogOut size={16} color="#ffffff" /> Sign Out
           </button>
         )}
       </aside>
@@ -790,31 +849,27 @@ useEffect(() => {
     />
 )}
 </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Avatar
-                name={displayName}
-                userId={user?.id}
-                color={user?.avatar_color}
-                hasAvatar={user?.has_avatar}
-                refreshKey={user?.avatar_refresh}
-                size={38}
-              />
-              <div style={{ fontSize: '0.85rem' }}>
-                <p style={{ fontWeight: 600, margin: 0 }}>{displayName}</p>
-                <p style={{ color: '#64748b', margin: 0, fontSize: '0.75rem' }}>{user?.email || "Student Account"}</p>
-              </div>
-            </div>
           </div>
         </header>
 
         {/* Content Body */}
         {activeTab === 'spaces' ? (
-          <div style={{ padding: '2rem', flex: 1 }}>
+          // No padding: Spaces fills the whole area under the top bar (SpacesChat sizes itself).
+          <div style={{ flex: 1 }}>
             <SpacesChat user={user} unread={chatsUnread} groupChannelsUnread={groupChannelsUnread}
               coursesUnread={coursesUnread} openTarget={openTarget}
-              assignments={openTasks} onOpenPlanner={() => changeTab('planner')} />
+              />
           </div>
+        ) : activeTab === 'assignments' ? (
+          <AssignmentsPage
+            tasks={tasks}
+            courses={courses}
+            focus={assignmentFocus}
+            onCompleteTask={(id) => setTaskDone(id, true)}
+            onReopenTask={(id) => setTaskDone(id, false)}
+            onTaskCreated={(task) => setTasks((currentTasks) => [...currentTasks, task])}
+            onOpenCourseChat={openSpace}
+          />
         ) : activeTab === 'planner' ? (
           <CalendarView
             assignments={tasks}
@@ -822,7 +877,9 @@ useEffect(() => {
             onTaskCreated={(task) =>
               setTasks((currentTasks) => [...currentTasks, task])
             }
-            onReopenTask={reopenTask}
+            onCompleteTask={(id) => setTaskDone(id, true)}
+            onReopenTask={(id) => setTaskDone(id, false)}
+            onOpenAssignment={openAssignment}
           />
         ) : activeTab === 'ai' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
@@ -837,35 +894,66 @@ useEffect(() => {
              <SettingsPage user={user} onUserChange={onUserChange} />
           </div>
         ) : (
-        // Three rows: 1 welcome (full width); 2 the Study Spaces heading (left only);
-        // 3 cards + planner on the left, AI Quick Actions + Recent Activity on the right.
-        // The right column starts on row 3, so its top lines up with the first row of cards.
-        <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', columnGap: '2rem', alignItems: 'start' }}>
-          {/* Row 1: welcome */}
-          <div style={{ gridColumn: '1 / -1', marginBottom: '1.5rem' }}>
-            <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a' }}>
-              Welcome back, {displayName} 👋
-            </h1>
-            <p style={{ color: '#64748b', fontSize: '0.95rem' }}>Here is an overview of your active spaces and tasks.</p>
+        // Two columns: on the left, the welcome panel (welcome, then the progress band), the
+        // Study Spaces panel (heading and cards) and Current Tasks; on the right, AI Quick
+        // Actions, Latest Messages and Recent Activity, their top level with the welcome panel's.
+        // While no list is expanded, both columns stretch to the taller one's height and the
+        // bottom panels (Current Tasks, Recent Activity) grow to fill it, so their bottoms
+        // line up. Once a "Show N more" is open, each column is just as tall as its content,
+        // so the other panel doesn't grow a big empty space to match.
+        <div style={{ padding: '2rem 2rem 4rem', display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', columnGap: '2rem', alignItems: showAllTasks || showAllDueSoon || showAllMessages ? 'start' : 'stretch' }}>
+          {/* Left column */}
+          <div style={{ gridColumn: 1, gridRow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+           {/* Welcome panel: the welcome, then the progress band. */}
+           <div style={{ ...PANEL, marginBottom: '1.5rem' }}>
+          <div style={{ marginBottom: '1rem' }}>
+            {/* Picture on the left in a ring (the progress band's blue-to-purple gradient, then
+                a white gap), the text beside it, centred on it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span
+                aria-hidden="true"
+                style={{ display: 'flex', flexShrink: 0, padding: 3, borderRadius: '50%', background: 'linear-gradient(135deg, #2563eb, #7c3aed)', boxShadow: '0 2px 6px rgba(15, 23, 42, 0.12)' }}
+              >
+                <span style={{ display: 'flex', padding: 3, borderRadius: '50%', background: '#ffffff' }}>
+                  <Avatar
+                    name={displayName}
+                    userId={user?.id}
+                    color={user?.avatar_color}
+                    hasAvatar={user?.has_avatar}
+                    refreshKey={user?.avatar_refresh}
+                    size={WELCOME_AVATAR}
+                  />
+                </span>
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.15, margin: 0 }}>
+                  Welcome back, {displayName}{' '}
+                  {/* Waves once when Home opens (index.css .welcome-wave). ✋, not 👋: the 👋
+                      emoji has motion lines drawn into it, which would swing with the hand.
+                      Each SVG draws two arcs of our own, at the fingertips (top right) and the
+                      heel of the hand (bottom left), like 👋's; they ripple out with each swing. */}
+                  <span className="welcome-wave-wrap" aria-hidden="true">
+                    <span className="welcome-wave">✋</span>
+                    {['right', 'left'].map((side) => (
+                      <svg key={side} className={`welcome-wave-lines welcome-wave-lines--${side}`} viewBox="0 0 16 20" fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round">
+                        <path className="welcome-wave-line" d="M2 5 Q6.5 10 2 15" />
+                        <path className="welcome-wave-line welcome-wave-line--outer" d="M7 2 Q13.5 10 7 18" />
+                      </svg>
+                    ))}
+                  </span>
+                </h1>
+                <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.4, margin: 0 }}>Here is an overview of your active spaces and tasks.</p>
+              </div>
+            </div>
             {loadError && (
               <p role="alert" style={{ color: '#dc2626', fontSize: '0.9rem' }}>Couldn't load your data: {loadError}</p>
             )}
           </div>
 
-          {/* Row 2, left: the Study Spaces panel (heading, progress band, cards), then the
-              Current Tasks panel. */}
-          <div style={{ gridColumn: 1, gridRow: 2, minWidth: 0 }}>
-           <div style={{ ...PANEL, marginBottom: '1.5rem' }}>
-            {/* The heading is as wide as the card grid, so "+ Browse Spaces" sits over the third card. */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 id="study-spaces-heading" style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                <Users size={18} color="#2563eb" /> Study Spaces
-              </h3>
-              <span style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>+ Browse Spaces</span>
-            </div>
             {/* Progress band: overall progress, then one bar per course. The course bars use
-                the cards' grid (SPACE_GRID), so each sits right above its course's card.
-                Padding matches the cards' (1rem), so each bar starts where its card's text does. */}
+                the cards' grid (SPACE_GRID), so each lines up with its course's card in the
+                Study Spaces panel below. Padding matches the cards' (1rem), so each bar starts
+                where its card's text does. */}
             {(() => {
               const overall = assignmentProgress(tasks);
               return (
@@ -874,7 +962,7 @@ useEffect(() => {
                   // with the real numbers (not from 0 to 0 while still loading).
                   key={tasks.length > 0 ? 'loaded' : 'loading'}
                   aria-label="Assignment progress"
-                  style={{ marginBottom: '1rem', padding: '1rem 0', borderRadius: '14px', background: 'linear-gradient(90deg, #2563eb, #7c3aed)', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}
+                  style={{ padding: '1rem 0', borderRadius: '14px', background: 'linear-gradient(90deg, #2563eb, #7c3aed)', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}
                 >
                   <div style={{ padding: '0 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -910,8 +998,18 @@ useEffect(() => {
                 </section>
               );
             })()}
+           </div>
 
-            {/* Study Spaces: one card per course; clicking opens that course in Spaces. */}
+           {/* Study Spaces panel: the heading, then one card per course; clicking a card opens
+               that course in Spaces. */}
+           <div style={{ ...PANEL, marginBottom: '1.5rem' }}>
+            {/* The heading is as wide as the card grid, so "+ Browse Spaces" sits over the third card. */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 id="study-spaces-heading" style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <Users size={18} color="#2563eb" /> Study Spaces
+              </h3>
+              <span style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>+ Browse Spaces</span>
+            </div>
             <section aria-labelledby="study-spaces-heading">
               <div style={SPACE_GRID}>
               {courses.map((course) => {
@@ -970,59 +1068,65 @@ useEffect(() => {
             </section>
            </div>
 
-            {/* Current Tasks panel */}
-            <div style={{ ...PANEL, marginBottom: '2rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            {/* Current Tasks panel: grows to line up with Recent Activity's bottom (see above).
+                Its old 2rem gap below is now the page's bottom padding, so both columns end evenly.
+                A flex column, so "Show N more" can take the space left at the bottom. */}
+            <div style={{ ...PANEL, flex: 1, display: 'flex', flexDirection: 'column' }}>
+              {/* "Current Tasks" on the left; Add task (opens the popup) and View all tasks side by
+                  side on the right, on the heading's line. The pills share one height
+                  (TASK_HEADER_BUTTON). Wraps under the heading on narrow screens. */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', marginBottom: '1.25rem' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                   <Calendar size={18} color="#2563eb" /> Current Tasks
                 </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <button
                   type="button"
-                  onClick={() => changeTab('planner')}
-                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}
+                  className="add-task-button"
+                  onClick={() => setShowAddTask(true)}
+                  disabled={courses.length === 0}
+                  title={courses.length === 0 ? 'Join a Study Space to add tasks' : undefined}
+                >
+                  <Plus size={15} strokeWidth={2.6} /> Add task
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeTab('assignments')}
+                  style={{ ...TASK_HEADER_BUTTON, padding: '0 0.95rem', background: '#ffffff', color: '#2563eb', boxShadow: ON_PANEL_SHADOW }}
                 >
                   View all tasks →
                 </button>
+                </div>
               </div>
-
-              {/* Quick Add Demo Input */}
-              <form onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '1rem' }}>
-                <input 
-                  type="text" 
-                  placeholder="+ Add a new assignment or goal..."
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  style={{ flex: 1, padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '0.85rem' }}
-                />
-                <button type="submit" style={{ padding: '0.5rem 1rem', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
-                  Add
-                </button>
-              </form>
               {/* Tasks List: unfinished tasks, the first ASSIGNMENT_PREVIEW until expanded. Each row
                   brings its own 0.75rem gap (it closes with the row), and the -0.75rem cancels the last one. */}
               {openTasks.length === 0 ? (
                 <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>No pending tasks.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', marginBottom: '-0.75rem' }}>
-                  {visibleTasks.map((task) => {
+                  {visibleTasks.map((task, index) => {
                     const leaving = leavingIds.includes(task.id);
                     const late = task.due !== null && task.due < now; // past due and still not done
-                    // Its class's colour: a light tint, a stripe down the left, and the checkbox and course code.
+                    // Its class's colour: a stripe down the left, and the checkbox and course code.
                     const accent = courseAccent(courses, task.course_id);
                     return (
                       <div
                         key={task.id}
                         className={leaving ? 'task-row leaving' : 'task-row'}
+                        style={{ '--grow-step': growStep(index, ASSIGNMENT_PREVIEW) }}
                         onAnimationEnd={(event) => {
                           // The title and bubble animations bubble up here too; wait for the last step.
                           if (event.animationName === 'task-collapse') finishLeaving(task.id);
                         }}
                       >
                         <div className="task-row-inner">
-                          <div className="task-bubble" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: `color-mix(in srgb, ${accent} 7%, #ffffff)`, borderLeft: `4px solid ${accent}`, borderRadius: '10px', boxShadow: ON_PANEL_SHADOW }}>
+                          <div className="task-bubble" {...hoverCard.bind(task)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#ffffff', borderLeft: `4px solid ${accent}`, borderRadius: '10px', boxShadow: ON_PANEL_SHADOW }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                               <span
-                                onClick={() => completeTask(task.id, task.status)}
+                                onClick={() => {
+                                  hoverCard.close(); // the row is about to slide away under it
+                                  completeTask(task.id, task.status);
+                                }}
                                 style={{
                                   cursor: 'pointer',
                                   color: leaving ? '#10b981' : accent
@@ -1034,8 +1138,11 @@ useEffect(() => {
                                 }
                               </span>
                               <div>
-                                <p style={{ fontWeight: 600, margin: 0, color: '#1e293b' }}>
+                                {/* The title, then its file and link icons (if it has any) beside it. */}
+                                <p style={{ fontWeight: 600, margin: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
                                   <span className="task-title">{task.title}</span>
+                                  <AttachmentBadge kind="file" count={task.file_count} />
+                                  <AttachmentBadge kind="link" count={task.link_count} />
                                 </p>
                                   <p style={{ fontSize: '0.8rem', color: late ? '#b91c1c' : '#64748b', margin: 0 }}>
                                   <span style={{ color: accent, fontWeight: 700 }}>{task.course_code}</span> • {task.due ? `Due ${formatDue(task.due)}` : 'No due date'}
@@ -1059,23 +1166,28 @@ useEffect(() => {
                 </div>
               )}
 
-              {/* Same "Show N more" dropdown as Recent Activity. */}
+              {/* Same "Show N more" dropdown as Recent Activity, centred in the grey left below
+                  the tasks: the box takes the leftover height and centres the button in it.
+                  Its 1.25rem top padding matches the panel's bottom padding, so the space
+                  above and below the button come out equal. */}
               {hiddenTaskCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllTasks((shown) => !shown)}
-                  aria-expanded={showAllTasks}
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px', margin: '1.1rem auto 0', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
-                >
-                  {showAllTasks ? 'Show fewer' : `Show ${hiddenTaskCount} more`}
-                  <ChevronDown size={14} className={showAllTasks ? 'expand-chevron open' : 'expand-chevron'} />
-                </button>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: '1.25rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTasks((shown) => !shown)}
+                    aria-expanded={showAllTasks}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+                  >
+                    {showAllTasks ? 'Show fewer' : `Show ${hiddenTaskCount} more`}
+                    <ChevronDown size={14} className={showAllTasks ? 'expand-chevron open' : 'expand-chevron'} />
+                  </button>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Row 2, right: the AI Quick Actions and Recent Activity panels, level with Study Spaces */}
-          <div style={{ gridColumn: 2, gridRow: 2, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Right column: the AI Quick Actions and Recent Activity panels, level with the welcome panel */}
+          <div style={{ gridColumn: 2, gridRow: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={PANEL}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
@@ -1107,76 +1219,31 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* Recent Activity panel */}
+            {/* Latest Messages panel: the newest chats from course spaces, study groups and DMs,
+                above Recent Activity so they're easy to spot. */}
             <div style={PANEL}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <Clock size={16} color="#64748b" /> Recent Activity
+                  <MessageSquare size={16} color="#64748b" /> Latest Messages
                 </h3>
               </div>
-
-              {dueSoon.length === 0 && activity.messages.length === 0 && (
-                <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>Nothing new yet.</p>
-              )}
-
-              {/* Course assignments due from 2 days ago to 7 days ahead, as placards in their
-                  course's colour. Done = crossed out and grey; past due and not done = LATE. */}
-              {dueSoon.length > 0 && (
+              {activity.messages.length === 0 ? (
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>No messages yet.</p>
+              ) : (
                 <>
-                  <p className="activity-heading">Assignments due soon</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.1rem' }}>
-                    {visibleDueSoon.map((assignment) => {
-                      const done = assignment.status === 'done';
-                      // Done: late only if it was checked off after the due time.
-                      // Not done: late once the due time has passed.
-                      const finishedAt = assignment.completed_at ? new Date(assignment.completed_at) : null;
-                      const late = done ? finishedAt !== null && finishedAt > assignment.due : assignment.due < now;
-                      const accent = done ? '#cbd5e1' : courseAccent(courses, assignment.course_id);
-                      return (
-                        <button
-                          key={assignment.id}
-                          type="button"
-                          className={done ? 'activity-placard done' : 'activity-placard'}
-                          onClick={() => changeTab('planner')}
-                          style={{ borderLeft: `4px solid ${accent}` }}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', fontWeight: 700, color: done ? '#94a3b8' : accent }}>
-                            {assignment.course_code}
-                            {late && <span className="late-pill">LATE</span>}
-                          </span>
-                          {/* Inner span stays inline (flex children don't), so the line follows each wrapped line of text. */}
-                          <span style={{ fontWeight: 600, color: done ? '#94a3b8' : '#1e293b' }}>
-                            <span className="placard-title">{assignment.title}</span>
-                          </span>
-                          <span style={{ fontSize: '0.75rem', color: late ? '#b91c1c' : '#64748b' }}>Due {formatDue(assignment.due)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {hiddenDueSoonCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllDueSoon((shown) => !shown)}
-                      aria-expanded={showAllDueSoon}
-                      style={{ display: 'flex', alignItems: 'center', gap: '4px', margin: '-0.5rem auto 1.1rem', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
-                    >
-                      {showAllDueSoon ? 'Show fewer' : `Show ${hiddenDueSoonCount} more`}
-                      <ChevronDown size={14} className={showAllDueSoon ? 'expand-chevron open' : 'expand-chevron'} />
-                    </button>
-                  )}
-                </>
-              )}
-
-              {/* Latest chats from course spaces, study groups and DMs */}
-              {activity.messages.length > 0 && (
-                <>
-                  <p className="activity-heading">Latest messages</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {visibleMessages.map((message) => (
-                      <button
+                  {/* Grow-in rows (index.css .grow-in-row), first in the column's sequence;
+                      Recent Activity's placards carry on after them. */}
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {visibleMessages.map((message, index) => (
+                      <div
                         key={`${message.kind}-${message.id}`}
+                        className="grow-in-row"
+                        style={{ '--grow-step': growStep(index, MESSAGE_PREVIEW) }}
+                      >
+                      <div className="grow-in-cell">
+                      <button
                         type="button"
-                        className="activity-message"
+                        className="activity-message grow-in-item"
                         onClick={() => openActivityMessage(message)}
                       >
                         <Avatar
@@ -1201,17 +1268,91 @@ useEffect(() => {
                           </span>
                         </span>
                       </button>
+                      </div>
+                      </div>
                     ))}
                     {hiddenMessageCount > 0 && (
                       <button
                         type="button"
                         onClick={() => setShowAllMessages((shown) => !shown)}
-                        style={{ alignSelf: 'center', marginTop: '0.35rem', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+                        style={{ alignSelf: 'center', marginTop: '0.85rem', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
                       >
                         {showAllMessages ? 'Show fewer' : `Show ${hiddenMessageCount} more`}
                       </button>
                     )}
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* Recent Activity panel: grows to line up with Current Tasks' bottom (see above).
+                A flex column, so "Show N more" can take the space left at the bottom. */}
+            <div style={{ ...PANEL, flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <Clock size={16} color="#64748b" /> Recent Activity
+                </h3>
+              </div>
+
+              {dueSoon.length === 0 && (
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>Nothing due soon.</p>
+              )}
+
+              {/* Course assignments due from 2 days ago to 7 days ahead, as placards in their
+                  course's colour. Done = crossed out and grey; past due and not done = LATE. */}
+              {dueSoon.length > 0 && (
+                <>
+                  {/* Each placard in a grow-in row (index.css .grow-in-row), which also makes the
+                      0.5rem gaps between them. They carry on the sequence after the messages
+                      showing in Latest Messages above (at most MESSAGE_PREVIEW of them). */}
+                  <div>
+                    {visibleDueSoon.map((assignment, index) => {
+                      const done = assignment.status === 'done';
+                      // Done: late only if it was checked off after the due time.
+                      // Not done: late once the due time has passed.
+                      const finishedAt = assignment.completed_at ? new Date(assignment.completed_at) : null;
+                      const late = done ? finishedAt !== null && finishedAt > assignment.due : assignment.due < now;
+                      const accent = done ? '#cbd5e1' : courseAccent(courses, assignment.course_id);
+                      return (
+                        <div key={assignment.id} className="grow-in-row" style={{ '--grow-step': growStep(index, ACTIVITY_ASSIGNMENT_PREVIEW, Math.min(activity.messages.length, MESSAGE_PREVIEW)) }}>
+                        <div className="grow-in-cell">
+                        <button
+                          type="button"
+                          className={done ? 'activity-placard done grow-in-item' : 'activity-placard grow-in-item'}
+                          onClick={() => changeTab('planner')}
+                          style={{ borderLeft: `4px solid ${accent}` }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', fontWeight: 700, color: done ? '#94a3b8' : accent }}>
+                            {assignment.course_code}
+                            {late && <span className="late-pill">LATE</span>}
+                          </span>
+                          {/* Inner span stays inline (flex children don't), so the line follows each wrapped line of text. */}
+                          <span style={{ fontWeight: 600, color: done ? '#94a3b8' : '#1e293b' }}>
+                            <span className="placard-title">{assignment.title}</span>
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: late ? '#b91c1c' : '#64748b' }}>Due {formatDue(assignment.due)}</span>
+                        </button>
+                        </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Centred in the grey left below the placards, like Current Tasks' one: the
+                      box takes the leftover height and centres the button in it, and its
+                      1.25rem top padding matches the panel's bottom padding. */}
+                  {hiddenDueSoonCount > 0 && (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: '1.25rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowAllDueSoon((shown) => !shown)}
+                        aria-expanded={showAllDueSoon}
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+                      >
+                        {showAllDueSoon ? 'Show fewer' : `Show ${hiddenDueSoonCount} more`}
+                        <ChevronDown size={14} className={showAllDueSoon ? 'expand-chevron open' : 'expand-chevron'} />
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>

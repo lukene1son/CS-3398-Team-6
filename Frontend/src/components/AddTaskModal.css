@@ -1,0 +1,187 @@
+/* The Add Task popup (AddTaskModal.jsx). Same look as the dashboard: the panel gray
+   (#e3e8ef) with white cards inside, course-coloured chips, BuddyTech blue buttons. */
+
+.atm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 5vh 16px;
+  overflow-y: auto;
+}
+
+.atm {
+  width: min(580px, 100%);
+  background: #e3e8ef;
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: #0f172a;
+  animation: atm-pop 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes atm-pop { from { transform: scale(0.94); opacity: 0; } }
+
+.atm button { font: inherit; cursor: pointer; }
+.atm button:disabled { cursor: default; opacity: 0.6; }
+.atm button:focus-visible,
+.atm-drop:focus-within {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Header */
+.atm-head { display: flex; align-items: center; gap: 12px; }
+.atm-icon {
+  flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+  color: #ffffff; background: linear-gradient(135deg, #2563eb, #7c3aed);
+}
+.atm-head h2 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+.atm-head p { margin: 2px 0 0; font-size: 13px; color: #64748b; }
+.atm-close {
+  margin-left: auto; align-self: flex-start; width: 34px; height: 34px; border-radius: 10px; border: 0;
+  background: rgba(255, 255, 255, 0.6); color: #64748b; display: grid; place-items: center;
+}
+.atm-close:hover { background: #ffffff; color: #0f172a; }
+
+/* White cards */
+.atm-card {
+  background: #ffffff; border-radius: 14px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.atm-card-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #64748b;
+}
+.atm-tag {
+  text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 11px;
+  color: #7c3aed; background: #ede9fe; padding: 2px 8px; border-radius: 999px;
+}
+
+/* Fields */
+.atm-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.atm-field > span { font-size: 13px; font-weight: 600; }
+.atm-field small { font-weight: 400; color: #64748b; }
+.atm input[type="text"],
+.atm input[type="url"],
+.atm input[type="datetime-local"],
+.atm textarea {
+  font: inherit; font-size: 14px; color: #0f172a; background: #f8fafc; width: 100%; box-sizing: border-box;
+  border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.atm input:hover, .atm textarea:hover { border-color: #cbd5e1; }
+.atm input:focus, .atm textarea:focus {
+  background: #ffffff; border-color: #2563eb; outline: none; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+.atm textarea { resize: vertical; line-height: 1.5; }
+.atm .atm-invalid { border-color: #b91c1c; }
+.atm-error { margin: 0; color: #b91c1c; font-size: 12px; font-weight: 600; }
+.atm-counter { align-self: flex-end; margin-top: -6px; font-size: 11px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+/* Course chips: --c is the course's colour (courseColors.js) */
+.atm-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.atm-chip {
+  font-size: 13px; font-weight: 600; color: #0f172a; background: #f8fafc;
+  border: 2px solid transparent; border-radius: 12px; padding: 7px 12px 7px 7px;
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; text-align: left;
+}
+.atm-chip b {
+  flex: none; display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 4px;
+  box-sizing: border-box; border-radius: 8px; color: #ffffff; font-size: 10px;
+}
+.atm-chip[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 8%, #ffffff); }
+
+/* Just me / Whole course */
+.atm-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.atm-seg button {
+  text-align: left; border: 2px solid #e2e8f0; background: #ffffff; border-radius: 12px; padding: 10px 12px;
+  display: flex; gap: 10px; align-items: flex-start; color: #0f172a;
+}
+.atm-seg svg { flex: none; margin-top: 1px; color: #64748b; }
+.atm-seg strong { display: block; font-size: 13px; }
+.atm-seg small { display: block; font-size: 12px; color: #64748b; margin-top: 2px; }
+.atm-seg button[aria-pressed="true"] { border-color: #2563eb; background: #eff6ff; }
+.atm-seg button[aria-pressed="true"] svg { color: #2563eb; }
+
+/* Extra credit: a checkbox row that turns amber when on */
+.atm-extra {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  border: 2px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; background: #ffffff;
+}
+.atm-extra input { width: 16px; height: 16px; margin: 0; accent-color: #d97706; flex: none; }
+.atm-extra svg { flex: none; color: #94a3b8; }
+.atm-extra strong { display: block; font-size: 13px; }
+.atm-extra small { display: block; font-size: 12px; color: #64748b; margin-top: 2px; }
+.atm-extra.on { border-color: #f59e0b; background: #fffbeb; }
+.atm-extra.on svg { color: #d97706; fill: #fcd34d; }
+.atm-extra:focus-within { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+/* Due date + shortcuts */
+.atm-due { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.atm-due input { flex: 1 1 220px; width: auto !important; }
+.atm-quick {
+  font-size: 12px; font-weight: 600; color: #64748b; background: #ffffff;
+  border: 1px solid #e2e8f0; border-radius: 999px; padding: 5px 10px;
+}
+.atm-quick:hover { color: #2563eb; border-color: #2563eb; }
+
+/* Files and links */
+.atm-drop {
+  position: relative; display: block; text-align: center; cursor: pointer;
+  border: 2px dashed #94a3b8; border-radius: 12px; padding: 16px;
+  background: rgba(248, 250, 252, 0.8); color: #64748b; font-size: 13px;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.atm-drop:hover, .atm-drop.over { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+.atm-drop strong { color: #2563eb; }
+.atm-drop small { display: block; margin-top: 4px; font-size: 11px; color: #94a3b8; }
+.atm-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.atm-link-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+.atm-link-row button,
+.atm-ghost {
+  font-size: 13px; font-weight: 600; border: 1px solid #e2e8f0; background: #ffffff; color: #2563eb;
+  border-radius: 10px; padding: 0 14px; min-height: 40px;
+}
+.atm-attached { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.atm-attached li {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  background: #f8fafc; border-radius: 10px; padding: 8px 10px; font-size: 13px;
+}
+.atm-ico { flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #dbeafe; color: #2563eb; }
+.atm-ico.link { background: #ede9fe; color: #7c3aed; }
+.atm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.atm-meta { flex: none; color: #94a3b8; font-size: 12px; }
+.atm-attached button {
+  flex: none; width: 26px; height: 26px; border: 0; border-radius: 6px; background: none; color: #94a3b8;
+  display: grid; place-items: center;
+}
+.atm-attached button:hover { color: #b91c1c; background: #fee2e2; }
+.atm-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: #64748b; }
+.atm-folder b { color: #0f172a; font-weight: 600; }
+
+/* Footer */
+.atm-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.atm-who { margin-right: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; }
+.atm-ghost { color: #64748b; }
+.atm-primary {
+  font-size: 14px; font-weight: 600; color: #ffffff; background: #2563eb; border: 0; border-radius: 10px;
+  padding: 0 18px; min-height: 42px; box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.6);
+}
+.atm-primary:hover:not(:disabled) { background: #1d4ed8; }
+
+@media (max-width: 560px) {
+  .atm { padding: 16px; }
+  .atm-seg, .atm-link-row { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atm { animation: none; }
+}

@@ -9,6 +9,11 @@ const { Server } = require("socket.io");
 //   session:<id>  every socket of one sign-in session, so revoking it can disconnect them
 //   channel:<id>  a course channel; only people in that course can join
 //   group:<id>    a study group's chat; only people who can read it can join
+//
+// Presence ("Active now" on study partners' pictures, a study group's green dot and
+// "N online"): someone is online while they have at least one socket. When their first tab
+// connects or their last one closes, the people allowed to see it (their study partners and
+// the members of their study groups, and nobody else) get "presence-changed" { userId, online }.
 
 let io = null;
 
@@ -21,7 +26,21 @@ function toId(value) {
 // doesn't have to require the route files (they'll require this one in step 5).
 const TOUCH_EVERY_MS = 5 * 60 * 1000; // open sockets keep their session "active" (sessions.js)
 
-function initRealtime(httpServer, { canAccessChannel, getGroupAccess, verifySession, touchSession }) {
+// Is this user connected right now (any open tab)? In-memory, so it's instant.
+// (One server process; several would need a shared Socket.IO adapter.)
+function isOnlineNow(userId) {
+    return Boolean(io && io.sockets.adapter.rooms.get(`user:${userId}`)?.size);
+}
+
+function initRealtime(httpServer, { canAccessChannel, getGroupAccess, verifySession, touchSession, getPresenceWatchers }) {
+    // Tell the people who can see this user's presence that they came online or went
+    // offline. Best effort: a missed one catches up on the next friends / groups reload.
+    const announcePresence = (userId, online) => {
+        getPresenceWatchers(userId)
+            .then((ids) => ids.forEach((id) => emitTo(`user:${id}`, "presence-changed", { userId, online })))
+            .catch((error) => console.error("Couldn't send presence:", error.message));
+    };
+
     // Under /api so the Vite proxy and Docker setup that already forward /api also cover it.
     io = new Server(httpServer, { path: "/api/socket.io" });
 
@@ -46,6 +65,8 @@ function initRealtime(httpServer, { canAccessChannel, getGroupAccess, verifySess
         const userId = socket.data.userId;
         socket.join(`user:${userId}`);
         socket.join(`session:${socket.data.sessionId}`);
+        // Their first open tab: they've just come online.
+        if (io.sockets.adapter.rooms.get(`user:${userId}`)?.size === 1) announcePresence(userId, true);
 
         // Auth is only checked at connection time, so close the socket when its token
         // expires. (Revoked sessions are closed right away by disconnectSessions.)
@@ -60,6 +81,8 @@ function initRealtime(httpServer, { canAccessChannel, getGroupAccess, verifySess
         socket.on("disconnect", () => {
             clearTimeout(expiryTimer);
             clearInterval(touchTimer);
+            // That was their last open tab (this socket has already left its rooms).
+            if (!isOnlineNow(userId)) announcePresence(userId, false);
         });
 
         // join: { type: "channel" | "group", id }. Replies { ok: true } or { error }.
@@ -121,4 +144,4 @@ async function isUserOnline(userId) {
     return (await io.in(`user:${userId}`).fetchSockets()).length > 0;
 }
 
-module.exports = { initRealtime, emitTo, removeFromRoom, disconnectSessions, isUserOnline };
+module.exports = { initRealtime, emitTo, removeFromRoom, disconnectSessions, isUserOnline, isOnlineNow };

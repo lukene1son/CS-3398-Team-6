@@ -2,15 +2,37 @@ import { useEffect, useRef, useState } from "react";
 import { login, register, checkLoginAttempt } from "../api";
 import GoogleSignInButton from "./GoogleSignInButton";
 import CanvasSignInButton from "./CanvasSignInButton";
+import AnimatedLogo from "./AnimatedLogo";
 import "./Login.css";
 
-export default function Login({ onLogin }) {
-  const [mode, setMode] = useState("login"); // "login" or "register"
+// The logo heading every version of the card. It always sits in the same place in the tree
+// (the card's first child), so React keeps the same AnimatedLogo while you switch between
+// Sign In, Create Account and Waiting for approval: it builds itself once when the page
+// loads or is refreshed, and stays put after that.
+function LoginCard({ children }) {
+  return (
+    <main className="login-page">
+      <div className="login-card">
+        <h1 className="login-logo">
+          <AnimatedLogo finishPulse={false} />
+        </h1>
+        {children}
+      </div>
+    </main>
+  );
+}
+
+// initialMode: which screen to open on ("register" when coming from Get Started).
+export default function Login({ onLogin, initialMode = "login" }) {
+  const [mode, setMode] = useState(initialMode); // "login" or "register"
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // A wrong email or password: the password's text fades away ("fading"), then the
+  // field shakes ("shaking"). Each step's CSS animation ending moves to the next.
+  const [passwordFx, setPasswordFx] = useState(null);
 
   // A held sign-in waiting for the signed-in device to approve: { attemptId, pollSecret, message }
   const [waiting, setWaiting] = useState(null);
@@ -73,9 +95,25 @@ export default function Login({ onLogin }) {
       if (result.pending) setWaiting(result); // signed in elsewhere: wait for approval
       else if (onLogin) onLogin(result);
     } catch (err) {
-      setError(err.message);
+      setError(err.message); // stays on screen through (and after) the animation
+      // 401 = wrong email or password (the server doesn't say which).
+      if (!isRegister && err.status === 401) {
+        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        if (reducedMotion) setPassword("");
+        else setPasswordFx("fading");
+      }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // The fade has finished: empty the field, then shake it. The shake has finished: done.
+  function handlePasswordAnimationEnd(event) {
+    if (event.animationName === "password-text-fade") {
+      setPassword("");
+      setPasswordFx("shaking");
+    } else if (event.animationName === "password-shake") {
+      setPasswordFx(null);
     }
   }
 
@@ -86,9 +124,8 @@ export default function Login({ onLogin }) {
   }
   if (waiting) {
     return (
-      <main className="login-page">
-        <div className="login-card">
-          <h1>BuddyTech</h1>
+      <LoginCard>
+        <div className="login-body">
           <h2>Waiting for approval</h2>
           <p className="subtitle">{waiting.message}</p>
           <p className="subtitle">
@@ -99,14 +136,13 @@ export default function Login({ onLogin }) {
             Cancel
           </button>
         </div>
-      </main>
+      </LoginCard>
     );
   }
 
   return (
-    <main className="login-page">
-      <form className="login-card" onSubmit={handleSubmit}>
-        <h1>BuddyTech</h1>
+    <LoginCard>
+      <form className="login-body" onSubmit={handleSubmit}>
         <p className="subtitle">Your space to study together.</p>
 
         <h2>{isRegister ? "Create your account" : "Welcome back"}</h2>
@@ -140,6 +176,8 @@ export default function Login({ onLogin }) {
           id="password"
           type="password"
           placeholder={isRegister ? "At least 8 characters" : "Enter your password"}
+          className={passwordFx ? `password-${passwordFx}` : undefined}
+          onAnimationEnd={handlePasswordAnimationEnd}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           minLength={isRegister ? 8 : undefined}
@@ -163,6 +201,6 @@ export default function Login({ onLogin }) {
           </a>
         </p>
       </form>
-    </main>
+    </LoginCard>
   );
 }

@@ -103,7 +103,7 @@ Make sure the MySQL service is running (Windows: Services → `MySQL80` → Star
 
 These scripts use Node + `mysql2`, so you don't need the `mysql` command-line client on your PATH. (If you prefer, you can still run `database/schema.sql` then `database/seed.sql` in MySQL Workbench, but then the demo files won't be copied.)
 
-Expected `db:verify` (with seed data) output: users 11, courses 2, course_members 14, channels 4, messages 3, assignments 18, assignment_progress 1, course_resources 10.
+Expected `db:verify` (with seed data) output: users 11, courses 2, course_members 14, channels 4, messages 3, assignments 24, assignment_progress 1, course_resources 19.
 
 The seed data also loads friend_requests 5, study_groups 5 (one private), study_group_members 14, study_group_invites 2, study_group_messages 5, and direct_messages 2 (`db:verify` doesn't count these). Every seeded account uses the password `password123`; see the root README for the list.
 
@@ -143,6 +143,9 @@ Current migrations:
 | `020_assignment_completed_at.sql` | `assignment_progress.completed_at` (when a task was checked off, for the LATE label) |
 | `021_user_sessions.sql` | `user_sessions` (one row per signed-in device; the login token's `jti` is its id). Older tokens have no session, so everyone signs in again once |
 | `022_login_attempts.sql` | `login_attempts` (sign-ins held for approval; secrets stored only as SHA-256 hashes) |
+| `024_assignment_details.sql` | `assignments.details` (the longer write-up, only sent by `GET /api/assignments/:id`) |
+| `025_resource_assignment.sql` | `course_resources.assignment_id` (files and links attached to an assignment; deleted with it) |
+| `026_assignment_grading.sql` | `assignments.grading` (`graded` / `participation`) and `assignments.extra_credit`, set by the teacher or TA who posts it |
 
 `migrate.js` treats "already exists" errors (duplicate column, table, or key) as already applied, so a database built from a newer `schema.sql` just marks those migrations as done.
 
@@ -203,9 +206,9 @@ Every route mounted after `app.use("/api", requireAuth)` in `server.js` requires
 
 **Courses ("Study Spaces"):** only members of a course can see its channels, messages, members, assignments, and resources.
 
-**Assignments:** TAs and teachers can post assignments for the whole course; anyone can add a personal task that only they see.
+**Assignments:** TAs and teachers can post assignments for the whole course; only teachers can edit or delete them. Anyone can add a personal task that only they see (and only they can edit or delete). Deleting an assignment also deletes its attached files and links.
 
-**Resources:** everyone in the course can list them and download files. Only the course's **teachers** can add or delete them (to let TAs manage them too, add `"ta"` to `MANAGER_ROLES` in `resources.js`). Files are stored under random names and are always sent back as downloads, never shown inline. Up to 20 MB; allowed types are PDF, plain text, images, Office documents, zip, and common source-code extensions (stored as plain text).
+**Resources:** everyone in the course can list them and download files. Teachers and TAs can add them (`UPLOAD_ROLES` in `resources.js`); only teachers can delete them (`DELETE_ROLES`). Files and links added to a course-wide assignment are listed with its `assignment_id` and `assignment_title`, so the Resources page can show them in a folder named after it. Files are stored under random names and are always sent back as downloads, never shown inline. Up to 20 MB; allowed types are PDF, plain text, images, Office documents, zip, and common source-code extensions (stored as plain text).
 
 **Study partners:**
 
@@ -380,7 +383,10 @@ Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback
 - `GET /api/courses/:id/members`: everyone in the course, teachers and TAs first
 - `GET /api/channels/:id/messages`: also marks the channel as read for you; `POST /api/channels/:id/messages` (`{ content }`; the author is the logged-in user)
 - `GET /api/me/assignments`: includes `status` and `completed_at` (UTC, when you checked it off)
-- `POST /api/assignments` (`{ course_id, title, description?, due_date, personal? }`): also pushed to linked Google Calendars
+- `POST /api/assignments` (`{ course_id, title, description?, details?, grading?, extra_credit?, due_date, personal? }`): also pushed to linked Google Calendars. `description` up to 5,000 characters, `details` up to 20,000. `grading` is `graded` (the default) or `participation`; it and `extra_credit` only apply to course assignments
+- `GET /api/assignments/:id`: one assignment with `details` and `resources` (its attached files and links)
+- `PATCH /api/assignments/:id` (`{ title?, description?, details?, due_date? }`): only the fields sent change; `null` or `""` clears `description`/`details`. Course-wide: teachers only; personal: its owner
+- `DELETE /api/assignments/:id`: same permissions as `PATCH`; also deletes its attached files and links. Returns `{ id, deleted, files_deleted }`
 - `PATCH /api/assignments/:id/status` (`{ status }`: `todo`, `in_progress`, or `done`): `completed_at` is set when it becomes `done` and cleared when it stops being done
 
 **Study partners** (`routes/friends.js`)
@@ -433,9 +439,10 @@ Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback
 
 **Resources** (`routes/resources.js`)
 
-- `GET /api/courses/:id/resources`: the course's resources, newest first
-- `POST /api/courses/:id/resources` (`{ title, url }`): teachers only; adds a link (`http://` or `https://`)
-- `POST /api/courses/:id/resources/file` (multipart: `file`, `title?`): teachers only; up to 20 MB
+- `GET /api/courses/:id/resources`: the course's resources, newest first, each with `assignment_id` / `assignment_title` (null when not attached to one)
+- `POST /api/courses/:id/resources` (`{ title, url }`): teachers and TAs; adds a link (`http://` or `https://`)
+- `POST /api/courses/:id/resources/file` (multipart: `file`, `title?`): teachers and TAs; up to 20 MB
+- `POST /api/assignments/:id/resources` and `POST /api/assignments/:id/resources/file`: the same, attached to a course-wide assignment (not personal tasks)
 - `GET /api/resources/:id/file`: download a file (course members only)
 - `DELETE /api/resources/:id`: teachers of the course only; also deletes the file
 

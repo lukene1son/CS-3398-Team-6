@@ -1,16 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
   Clock,
   ChevronDown,
-  X
+  ArrowDown
 } from 'lucide-react';
 import { courseAccent } from '../courseColors';
+import { easeScrollBy } from '../smoothScroll';
+import { useTaskHoverCard } from '../components/useTaskHoverCard';
+import AddTaskModal from '../components/AddTaskModal';
 
 import {
-  createAssignment,
   getGoogleCalendarStatus,
   getGoogleCalendarConnectUrl,
   syncGoogleCalendar,
@@ -18,15 +20,45 @@ import {
 } from '../api';
 import './Calendar.css';
 
-const STAFF_ROLES = ['teacher', 'ta'];
-
+// The side Tasks list's grow-in: rows after this many all start together.
+const TASK_GROW_MAX_STEP = 8;
 const syncedText = (count) =>
   `Synced ${count} assignment${count === 1 ? '' : 's'} to Google Calendar.`;
 
-  // Month-cell layout: DAY_TRACK px stand for 24 hours.
-const EVENT_HEIGHT = 36;
+// Month-cell layout: DAY_TRACK px stand for 24 hours, so a task sits about where its due
+// time falls in the day. Sized for the shorter cells that let the whole month fit in the
+// window (Calendar.css, wide screens); a day with more tasks than fit scrolls in its cell.
+const EVENT_HEIGHT = 34;
 const EVENT_GAP = 4;
-const DAY_TRACK = 120;
+const DAY_TRACK = 72;
+// A day with this many tasks or more stacks them like folders in a file cabinet (only each
+// one's title strip shows); hovering the day spreads them out (Calendar.css .day-stack).
+const STACK_FROM = 3;
+
+// Scrolling over the month changes it: down goes back a month, up goes forward. The scroll
+// pulls the month (and its name) sideways against growing resistance (pullCurve); past
+// MONTH_SCROLL_RELEASE px it lets go and the neighbouring month slides the rest of the way
+// in. Stopping early springs it back. See the month gesture in the component.
+const MONTH_SCROLL_RELEASE = 400; // px of wheel scrolling to change month (about 4 mouse notches)
+const MONTH_PULL_MAX = 0.2;       // how far the month has moved at the release point (share of its width)
+const MONTH_PULL_STIFFNESS = 1.8; // how quickly the resistance builds (higher: stiffer sooner)
+const MONTH_RETURN_AFTER = 160;   // ms with no scrolling before an unfinished pull springs back
+const MONTH_QUIET_UNLOCK = 220;   // ms with no scrolling after a change before the next one can start,
+                                  // so the rest of one swipe (trackpad momentum) moves only one month
+const MONTH_RELEASE_MS = 280;     // the slide into the new month
+const MONTH_RETURN_MS = 300;      // the spring back
+const MONTH_HEIGHT_MS = 250;      // narrow screens: the card easing to a 5- or 6-week month's height
+// 0..1 scrolled toward the release point -> 0..1 of MONTH_PULL_MAX: quick at first, then
+// each bit of scrolling moves it less (the tension).
+const pullCurve = (p) =>
+  (1 - Math.exp(-MONTH_PULL_STIFFNESS * p)) / (1 - Math.exp(-MONTH_PULL_STIFFNESS));
+const easeOutQuart = (t) => 1 - (1 - t) ** 4;
+const easeOutBack = (t) => {
+  const s = 1.4; // a slight bounce past the resting spot
+  const u = t - 1;
+  return u * u * ((s + 1) * u + s) + 1;
+};
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // The API sends "2026-10-01T23:59:00"; a freshly created task comes back as
 // "2026-10-01 23:59:00". Swapping the space for "T" makes both standard.
@@ -48,22 +80,32 @@ export default function Calendar({
   assignments = [],
   courses = [],
   onTaskCreated,
-  onReopenTask
+  onCompleteTask,
+  onReopenTask,
+  onOpenAssignment
 }) {
-  // A done assignment can be clicked (or Enter/Space) to un-mark it, for a check-off
-  // made too early or by accident. Returns nothing for assignments that aren't done.
-  const reopenProps = (assignment) => {
-    if (assignment.status !== 'done' || !onReopenTask) return {};
-    const reopen = () => onReopenTask(assignment.id);
+  // Hovering a task (in the month grid or the Tasks list) shows its summary card.
+  const hoverCard = useTaskHoverCard({ courses, onOpen: onOpenAssignment });
+
+  // Clicking a task (or Enter/Space on it) checks it off, or un-marks it if it's done.
+  // Plus the hover card's handlers, so one spread gives a task element both.
+  const taskProps = (assignment) => {
+    const done = assignment.status === 'done';
+    // Closes the card first: it would still describe the task as it was before the click.
+    const toggle = () => {
+      hoverCard.close();
+      (done ? onReopenTask : onCompleteTask)?.(assignment.id);
+    };
     return {
+      ...hoverCard.bind(assignment),
       role: 'button',
       tabIndex: 0,
-      title: `${assignment.title}: done. Click to mark as not done.`,
-      onClick: reopen,
+      'aria-label': `${assignment.title}: ${done ? 'done. Click to mark as not done.' : 'click to mark as done.'}`,
+      onClick: toggle,
       onKeyDown: (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault(); // stop Space from scrolling the page
-          reopen();
+          toggle();
         }
       }
     };
@@ -74,13 +116,8 @@ export default function Calendar({
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
 
+  // The Add Task popup, the same one the dashboard opens (components/AddTaskModal.jsx).
   const [showAddTask, setShowAddTask] = useState(false);
-  const [title, setTitle] = useState('');
-  const [courseId, setCourseId] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [forWholeCourse, setForWholeCourse] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState('');
 
   // Google Calendar sync. After the consent page, the backend sends the browser
   // back here with ?google_calendar=connected | denied | error.
@@ -173,33 +210,39 @@ export default function Calendar({
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
 
-  const monthName = viewDate.toLocaleString('default', {
-    month: 'long',
-    year: 'numeric'
-  });
+  const monthLabel = (y, m) =>
+    new Date(y, m, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+  const monthName = monthLabel(year, month);
+  // The months either side, shown sliding in while you scroll between months.
+  const prevMonth = new Date(year, month - 1, 1);
+  const nextMonth = new Date(year, month + 1, 1);
 
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const calendarCells = [
-    ...Array(firstWeekday).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, index) => index + 1)
-  ];
+  // A month's day cells, a week to a row: null for the blanks before the 1st and after the last day.
+  const cellsFor = (y, m) => {
+    const cells = [
+      ...Array(new Date(y, m, 1).getDay()).fill(null),
+      ...Array.from({ length: new Date(y, m + 1, 0).getDate() }, (_, index) => index + 1)
+    ];
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  };
 
-  while (calendarCells.length % 7 !== 0) {
-    calendarCells.push(null);
-  }
+  // Every task with a due date, with it parsed (`due`).
+  const datedAssignments = assignments
+    .filter((assignment) => assignment.due_date)
+    .map((assignment) => ({ ...assignment, due: parseDue(assignment.due_date) }));
 
-  const assignmentsForDay = (day) => {
+  const assignmentsForDay = (y, m, day) => {
   if (!day) return [];
 
-  const dayAssignments = assignments
-    .filter((assignment) => assignment.due_date)
-    .map((assignment) => ({ ...assignment, due: parseDue(assignment.due_date) }))
+  const dayAssignments = datedAssignments
     .filter(
       ({ due }) =>
-        due.getFullYear() === year &&
-        due.getMonth() === month &&
+        due.getFullYear() === y &&
+        due.getMonth() === m &&
         due.getDate() === day
     )
     .sort((a, b) => a.due - b.due);
@@ -216,153 +259,342 @@ export default function Calendar({
   });
 };
 
-  const previousMonth = () => {
-    setViewDate(new Date(year, month - 1, 1));
-  };
-
-  const nextMonth = () => {
-    setViewDate(new Date(year, month + 1, 1));
-  };
-
-  // Side list: every assignment, grouped by class (in the order of `courses`), each
-  // class soonest due first with no due date last. Each class collapses on its own.
-  const byDue = (a, b) => {
-    if (!a.due_date || !b.due_date) return !a.due_date - !b.due_date; // missing one goes after
-    return parseDue(a.due_date) - parseDue(b.due_date);
+  // Side list: the shown month's tasks, grouped by class (in the class's colour, as on the
+  // calendar), each class soonest due first. Each class collapses on its own. Tasks with no
+  // due date aren't in any month, so they're not listed here.
+  const monthTasks = datedAssignments
+    .filter(({ due }) => due.getFullYear() === year && due.getMonth() === month)
+    .sort((a, b) => a.due - b.due);
+  // Inside a class, its tasks are split by the month's weeks (the calendar's rows, Sunday to
+  // Saturday, cut to this month's days), each run under a gray "Week 2 · Nov 8 – 14" label.
+  const shortDate = (day) => new Date(year, month, day).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const weekOfMonth = (date) => Math.floor((date.getDate() - 1 + firstWeekday) / 7); // 0 = first row
+  const weekLabel = (n) => {
+    const start = n === 0 ? 1 : n * 7 - firstWeekday + 1;
+    const end = Math.min(daysInMonth, (n + 1) * 7 - firstWeekday);
+    return `Week ${n + 1} · ${start === end ? shortDate(start) : `${shortDate(start)} – ${end}`}`;
   };
   const assignmentGroups = courses
-    .map((course) => ({
-      course,
-      accent: courseAccent(courses, course.id),
-      items: assignments.filter((assignment) => assignment.course_id === course.id).sort(byDue)
-    }))
-    .filter((group) => group.items.length > 0);
-  const [collapsedCourses, setCollapsedCourses] = useState({}); // { [courseId]: true } = closed
-  const toggleCourse = (id) => setCollapsedCourses((prev) => ({ ...prev, [id]: !prev[id] }));
-
-  const resetForm = () => {
-    setTitle('');
-    setCourseId('');
-    setDueDate('');
-    setForWholeCourse(false);
-    setFormError('');
-  };
-
-  // Only teachers/TAs of the chosen course may post a course-wide assignment.
-  const selectedCourseForForm = courses.find((course) => course.id === Number(courseId));
-  const canPostForCourse = STAFF_ROLES.includes(selectedCourseForForm?.role);
-
-  const closeModal = () => {
-    resetForm();
-    setShowAddTask(false);
-  };
-
-  const handleCreateTask = async (event) => {
-    event.preventDefault();
-
-    if (!title.trim() || !courseId || !dueDate) {
-      setFormError('Course, title, and due date are required.');
-      return;
-    }
-
-    setSaving(true);
-    setFormError('');
-
-    try {
-      // api.js attaches the login token; without it the backend returns 401.
-      // personal: true -> only this user sees it. false -> whole course (staff only).
-      const created = await createAssignment({
-        course_id: Number(courseId),
-        title: title.trim(),
-        description: 'Created from BuddyTech Planner',
-        due_date: `${dueDate.replace('T', ' ')}:00`,
-        personal: !(canPostForCourse && forWholeCourse)
-      });
-
-      const selectedCourse = courses.find(
-        (course) => course.id === Number(courseId)
-      );
-
-      const enrichedTask = {
-        ...created,
-        course_code: selectedCourse?.course_code || '',
-        course_name: selectedCourse?.course_name || ''
+    .map((course) => {
+      const weeks = [];
+      monthTasks
+        .filter((assignment) => assignment.course_id === course.id)
+        .forEach((assignment) => {
+          const n = weekOfMonth(assignment.due);
+          if (weeks.at(-1)?.n !== n) weeks.push({ n, label: weekLabel(n), items: [] });
+          weeks.at(-1).items.push(assignment);
+        });
+      return {
+        course,
+        accent: courseAccent(courses, course.id),
+        weeks,
+        count: weeks.reduce((total, week) => total + week.items.length, 0)
       };
+    })
+    .filter((group) => group.count > 0);
+  // { [courseId]: true } = closed; 'reopened' = opened again after closing, so its rows grow
+  // in from the top of the class, not after every row above it (see the side list).
+  const [collapsedCourses, setCollapsedCourses] = useState({});
+  const toggleCourse = (id) =>
+    setCollapsedCourses((prev) => ({ ...prev, [id]: prev[id] === true ? 'reopened' : true }));
 
-      if (onTaskCreated) {
-        onTaskCreated(enrichedTask);
+  // "Scroll for more": shown while the side list has more below what's in view.
+  // Checked on scroll, and whenever the list's contents change (tasks load, a class opens or
+  // closes, another month is shown).
+  const taskListRef = useRef(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const checkMoreBelow = useCallback(() => {
+    const list = taskListRef.current;
+    setMoreBelow(Boolean(list) && list.scrollHeight - list.scrollTop - list.clientHeight > 4);
+  }, []);
+  useEffect(() => {
+    checkMoreBelow();
+    window.addEventListener('resize', checkMoreBelow);
+    return () => window.removeEventListener('resize', checkMoreBelow);
+  }, [checkMoreBelow, assignments, collapsedCourses, viewDate]);
+  // Another month: its list starts at the top.
+  useEffect(() => {
+    if (taskListRef.current) taskListRef.current.scrollTop = 0;
+  }, [viewDate]);
+
+  // ---- The month gesture (see MONTH_SCROLL_RELEASE) ----
+  // While it plays, the shown month sits on a track between the months either side
+  // (`peeking`: only rendered then). Each frame moves the track and the "Month Year" label
+  // straight in the DOM (paintMonths), not through React. `frac` is how far they've moved,
+  // in widths: + = right (toward the previous month), - = left (toward the next).
+  const monthCardRef = useRef(null);
+  const sliderRef = useRef(null);     // clips the months; on narrow screens its height eases after a change
+  const trackRef = useRef(null);      // the shown month and its neighbours: the part that moves
+  const labelTrackRef = useRef(null); // the same for the month's name
+  const stepMonthRef = useRef(null);  // the arrows and arrow keys: (-1 | 1) => slide to that month
+  const [peeking, setPeeking] = useState(false);
+  const gesture = useRef({
+    phase: 'idle',        // 'idle' | 'pull' | 'return' (springing back) | 'release' (sliding to the next month)
+    pull: 0,              // px scrolled this gesture: + toward the next month, - toward the previous
+    frac: 0,
+    tween: null,          // a timed move: { from, to, start, ms, ease, done }
+    lastWheel: -Infinity, // when the last scroll arrived (performance.now())
+    locked: false,        // after a change: ignore scrolling until it goes quiet
+    frame: 0,             // the pending animation frame
+    settle: false,        // a change is committing: put the track back once the new month is drawn
+    fromHeight: null      // the slider's height before the change
+  });
+
+  // The track and label at `frac`; at 0, cleared, so nothing is left transformed at rest.
+  // The label's names fade with distance from the middle.
+  const paintMonths = useCallback((frac) => {
+    const transform = frac === 0 ? '' : `translateX(${frac * 100}%)`;
+    if (trackRef.current) trackRef.current.style.transform = transform;
+    const labels = labelTrackRef.current;
+    if (!labels) return;
+    labels.style.transform = transform;
+    labels.querySelectorAll('[data-offset]').forEach((label) => {
+      const pos = Number(label.dataset.offset) + frac;
+      label.style.opacity = frac === 0 ? '' : String(Math.max(0, 1 - Math.abs(pos) * 1.15));
+    });
+  }, []);
+
+  useEffect(() => {
+    const card = monthCardRef.current;
+    const g = gesture.current;
+    if (!card) return undefined;
+
+    const startLoop = () => {
+      if (!g.frame) g.frame = requestAnimationFrame(frame);
+    };
+
+    // Slide to the month `dir` away (-1 back, 1 forward), from wherever the pull left it.
+    // When the slide ends, the new month is committed and the layout effect below puts the
+    // track back at 0 in the same paint, so nothing jumps.
+    const release = (dir) => {
+      if (g.phase === 'release') return;
+      g.phase = 'release';
+      g.locked = true;
+      g.tween = null;
+      const finish = () => {
+        g.phase = 'idle';
+        g.pull = 0;
+        g.settle = true;
+        g.fromHeight = sliderRef.current?.offsetHeight ?? null;
+        setPeeking(false);
+        setViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + dir, 1));
+      };
+      if (prefersReducedMotion()) {
+        finish();
+        return;
       }
+      setPeeking(true);
+      g.tween = { from: g.frac, to: -dir, start: performance.now(), ms: MONTH_RELEASE_MS, ease: easeOutQuart, done: finish };
+      startLoop();
+    };
+    stepMonthRef.current = release;
 
-      const createdDate = new Date(created.due_date);
+    const springBack = () => {
+      g.phase = 'return';
+      g.pull = 0;
+      g.tween = {
+        from: g.frac, to: 0, start: performance.now(), ms: MONTH_RETURN_MS, ease: easeOutBack,
+        done: () => {
+          g.phase = 'idle';
+          g.frac = 0;
+          paintMonths(0);
+          setPeeking(false);
+        }
+      };
+    };
 
-      if (!Number.isNaN(createdDate.getTime())) {
-        setViewDate(
-          new Date(
-            createdDate.getFullYear(),
-            createdDate.getMonth(),
-            1
-          )
-        );
+    function frame(now) {
+      g.frame = 0;
+      if (g.tween) {
+        const t = Math.min(1, (now - g.tween.start) / g.tween.ms);
+        g.frac = g.tween.from + (g.tween.to - g.tween.from) * g.tween.ease(t);
+        paintMonths(g.frac);
+        if (t >= 1) {
+          const { done } = g.tween;
+          g.tween = null;
+          done();
+        }
+      } else if (g.phase === 'pull') {
+        // Follows the pull through pullCurve, eased a little so a mouse's separate notches glide.
+        const target = prefersReducedMotion()
+          ? 0
+          : -Math.sign(g.pull) * MONTH_PULL_MAX * pullCurve(Math.abs(g.pull) / MONTH_SCROLL_RELEASE);
+        g.frac += (target - g.frac) * 0.3;
+        paintMonths(g.frac);
+        if (now - g.lastWheel > MONTH_RETURN_AFTER) springBack();
       }
-
-      closeModal();
-    } catch (error) {
-      setFormError(error.message);
-    } finally {
-      setSaving(false);
+      if (g.locked && g.phase === 'idle' && now - g.lastWheel > MONTH_QUIET_UNLOCK) g.locked = false;
+      if (g.tween || g.phase !== 'idle' || g.locked) startLoop();
     }
+
+    const onWheel = (event) => {
+      if (event.ctrlKey || event.defaultPrevented) return;          // pinch-zoom stays with the browser
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;  // sideways scrolling too
+      if (g.phase === 'idle' && !g.locked) {
+        // Only while the whole month is in view: otherwise the page needs the wheel to scroll.
+        const rect = card.getBoundingClientRect();
+        if (rect.top < -1 || rect.bottom > window.innerHeight + 1) return;
+        // A day too full for its cell scrolls inside it, as before.
+        const day = event.target.closest?.('.calendar-day');
+        if (day && day.scrollHeight > day.clientHeight + 1) return;
+      }
+      // Taken: smoothScroll.js skips a wheel event that's already been handled.
+      event.preventDefault();
+      g.lastWheel = performance.now();
+      if (g.locked || g.phase === 'release') return; // the rest of a swipe that already changed month
+      const px = event.deltaY * (event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1);
+      if (!px) return;
+      if (g.phase === 'return') g.tween = null;       // caught mid spring-back: pull from there
+      if (g.phase === 'idle') setPeeking(true);
+      g.phase = 'pull';
+      g.pull -= px;                                   // down (+deltaY) pulls toward the previous month
+      if (Math.abs(g.pull) >= MONTH_SCROLL_RELEASE) release(Math.sign(g.pull));
+      else startLoop();
+    };
+
+    card.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      card.removeEventListener('wheel', onWheel);
+      cancelAnimationFrame(g.frame);
+      g.frame = 0;
+    };
+  }, [paintMonths]);
+
+  // A change committed: the new month is drawn where the old one was, so put the track back
+  // at 0 before this paint. On narrow screens a 5- and 6-week month differ in height: ease
+  // the card between them.
+  useLayoutEffect(() => {
+    const g = gesture.current;
+    if (!g.settle) return;
+    g.settle = false;
+    g.frac = 0;
+    paintMonths(0);
+    const slider = sliderRef.current;
+    const toHeight = slider?.offsetHeight;
+    if (slider && g.fromHeight && toHeight !== g.fromHeight && !prefersReducedMotion()) {
+      slider.animate([{ height: `${g.fromHeight}px` }, { height: `${toHeight}px` }],
+        { duration: MONTH_HEIGHT_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+    }
+  }, [viewDate, paintMonths]);
+
+  const stepMonth = (dir) => stepMonthRef.current?.(dir);
+  // Most of a list-height down, so the last row in view is still showing at the top.
+  // Eases like every wheel scroll on the site (smoothScroll.js).
+  const scrollTasksDown = () => {
+    const list = taskListRef.current;
+    if (list) easeScrollBy(list, list.clientHeight * 0.8);
+  };
+
+  // The popup has created the task (its files may still be uploading): add it to the
+  // Planner, and turn to the month it's due in so it's on screen.
+  const handleTaskCreated = (created, course) => {
+    onTaskCreated?.({ ...created, course_code: course.course_code, course_name: course.course_name });
+    const due = parseDue(created.due_date);
+    if (!Number.isNaN(due.getTime())) setViewDate(new Date(due.getFullYear(), due.getMonth(), 1));
+  };
+
+  // One month's grid (y, m: its year and 0-based month).
+  const renderMonthGrid = (y, m) => {
+    const cells = cellsFor(y, m);
+    return (
+          <div className="calendar-grid">
+            {cells.map((day, index) => {
+              const dayAssignments = assignmentsForDay(y, m, day);
+              const stacked = dayAssignments.length >= STACK_FROM;
+              // The bottom two weeks spread their stack upward, so the card's edge doesn't cut it off.
+              const spreadUp = Math.floor(index / 7) >= cells.length / 7 - 2;
+
+              // One task in the month grid. extraStyle: its spot in the day (by due time, or by
+              // its place in a stack).
+              const renderEvent = (assignment, extraStyle) => (
+                <div
+                  className={assignment.status === 'done' ? 'calendar-event done' : 'calendar-event'}
+                  key={assignment.id}
+                  style={{
+                    ...extraStyle,
+                    height: EVENT_HEIGHT,
+                    // Its class's colour (Calendar.css .calendar-event reads it).
+                    '--course-color': courseAccent(courses, assignment.course_id)
+                  }}
+                  {...taskProps(assignment)}
+                >
+                  <strong><em className="task-strike">{assignment.title}</em></strong>
+
+                  <span>
+                    {formatTime(assignment.due)}
+                    {assignment.course_code && ` · ${assignment.course_code}`}
+                  </span>
+                </div>
+              );
+
+              return (
+                <div
+                  // no-scrollbar: if a day ever overflows its cell, it scrolls with no scrollbar showing.
+                  className={`calendar-day no-scrollbar${stacked ? ' stacked' : ''}${day ? '' : ' calendar-day-empty'}`}
+                  key={index}
+                >
+                  {day && (
+                    <>
+                      <span className="day-number">{day}</span>
+
+                      {stacked ? (
+                        // --n tasks, each told its place (--i); Calendar.css lays them out.
+                        <div className={spreadUp ? 'day-stack up' : 'day-stack'} style={{ '--n': dayAssignments.length }}>
+                          {dayAssignments.map((assignment, i) => renderEvent(assignment, { '--i': i }))}
+                        </div>
+                      ) : (
+                        dayAssignments.map((assignment) => renderEvent(assignment, { marginTop: assignment.marginTop }))
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+    );
   };
 
   return (
     <main className="calendar-content">
-      <div className="calendar-page-header">
-        <div>
-          <p className="eyebrow">PLANNER</p>
-
-          <h1>My Calendar</h1>
-
-          <p className="page-subtitle">
-            Keep track of assignments, deadlines, and study plans.
-          </p>
-        </div>
-
-        <button
-          className="add-task-button"
-          type="button"
-          onClick={() => setShowAddTask(true)}
-        >
-          <Plus size={17} />
-          Add Task
-        </button>
-      </div>
-
       <div className="calendar-layout">
-        <section className="month-card">
+        {/* Scrolling over it changes month (the month gesture above). */}
+        <section className="month-card" ref={monthCardRef}>
           <div className="month-toolbar">
             <div className="month-navigation">
-              <button type="button" onClick={previousMonth}>
+              <button type="button" onClick={() => stepMonth(-1)} aria-label="Previous month">
                 <ChevronLeft size={18} />
               </button>
 
-              <h2>{monthName}</h2>
+              {/* The name slides with the month: its neighbours sit either side (only while
+                  scrolling between months), and this window shows the one in the middle. */}
+              <div className="month-label">
+                <div className="month-label-track" ref={labelTrackRef}>
+                  <h2 data-offset="0" aria-live="polite">{monthName}</h2>
+                  {peeking && <>
+                    <h2 className="month-label-peek prev" data-offset="-1" aria-hidden="true">
+                      {monthLabel(prevMonth.getFullYear(), prevMonth.getMonth())}
+                    </h2>
+                    <h2 className="month-label-peek next" data-offset="1" aria-hidden="true">
+                      {monthLabel(nextMonth.getFullYear(), nextMonth.getMonth())}
+                    </h2>
+                  </>}
+                </div>
+              </div>
 
-              <button type="button" onClick={nextMonth}>
+              <button type="button" onClick={() => stepMonth(1)} aria-label="Next month">
                 <ChevronRight size={18} />
               </button>
             </div>
 
-            <div className="view-tabs">
-              <button className="selected" type="button">
-                Month
-              </button>
-            </div>
-          </div>
-
-          <div className="calendar-legend">
-            <span>
-              <i className="dot assignment-dot" />
-              Tasks
-            </span>
+            {/* Right end of the month bar, the same height as the month arrows. */}
+            <button
+              className="add-task-button"
+              type="button"
+              onClick={() => setShowAddTask(true)}
+            >
+              <Plus size={15} strokeWidth={2.6} />
+              Add task
+            </button>
           </div>
 
           <div className="weekday-row">
@@ -375,65 +607,53 @@ export default function Calendar({
             <span>Sat</span>
           </div>
 
-          <div className="calendar-grid">
-            {calendarCells.map((day, index) => {
-              const dayAssignments = assignmentsForDay(day);
-
-              return (
-                <div
-                  className={`calendar-day ${day ? '' : 'calendar-day-empty'}`}
-                  key={index}
-                >
-                  {day && (
-                    <>
-                      <span className="day-number">{day}</span>
-
-                      {dayAssignments.map((assignment) => (
-                        <div
-                          className={assignment.status === 'done' ? 'calendar-event done' : 'calendar-event'}
-                          key={assignment.id}
-                          style={{
-                            marginTop: assignment.marginTop,
-                            height: EVENT_HEIGHT,
-                            // Its class's colour (Calendar.css .calendar-event reads it).
-                            '--course-color': courseAccent(courses, assignment.course_id)
-                          }}
-                          title={`${assignment.title} (due ${formatTime(assignment.due)})`}
-                          {...reopenProps(assignment)}
-                        >
-                          <strong>{assignment.title}</strong>
-
-                          <span>
-                            {formatTime(assignment.due)}
-                            {assignment.course_code && ` · ${assignment.course_code}`}
-                          </span>
-                        </div>
-                      ))}
-                    </>
-                  )}
+          {/* The month, and while scrolling between months its neighbours either side
+              (.month-peek, not focusable). The track moves; the slider clips it. */}
+          <div className="month-slider" ref={sliderRef}>
+            <div className="month-track" ref={trackRef}>
+              {renderMonthGrid(year, month)}
+              {peeking && <>
+                <div className="month-peek prev" aria-hidden="true" inert>
+                  {renderMonthGrid(prevMonth.getFullYear(), prevMonth.getMonth())}
                 </div>
-              );
-            })}
+                <div className="month-peek next" aria-hidden="true" inert>
+                  {renderMonthGrid(nextMonth.getFullYear(), nextMonth.getMonth())}
+                </div>
+              </>}
+            </div>
           </div>
         </section>
 
         <aside className="calendar-right-column">
-          <section className="side-card">
+          <section className="side-card tasks-card">
             <div className="side-card-heading">
               <h3>Tasks</h3>
-              <span>{assignments.length} total</span>
+              <span>{monthTasks.length} this month</span>
             </div>
 
-            {/* Scrolls on its own (Calendar.css .upcoming-list), with no visible scrollbar,
-                so the class headers keep the same width when one opens (index.css .no-scrollbar). */}
-            <div className="upcoming-list no-scrollbar">
+            {/* Scrolls on its own (Calendar.css .upcoming-list), with a thin scrollbar. Each
+                class's header stays pinned at the top while its tasks scroll under it. While
+                there's more below, a frosted "Scroll for more" button floats over the bottom. */}
+            <div className="upcoming-list-wrap">
+            {/* onAnimationEnd: the rows grow in from no height, so the list only becomes
+                scrollable as they finish; check again then. */}
+            <div className="upcoming-list thin-scroll" ref={taskListRef} onScroll={checkMoreBelow} onAnimationEnd={checkMoreBelow}>
               {assignmentGroups.length === 0 ? (
                 <p className="empty-message">
-                  No tasks available.
+                  Nothing due this month.
                 </p>
               ) : (
-                assignmentGroups.map(({ course, accent, items }) => {
-                  const open = !collapsedCourses[course.id];
+                assignmentGroups.map(({ course, accent, weeks, count }, groupIndex) => {
+                  const open = collapsedCourses[course.id] !== true;
+                  // Rows before each of this class's (week labels count as rows), for the
+                  // grow-in's top-down order. A class opened again by its header counts from
+                  // 0, so its rows don't wait behind every class above it.
+                  let step = collapsedCourses[course.id] === 'reopened'
+                    ? 0
+                    : assignmentGroups.slice(0, groupIndex)
+                      .reduce((total, group) => total + group.count + group.weeks.length, 0);
+                  const growStyle = () =>
+                    ({ '--grow-step': Math.min(step++, TASK_GROW_MAX_STEP), '--grow-gap': 0 });
                   return (
                     <section key={course.id} className="course-group" style={{ '--course-color': accent }}>
                       <button
@@ -442,39 +662,75 @@ export default function Calendar({
                         onClick={() => toggleCourse(course.id)}
                         aria-expanded={open}
                       >
-                        <span className="course-group-dot" aria-hidden="true" />
-                        <strong>{course.course_code}</strong>
-                        <span className="course-group-count">{items.length}</span>
+                        <span className="course-group-name">
+                          <strong>{course.course_code}</strong>
+                          {course.course_name && <span>{course.course_name}</span>}
+                        </span>
+                        <span className="course-group-count">{count}</span>
                         <ChevronDown size={16} className={open ? 'expand-chevron open' : 'expand-chevron'} aria-hidden="true" />
                       </button>
 
-                      {open && items.map((assignment) => (
-                        <div
-                          className={assignment.status === 'done' ? 'upcoming-assignment done' : 'upcoming-assignment'}
-                          key={assignment.id}
-                          {...reopenProps(assignment)}
-                        >
-                          <div className="upcoming-icon">
-                            <Clock size={16} />
+                      {/* Each label and task grows in like Home's lists (index.css .grow-in-row):
+                          its row opens from no height while it grows from tiny and see-through,
+                          top down. The wait is capped at TASK_GROW_MAX_STEP rows, so ones far
+                          down the list (out of view) don't keep growing in long after the rest. */}
+                      {open && weeks.map(({ n, label, items }) => (
+                        <Fragment key={`${year}-${month}-${n}`}>
+                          <div className="grow-in-row" style={growStyle()}>
+                            <div className="grow-in-cell">
+                              <p className="task-week-label grow-in-item">{label}</p>
+                            </div>
                           </div>
 
-                          <div>
-                            <p>{assignment.title}</p>
+                          {items.map((assignment) => (
+                            <div
+                              key={assignment.id}
+                              className="grow-in-row"
+                              style={growStyle()}
+                            >
+                            <div className="grow-in-cell">
+                            <div
+                              className={assignment.status === 'done' ? 'upcoming-assignment done grow-in-item' : 'upcoming-assignment grow-in-item'}
+                              {...taskProps(assignment)}
+                            >
+                              <div className="upcoming-icon">
+                                <Clock size={16} />
+                              </div>
 
-                            <span>
-                              {assignment.due_date
-                                ? parseDue(assignment.due_date).toLocaleString([], {
+                              <div>
+                                <p><em className="task-strike">{assignment.title}</em></p>
+
+                                <span>
+                                  {assignment.due.toLocaleString([], {
                                     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
-                                  })
-                                : 'No due date'}
-                            </span>
-                          </div>
-                        </div>
+                                  })}
+                                </span>
+                              </div>
+                            </div>
+                            </div>
+                            </div>
+                          ))}
+                        </Fragment>
                       ))}
                     </section>
                   );
                 })
               )}
+            </div>
+            {/* Always on the page, faded in and out (Calendar.css .scroll-more-fade.shown), not
+                added and removed: adding or removing its blur changed how the browser drew
+                the list's text, so the tasks looked bolder at some moments than others. */}
+            <div className={moreBelow ? 'scroll-more-fade shown' : 'scroll-more-fade'}>
+              <button
+                type="button"
+                className="scroll-more-button"
+                onClick={scrollTasksDown}
+                tabIndex={moreBelow ? 0 : -1}
+                aria-hidden={!moreBelow}
+              >
+                Scroll for more <ArrowDown size={12} strokeWidth={2.5} aria-hidden="true" />
+              </button>
+            </div>
             </div>
           </section>
 
@@ -532,107 +788,10 @@ export default function Calendar({
         </aside>
       </div>
 
+      {hoverCard.card}
+
       {showAddTask && (
-        <div className="task-modal-backdrop">
-          <div className="task-modal">
-            <div className="task-modal-header">
-              <div>
-                <p className="eyebrow">NEW ASSIGNMENT</p>
-                <h2>Add Task</h2>
-              </div>
-
-              <button
-                type="button"
-                className="task-modal-close"
-                onClick={closeModal}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateTask}>
-              <label className="task-field">
-                <span>Course</span>
-
-                <select
-                  value={courseId}
-                  onChange={(event) => {
-                    setCourseId(event.target.value);
-                    setForWholeCourse(false);
-                  }}
-                >
-                  <option value="">Select a course</option>
-
-                  {courses.map((course) => (
-                    <option
-                      value={course.id}
-                      key={course.id}
-                    >
-                      {course.course_code} — {course.course_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="task-field">
-                <span>Title</span>
-
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Assignment title"
-                />
-              </label>
-
-              <label className="task-field">
-                <span>Due date</span>
-
-                <input
-                  type="datetime-local"
-                  value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
-                />
-              </label>
-
-              {canPostForCourse && (
-                <label className="task-field" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="checkbox"
-                    checked={forWholeCourse}
-                    onChange={(event) => setForWholeCourse(event.target.checked)}
-                    style={{ width: 'auto' }}
-                  />
-                  <span>Post to the whole course (everyone enrolled will see it)</span>
-                </label>
-              )}
-
-              {formError && (
-                <p className="task-form-error">
-                  {formError}
-                </p>
-              )}
-
-              <div className="task-modal-actions">
-                <button
-                  type="button"
-                  className="task-cancel-button"
-                  onClick={closeModal}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  className="task-save-button"
-                  disabled={saving}
-                >
-                  {saving ? 'Saving...' : 'Create Task'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <AddTaskModal courses={courses} onClose={() => setShowAddTask(false)} onCreated={handleTaskCreated} />
       )}
     </main>
   );

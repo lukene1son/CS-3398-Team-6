@@ -338,11 +338,13 @@ router.delete("/me/google-calendar", requireConfigured, async (req, res) => {
     try {
         const link = await getLink(req.user.id);
         if (link) {
-            const query = new URLSearchParams({ token: decrypt(link.refresh_token_enc) });
+            // The token goes in the request body, not the URL: URLs end up in logs.
+            const form = new URLSearchParams({ token: decrypt(link.refresh_token_enc) });
             // Best effort: still forget the link if Google can't be reached.
-            await fetch(`${REVOKE_URL}?${query}`, {
+            await fetch(REVOKE_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: form,
             }).catch(() => {});
             await removeLink(req.user.id);
         }
