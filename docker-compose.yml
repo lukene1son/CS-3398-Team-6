@@ -2,12 +2,15 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: buddytech
+      # The database password comes from the root .env file, never from this (committed) file.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in the root .env file}
       MYSQL_DATABASE: buddytech
     volumes:
       - buddytech_mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pbuddytech"]
+      # Reads the password from the container's own environment ($$ = a literal $ for the
+      # shell inside the container), so it isn't written here or on the command line.
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h localhost --silent"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -20,31 +23,47 @@ services:
       DB_HOST: mysql
       DB_PORT: 3306
       DB_USER: root
-      DB_PASSWORD: buddytech
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in the root .env file}
       DB_NAME: buddytech
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
-      TRUST_PROXY: uniquelocal
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}           
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_TOKEN_KEY: ${GOOGLE_TOKEN_KEY:-}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      APP_URL: ${APP_URL:-https://buddytechdemo.devs.li}
     depends_on:
       mysql:
         condition: service_healthy
     command: sh -c "npm run db:ensure && npm run db:migrate && npm start"
-    ports:
-      - "3000:3000"
+    # No "ports:": only Caddy (on the Docker network) may reach the backend.
     volumes:
       - buddytech_uploads:/app/uploads
 
   frontend:
+    # The built app as static files (Frontend/Dockerfile), not the Vite dev server.
+    # It needs no environment: the browser reaches the backend through Caddy's /api route.
     build:
       context: ./Frontend
-    environment:
-      VITE_API_TARGET: http://backend:3000
     depends_on:
       - backend
+    # No "ports:": only Caddy may reach the frontend.
+
+  caddy:
+    image: caddy:2.8
     ports:
-      - "5173:5173"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - frontend
 
 volumes:
   buddytech_mysql_data:
   buddytech_uploads:
+  caddy_data:

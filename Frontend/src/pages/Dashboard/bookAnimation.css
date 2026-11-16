@@ -1,0 +1,148 @@
+/* "Generate study guide" icon (Dashboard.jsx, BookIcon): a book drops in, opens, gets
+   written in, closes and flies back up. 6.8s loop (1% = 68ms). Plays while its
+   AI Quick Actions row (.ai-action) is hovered.
+
+   Built from HTML boxes (not SVG) so the pages can widen without their outlines
+   stretching. Two pages meet at the spine (x = 12 units). Each has:
+   - a cover: a thick vertical bar on its outer edge, a little taller than the page;
+   - the page itself: just a thin line along its top and bottom, joining the covers
+     slightly in from the ends of the bars.
+   Closed, both pages are narrow (4.5 units each), so it reads as a book seen straight
+   on: two thick covers with thin page lines between them, and no line at the spine.
+   Open, both widen to 9 units from the spine and a thin fold line appears there,
+   leaving two blank pages for the pencil.
+   It squashes from its bottom edge on landing, opening and closing.
+   At rest it shows the open book with its writing. */
+
+.book-anim {
+  --u: calc(22px / 24);
+  --paper: #ffffff;
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: calc(var(--u) * 24);
+  height: calc(var(--u) * 24);
+  color: #2563eb;
+}
+
+.book-anim__book { position: absolute; inset: 0; transform-origin: 50% 81.25%; } /* bottom of the pages (19.5 / 24) */
+
+.book-anim__page {
+  position: absolute;
+  top: calc(var(--u) * 6.5);
+  height: calc(var(--u) * 13);
+  width: calc(var(--u) * 9);
+  box-sizing: border-box;
+  background: var(--paper);
+  /* the page: thin lines top and bottom only */
+  border: 0 solid currentColor;
+  border-top-width: calc(var(--u) * 0.6);
+  border-bottom-width: calc(var(--u) * 0.6);
+}
+/* Spine side: a thin fold line when open (0.35 each = 0.7 together). Closed, it's 0:
+   the spine is at the back, so from the front only the covers are thick. */
+.book-anim__page--left { right: calc(var(--u) * 12); border-right-width: calc(var(--u) * 0.35); }
+.book-anim__page--right { left: calc(var(--u) * 12); border-left-width: calc(var(--u) * 0.35); }
+
+/* The cover: a thick bar just outside the page's outer edge, sticking out 0.9 units
+   above and below it, so the thin page lines meet it slightly in from its ends. */
+.book-anim__page::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--u) * -1.5);   /* page top border (0.6) + 0.9 overhang */
+  bottom: calc(var(--u) * -1.5);
+  width: calc(var(--u) * 1.4);
+  border-radius: calc(var(--u) * 0.7);
+  background: currentColor;
+}
+.book-anim__page--left::before { left: calc(var(--u) * -1.4); }
+.book-anim__page--right::before { right: calc(var(--u) * -1.4); }
+
+.book-anim__writing,
+.book-anim__layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+/* Squiggles "write" by drawing their stroke left to right. "Not drawn yet" is offset
+   1.1 with a 2-long gap, so no zero-length dash ever paints a dot. */
+.book-anim__squig {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 0;
+}
+.book-anim__pencil { opacity: 0; }
+.book-anim__pencil-body { fill: var(--paper); stroke: currentColor; stroke-width: 1; stroke-linejoin: round; }
+
+.ai-action:hover .book-anim__book { animation: book-anim-move 6.8s infinite; }
+.ai-action:hover .book-anim__page--left { animation: book-anim-open-left 6.8s infinite; }
+.ai-action:hover .book-anim__page--right { animation: book-anim-open-right 6.8s infinite; }
+.ai-action:hover .book-anim__pencil { animation: book-anim-pencil 6.8s infinite; }
+.ai-action:hover .book-anim__l1 { animation: book-anim-write-l1 6.8s infinite; }
+.ai-action:hover .book-anim__l2 { animation: book-anim-write-l2 6.8s infinite; }
+.ai-action:hover .book-anim__r1 { animation: book-anim-write-r1 6.8s infinite; }
+.ai-action:hover .book-anim__r2 { animation: book-anim-write-r2 6.8s infinite; }
+
+@keyframes book-anim-move {
+  /* 0-0.7s: drop in from above (speeding up as it falls), closed */
+  0%    { transform: translateY(calc(var(--u) * -14)) scale(1, 1); opacity: 0; animation-timing-function: cubic-bezier(0.5, 0, 1, 1); }
+  10.3% { transform: translateY(0) scale(1, 1); opacity: 1; }
+  /* land: squash, rebound, settle */
+  13.2% { transform: translateY(0) scale(1.14, 0.8); opacity: 1; }
+  16.2% { transform: translateY(0) scale(0.96, 1.05); opacity: 1; }
+  18%   { transform: translateY(0) scale(1, 1); opacity: 1; }
+  /* 1.22-1.8s: opens (book-anim-open-*), then a small squash */
+  26.5% { transform: translateY(0) scale(1.08, 0.9); opacity: 1; }
+  29.4% { transform: translateY(0) scale(1, 1); opacity: 1; }
+  /* hold open while the pencil writes; 4.8-5.4s close, then squash */
+  70.6% { transform: translateY(0) scale(1, 1); opacity: 1; }
+  79.4% { transform: translateY(0) scale(1.08, 0.9); opacity: 1; }
+  82.4% { transform: translateY(0) scale(1, 1); opacity: 1; animation-timing-function: cubic-bezier(0.5, 0, 1, 1); }
+  /* 5.6-6.3s: fly back up where it came from, stretching a little as it goes */
+  92.6% { transform: translateY(calc(var(--u) * -14)) scale(0.95, 1.08); opacity: 0; }
+  100%  { transform: translateY(calc(var(--u) * -14)) scale(1, 1); opacity: 0; }
+}
+
+/* Each page widens out from the spine to open, and narrows back to close. Its spine
+   border grows in with it (0 closed, thin fold line open). Left and right need their
+   own keyframes because the spine is on a different side of each. */
+@keyframes book-anim-open-left {
+  0%, 18% { width: calc(var(--u) * 4.5); border-right-width: 0; animation-timing-function: ease-out; }
+  26.5%   { width: calc(var(--u) * 9); border-right-width: calc(var(--u) * 0.35); }
+  70.6%   { width: calc(var(--u) * 9); border-right-width: calc(var(--u) * 0.35); animation-timing-function: ease-in; }
+  79.4%, 100% { width: calc(var(--u) * 4.5); border-right-width: 0; }
+}
+@keyframes book-anim-open-right {
+  0%, 18% { width: calc(var(--u) * 4.5); border-left-width: 0; animation-timing-function: ease-out; }
+  26.5%   { width: calc(var(--u) * 9); border-left-width: calc(var(--u) * 0.35); }
+  70.6%   { width: calc(var(--u) * 9); border-left-width: calc(var(--u) * 0.35); animation-timing-function: ease-in; }
+  79.4%, 100% { width: calc(var(--u) * 4.5); border-left-width: 0; }
+}
+
+/* The pencil's tip is its (0, 0), so these positions are where the tip touches.
+   2-2.4s fade in and come down; 2.4-4.6s write 2 lines on each page; then lift away. */
+@keyframes book-anim-pencil {
+  0%, 29.4% { transform: translate(11px, 3px); opacity: 0; }
+  35.3% { transform: translate(5px, 10.6px); opacity: 1; }   /* fade in above, come down to line 1 */
+  42.6% { transform: translate(10.4px, 10.6px); opacity: 1; } /* left page, line 1 */
+  44.1% { transform: translate(5px, 13.6px); opacity: 1; }
+  50%   { transform: translate(8.6px, 13.6px); opacity: 1; }  /* left page, line 2 */
+  52.9% { transform: translate(13.6px, 10.6px); opacity: 1; }
+  60.3% { transform: translate(19px, 10.6px); opacity: 1; }   /* right page, line 1 */
+  61.8% { transform: translate(13.6px, 13.6px); opacity: 1; }
+  67.6% { transform: translate(17.2px, 13.6px); opacity: 1; } /* right page, line 2 */
+  72%, 100% { transform: translate(19px, 6px); opacity: 0; }  /* lift away and fade out */
+}
+
+/* Each line draws while the pencil runs along it, then fades as the book closes. */
+@keyframes book-anim-write-l1 { 0%, 35.3% { stroke-dashoffset: 1.1; opacity: 0; } 35.31% { stroke-dashoffset: 1.1; opacity: 1; } 42.6% { stroke-dashoffset: 0; opacity: 1; } 70.6% { stroke-dashoffset: 0; opacity: 1; } 74%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes book-anim-write-l2 { 0%, 44.1% { stroke-dashoffset: 1.1; opacity: 0; } 44.11% { stroke-dashoffset: 1.1; opacity: 1; } 50%   { stroke-dashoffset: 0; opacity: 1; } 70.6% { stroke-dashoffset: 0; opacity: 1; } 74%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes book-anim-write-r1 { 0%, 52.9% { stroke-dashoffset: 1.1; opacity: 0; } 52.91% { stroke-dashoffset: 1.1; opacity: 1; } 60.3% { stroke-dashoffset: 0; opacity: 1; } 70.6% { stroke-dashoffset: 0; opacity: 1; } 74%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes book-anim-write-r2 { 0%, 61.8% { stroke-dashoffset: 1.1; opacity: 0; } 61.81% { stroke-dashoffset: 1.1; opacity: 1; } 67.6% { stroke-dashoffset: 0; opacity: 1; } 70.6% { stroke-dashoffset: 0; opacity: 1; } 74%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-action:hover .book-anim__book,
+  .ai-action:hover .book-anim__page,
+  .ai-action:hover .book-anim__pencil,
+  .ai-action:hover .book-anim__squig { animation: none; }
+}

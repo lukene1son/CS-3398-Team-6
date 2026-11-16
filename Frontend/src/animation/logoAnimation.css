@@ -1,0 +1,177 @@
+/* The logo's build-itself animation (AnimatedLogo.jsx). The logo is rebuilt from pieces
+   cut out of buddytech.webp (public/logo-pieces/), each laid out exactly like the original.
+   Order: B, u, d, d, y, T, e, c, h, then the graduation cap, then a little swell. When it's
+   done, the pieces are swapped for the original image (already loaded, underneath). */
+
+.logo-anim {
+    --step: 0.2s;          /* one letter's grow-in; the next letter starts as it ends */
+    --start-scale: 0.1;    /* how small a letter starts */
+    position: relative;
+    width: 100%;
+    aspect-ratio: 754 / 174; /* the wordmark's shape: the box shows only the wordmark */
+    /* The image (and each piece) is far bigger than the box, with empty margins: crop them.
+       clip (where supported) rather than hidden: clipped content then doesn't count toward
+       any scrolling, and the 12px margin leaves room for the final swell. */
+    overflow: hidden;
+    overflow: clip;
+    overflow-clip-margin: 12px;
+}
+
+/* White version (<AnimatedLogo white />, for the navy sidebar). Otherwise it's BuddyTech blue,
+   the logo's own colour. brightness(0) makes every pixel black, invert(1) then white. On the
+   box, so it covers the pieces while animating and the original image after. See-through
+   parts (the background, the B's heads) stay see-through. */
+.logo-anim--white {
+    filter: brightness(0) invert(1);
+}
+
+/* The original image and every piece: the full 1024×512 image, scaled and shifted so its
+   wordmark (x 140–893, y 157–330) fills the box. All laid out identically, so the browser
+   scales them all the same way and the finished pieces match the original pixel for pixel. */
+.logo-anim__layer {
+    position: absolute;
+    display: block;
+    width: calc(100% * 1024 / 754);
+    height: auto;
+    aspect-ratio: 2 / 1;
+    left: calc(-100% * 140 / 754);
+    top: calc(-100% * 157 / 174);
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Holds every piece; exactly the logo box. */
+.logo-anim__stage {
+    position: absolute;
+    inset: 0;
+}
+
+/* Until every image has loaded and decoded: hidden, and every animation held at its start. */
+.logo-anim__stage--waiting {
+    visibility: hidden;
+}
+
+    .logo-anim__stage--waiting,
+    .logo-anim__stage--waiting * {
+        animation-play-state: paused !important;
+    }
+
+/* The finish: once the cap has settled, the whole logo swells ~3% over 0.4s while tilting
+   back and forth very slightly, then slams down into place in 0.1s. Then AnimatedLogo
+   swaps in the original image. */
+    .logo-anim--pulse .logo-anim__stage {
+        animation: logo-pulse 0.5s both;
+    }
+
+/* 0–80% (0.4s): scale climbs steadily to 1.03 while the tilt rocks ±0.5deg, easing at each turn.
+   80–100% (0.1s): ease-in back to normal, so it lands fast, like being slammed down. */
+@keyframes logo-pulse {
+    0%   { transform: scale(1) rotate(0deg); animation-timing-function: ease-in-out; }
+    20%  { transform: scale(1.0075) rotate(0.5deg); animation-timing-function: ease-in-out; }
+    40%  { transform: scale(1.015) rotate(-0.5deg); animation-timing-function: ease-in-out; }
+    60%  { transform: scale(1.0225) rotate(0.4deg); animation-timing-function: ease-in-out; }
+    80%  { transform: scale(1.03) rotate(-0.2deg); animation-timing-function: cubic-bezier(.6, 0, 1, 1); }
+    100% { transform: scale(1) rotate(0deg); }
+}
+
+/* A letter grows out from behind the one before it: it starts tiny and see-through at its
+   left edge (where the previous letter ends) and grows to full size over --step. Letter i
+   starts at i × --step (--i is set on each piece; its pivot, transform-origin, too, since
+   a layer is the whole image). Earlier letters sit in front. */
+.logo-anim__grow {
+    animation: logo-letter-in var(--step) ease-out backwards;
+    animation-delay: calc(var(--step) * var(--i));
+}
+
+@keyframes logo-letter-in {
+    from { opacity: 0; transform: scale(var(--start-scale)); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* The B's body (under the heads): grows up into place just after the B, with a little overshoot. */
+.logo-anim__b-body {
+    animation: logo-body-in calc(var(--step) * 2.2) ease-out backwards;
+    animation-delay: calc(var(--step) * 0.6);
+}
+
+@keyframes logo-body-in {
+    0%   { opacity: 0; transform: scale(0.15); }
+    70%  { opacity: 1; transform: scale(1.06); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+/* The B's two see-through heads bobble side to side, a little less each time, and end
+   exactly where they started. Units are the B's own pixels (it's 124px wide). */
+.logo-anim__hole {
+    transform-box: fill-box;
+    animation: logo-hole-bobble 1.3s ease-in-out both;
+    animation-delay: calc(var(--step) * 0.8);
+}
+
+.logo-anim__hole--second {
+    animation-delay: calc(var(--step) * 0.8 + 0.1s);
+}
+
+@keyframes logo-hole-bobble {
+    0%   { transform: translateX(0); }
+    16%  { transform: translateX(4.5px); }
+    34%  { transform: translateX(-4px); }
+    52%  { transform: translateX(3px); }
+    68%  { transform: translateX(-2px); }
+    84%  { transform: translateX(0.8px); }
+    100% { transform: translateX(0); }
+}
+
+/* Once both heads have settled (the second ends at 0.8 × --step + 0.1s + 1.3s), the masked
+   B is swapped for the real B, whose heads are the original's own pixels. */
+.logo-anim__grow.logo-anim__b-masked {
+    animation: logo-letter-in var(--step) ease-out backwards, logo-hide 1ms linear forwards;
+    animation-delay: 0s, calc(var(--step) * 0.8 + 1.4s);
+}
+
+.logo-anim__b-real {
+    visibility: hidden;
+    animation: logo-show 1ms linear forwards;
+    animation-delay: calc(var(--step) * 0.8 + 1.4s);
+}
+
+@keyframes logo-hide { to { visibility: hidden; } }
+@keyframes logo-show { to { visibility: visible; } }
+
+/* T: the stem comes in like the other letters, so it's an "I" at first. Then the crossbar
+   is revealed outward from it: the left side quickly, the side sweeping toward the cap
+   slowly, finishing exactly as the h lands (the h is letter 8, done at 9 × --step). */
+.logo-anim__t-arm-left {
+    animation: logo-arm-left calc(var(--step) * 1.2) ease-out backwards;
+    animation-delay: calc(var(--step) * 6);
+}
+
+.logo-anim__t-arm-right {
+    animation: logo-arm-right calc(var(--step) * 3) ease-out backwards;
+    animation-delay: calc(var(--step) * 6);
+}
+
+/* Each arm's start and end clip (--clip-from / --clip-to) are set in AnimatedLogo.jsx:
+   from a zero-width strip at the stem's edge to the arm's whole width. */
+@keyframes logo-arm-left  { from { clip-path: var(--clip-from); } to { clip-path: var(--clip-to); } }
+@keyframes logo-arm-right { from { clip-path: var(--clip-from); } to { clip-path: var(--clip-to); } }
+
+/* The graduation cap: after the h lands it falls from above, lands crooked, is straightened
+   too far the other way, then pushed into place. It pivots on its bottom edge (set in
+   AnimatedLogo.jsx). Its layer is the whole image, so % moves are of that (512px tall):
+   -31% ≈ 2.8 cap-heights above, -0.56% ≈ a 5% bounce. */
+.logo-anim__cap {
+    animation: logo-cap-drop 1.05s both;
+    animation-delay: calc(var(--step) * 9 + 0.05s);
+}
+
+@keyframes logo-cap-drop {
+    0%   { transform: translateY(-31%) rotate(-4deg); animation-timing-function: cubic-bezier(.5, 0, 1, 1); }
+    36%  { transform: translateY(0) rotate(10deg); animation-timing-function: ease-out; }  /* lands crooked */
+    41%  { transform: translateY(-0.56%) rotate(10deg); animation-timing-function: ease-in; }  /* tiny bounce */
+    46%  { transform: translateY(0) rotate(10deg); }
+    58%  { transform: translateY(0) rotate(10deg); animation-timing-function: cubic-bezier(.3, 0, .2, 1); }
+    72%  { transform: translateY(0) rotate(-4deg); }  /* first adjustment: too far */
+    82%  { transform: translateY(0) rotate(-4deg); animation-timing-function: cubic-bezier(.3, 0, .2, 1); }
+    100% { transform: translateY(0) rotate(0deg); }   /* second adjustment: in place */
+}

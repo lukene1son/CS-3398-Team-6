@@ -1,21 +1,34 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getToken, logout, onSessionExpired, getMe } from './api';
 import { disconnectSocket } from './socket';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 
-import Navbar from './components/Navbar';
-import Home from './pages/Home';
-import Footer from './components/Footer';
-import Login from './components/Login';
-import Dashboard from './pages/Dashboard';
-import ErrorBoundary from './components/ErrorBoundary';
+import Navbar from './components/layout/Navbar';
+import Home from './pages/Landing/Home';
+import Footer from './components/layout/Footer';
+import Login from './components/auth/Login';
+import Dashboard from './pages/Dashboard/Dashboard';
+import ErrorBoundary from './components/layout/ErrorBoundary';
 
 const STORAGE_KEY = 'buddytech-user';
 
+// True if the JWT hasn't expired. (The browser can't verify the signature;
+// the backend still does that on every request.)
+function tokenIsLive(token) {
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(part));
+    return !exp || exp * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
 // Keep the user logged in across page refreshes
 function loadSavedUser() {
-    if (!getToken()) return null;
+    const token = getToken();
+    if (!token || !tokenIsLive(token)) return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -28,10 +41,12 @@ function loadSavedUser() {
 function HomeWrapper({ isLoggedIn }) {
   const navigate = useNavigate();
   const goToApp = () => navigate(isLoggedIn ? '/dashboard' : '/login');
+  // "Get Started" (and the hero's "Find a Tech Buddy"): straight to Create Account.
+  const goToSignUp = () => navigate(isLoggedIn ? '/dashboard' : '/login', { state: { mode: 'register' } });
   return (
     <div className="app-container">
-      <Navbar onLoginClick={goToApp} isLoggedIn={isLoggedIn} />
-      <Home onGetStarted={goToApp} isLoggedIn={isLoggedIn} />
+      <Navbar onLoginClick={goToApp} onGetStartedClick={goToSignUp} isLoggedIn={isLoggedIn} />
+      <Home onGetStarted={goToSignUp} isLoggedIn={isLoggedIn} />
       <Footer />
     </div>
   );
@@ -40,22 +55,28 @@ function HomeWrapper({ isLoggedIn }) {
 // Wrapper for Login to handle successful sign in
 function LoginWrapper({ onLogin }) {
   const navigate = useNavigate();
+  // Opened from "Get Started": start on Create Account instead of Sign In.
+  const initialMode = useLocation().state?.mode === 'register' ? 'register' : 'login';
 
   const handleSuccessfulLogin = (userData) => {
     onLogin(userData);
     navigate('/dashboard');
   };
 
-  return <Login onLogin={handleSuccessfulLogin} />;
+  return <Login onLogin={handleSuccessfulLogin} initialMode={initialMode} />;
 }
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(loadSavedUser);
+  // Where /dashboard sends you once you're signed out: the landing page after Sign Out,
+  // otherwise (an expired session, or opening /dashboard while signed out) the login page.
+  const [signedOutTo, setSignedOutTo] = useState('/login');
 
   // If the backend rejects the login token (expired or invalid),
   // sign the user out so they land back on the login page.
   useEffect(() => {
     const stopListening = onSessionExpired(() => {
+      setSignedOutTo('/login');
       setCurrentUser(null);
       try {
         localStorage.removeItem(STORAGE_KEY);
@@ -92,6 +113,7 @@ export default function App() {
   }, [currentUser?.id, handleUserChange]);
 
   const handleLogin = (user) => {
+    setSignedOutTo('/login');
     setCurrentUser(user);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
@@ -100,8 +122,13 @@ export default function App() {
     }
   };
 
+  // Sign Out: lands on the landing page. Both updates render together, so /dashboard's
+  // redirect already points at "/" when it sees there's no user. (Calling navigate() here
+  // wouldn't work: React Router applies navigations as a lower-priority transition, so
+  // /dashboard's own redirect to /login would run first and win.)
   const handleLogout = () => {
     logout();
+    setSignedOutTo('/');
     setCurrentUser(null);
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -115,7 +142,7 @@ export default function App() {
     <Router>
       <Routes>
         {/* 1. Public Landing Page */}
-        <Route path="/" element={<HomeWrapper isLoggedIn={!!currentUser} />} />
+        <Route path="/" element={currentUser ? <Navigate to="/dashboard" replace /> : <HomeWrapper isLoggedIn={false} />} />
 
         {/* 2. Login Page */}
         <Route
@@ -136,7 +163,7 @@ export default function App() {
             currentUser ? (
                <Dashboard user={currentUser} onLogout={handleLogout} onUserChange={handleUserChange} />
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate to={signedOutTo} replace />
             )
           }
         />

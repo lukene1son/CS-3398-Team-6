@@ -1,0 +1,313 @@
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: linear-gradient(160deg, #eff6ff 0%, #f8fafc 60%, #e0e7ff 100%);
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    color: #94a3b8;
+    font-size: 0.8rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #e2e8f0;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 2.25rem 2.5rem;
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.back-link {
+  font-size: 0.85rem;
+  color: #64748b;
+  align-self: flex-start;
+}
+
+.back-link:hover {
+  color: #2563eb;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 0.5rem;
+}
+
+.login-brand img {
+  height: 36px;
+}
+
+.login-card h1 {
+  color: #1d4ed8;
+  text-align: center;
+  margin: 0;
+  font-weight: 800;
+}
+
+/* The animated logo heading the card (AnimatedLogo fills its container's width). */
+.login-card h1.login-logo {
+  width: 240px;
+  max-width: 100%;
+  align-self: center;
+  margin: 0.25rem 0 0.25rem;
+  line-height: 0;
+}
+
+/* Under the logo: the sign-in / create-account form, or the waiting-for-approval message.
+   Laid out like the card itself used to be. */
+.login-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+
+.login-card h2 {
+  margin-bottom: 4px;
+  color: #0f172a;
+}
+
+.login-card label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #334155;
+}
+
+.login-card input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.login-card input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 44px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 6px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.password-toggle:hover {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.btn-submit {
+    width: 100%; /* = 318px inside the card, same as the Google button */
+    height: 40px; /* Google's "large" button height (check in DevTools) */
+    margin-top: 12px;
+    padding: 0 12px;
+    background: #2563eb; /* BuddyTech blue */
+    color: white;
+    border: none;
+    border-radius: 4px; /* Google's rectangular shape has small corners */
+    font-size: 14px; /* Google: 14px text, line height 20 */
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.18s ease-out;
+}
+
+.btn-submit:hover:not(:disabled) {
+  background: #1d4ed8;
+  transform: scale(1.03);
+}
+
+/* Google's button (GoogleSignInButton.jsx): grows like the others on hover. Its inside is
+   Google's own frame, so this scales the box holding it. */
+.btn-google {
+  transition: transform 0.18s ease-out;
+}
+
+.btn-google:hover {
+  transform: scale(1.03);
+}
+
+.btn-submit:disabled {
+  background: #93c5fd;
+  cursor: default;
+}
+
+.form-message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.form-message.error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.form-message.success {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.signup-text {
+  text-align: center;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+/* Demo "Join with Canvas" button: same size as .btn-submit and Google's button.
+   Hard-stop circles centred on the logo, colours sampled from the Canvas banner.
+   On hover the button grows like the others, and its circles spread outward and brighten.
+   The circles' sizes and colours are registered custom properties (@property) so the
+   browser can animate them smoothly; a gradient's stops can't be transitioned otherwise.
+   (Browsers without @property just switch to the hover look.) */
+@property --canvas-r1 { syntax: "<length>"; inherits: false; initial-value: 40px; }
+@property --canvas-r2 { syntax: "<length>"; inherits: false; initial-value: 100px; }
+@property --canvas-r3 { syntax: "<length>"; inherits: false; initial-value: 165px; }
+@property --canvas-c1 { syntax: "<color>"; inherits: false; initial-value: #d12c19; }
+@property --canvas-c2 { syntax: "<color>"; inherits: false; initial-value: #7f2622; }
+@property --canvas-c3 { syntax: "<color>"; inherits: false; initial-value: #36212a; }
+@property --canvas-c4 { syntax: "<color>"; inherits: false; initial-value: #061c31; }
+
+.btn-canvas {
+  --canvas-r1: 40px;
+  --canvas-r2: 100px;
+  --canvas-r3: 165px;
+  --canvas-c1: #d12c19;
+  --canvas-c2: #7f2622;
+  --canvas-c3: #36212a;
+  --canvas-c4: #061c31;
+  position: relative;
+  width: 318px;
+  height: 40px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  background: radial-gradient(circle at 25px 50%,
+    var(--canvas-c1) 0 var(--canvas-r1),
+    var(--canvas-c2) var(--canvas-r1) var(--canvas-r2),
+    var(--canvas-c3) var(--canvas-r2) var(--canvas-r3),
+    var(--canvas-c4) var(--canvas-r3));
+  transition: transform 0.18s ease-out,
+    --canvas-r1 0.35s ease-out, --canvas-r2 0.35s ease-out, --canvas-r3 0.35s ease-out,
+    --canvas-c1 0.35s ease-out, --canvas-c2 0.35s ease-out, --canvas-c3 0.35s ease-out, --canvas-c4 0.35s ease-out;
+}
+
+.btn-canvas svg {
+  position: absolute;
+  left: 12px;
+}
+
+.btn-canvas:hover {
+  transform: scale(1.03);
+  --canvas-r1: 48px;
+  --canvas-r2: 118px;
+  --canvas-r3: 192px;
+  --canvas-c1: #f23a22;
+  --canvas-c2: #a8322b;
+  --canvas-c3: #54293a;
+  --canvas-c4: #0c2c4c;
+}
+
+/* Wrong email or password (Login.jsx): the password's dots fade away, then the empty field
+   gives a few quick, short shakes side to side. The error message stays underneath. */
+.login-card input.password-fading {
+  animation: password-text-fade 0.18s ease-in forwards;
+}
+
+@keyframes password-text-fade {
+  to { color: transparent; }
+}
+
+.login-card input.password-shaking {
+  animation: password-shake 0.42s cubic-bezier(.36, .07, .19, .97);
+  border-color: #dc2626;
+}
+
+@keyframes password-shake {
+  0%, 100% { transform: translateX(0); }
+  14%  { transform: translateX(-7px); }
+  29%  { transform: translateX(6px); }
+  43%  { transform: translateX(-5px); }
+  57%  { transform: translateX(4px); }
+  71%  { transform: translateX(-2px); }
+  86%  { transform: translateX(1px); }
+}
+
+.canvas-note {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+}

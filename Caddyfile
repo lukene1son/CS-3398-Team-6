@@ -1,0 +1,11 @@
+buddytechdemo.devs.li {
+    # API + Socket.IO go straight to the backend. With Caddy as the only proxy in
+    # front of it, the backend reads the real client IP from the X-Forwarded-For
+    # header Caddy sets (Caddy ignores any X-Forwarded-For the client sends itself).
+    handle /api/* {
+        reverse_proxy backend:3000
+    }
+    handle {
+        reverse_proxy frontend:5173
+    }
+}

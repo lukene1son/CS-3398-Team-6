@@ -1,0 +1,80 @@
+/* "Catch me up" icon (Dashboard.jsx, PagesIcon): pages stacking in from the top right.
+   Plays while its AI Quick Actions row (.ai-action) is hovered.
+
+   Everything is measured in --u (1/24 of the icon), so changing --u resizes it.
+   4 pages share one 3.2s loop (4 steps x 0.8s), each 0.8s behind the last.
+   A page's life: enter from the top right + fade in -> front -> middle -> back ->
+   fade out to the left. Moves take the first 0.32-0.48s of each 0.8s step, then the
+   stack holds, so the middle (most visible) page always sits in the same spot.
+   At rest it shows the loop's 0s frame (front, middle and back pages), so hovering
+   picks up from the still icon with no jump. */
+
+.pages-anim {
+  --u: calc(22px / 24);
+  --paper: #ffffff;
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: calc(var(--u) * 24);
+  height: calc(var(--u) * 24);
+  color: #2563eb;
+}
+
+.pages-anim__page {
+  position: absolute;
+  box-sizing: border-box;
+  left: calc(var(--u) * 6.5);
+  top: calc(var(--u) * 5);
+  width: calc(var(--u) * 11);
+  height: calc(var(--u) * 14);
+  border: calc(var(--u) * 1.5) solid currentColor;
+  border-radius: calc(var(--u) * 2);
+  background-color: var(--paper);
+  /* three lines of "text" */
+  background-image:
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-size:
+    calc(var(--u) * 5) calc(var(--u) * 1.1),
+    calc(var(--u) * 5) calc(var(--u) * 1.1),
+    calc(var(--u) * 3.2) calc(var(--u) * 1.1);
+  background-position:
+    calc(var(--u) * 1.5) calc(var(--u) * 2.5),
+    calc(var(--u) * 1.5) calc(var(--u) * 5),
+    calc(var(--u) * 1.5) calc(var(--u) * 7.5);
+}
+
+/* Rest frame = where each page is at 0s of the loop. */
+.pages-anim__page--1 { opacity: 0; transform: translate(calc(var(--u) * 9), calc(var(--u) * -7)); z-index: 4; }
+.pages-anim__page--2 { transform: translate(calc(var(--u) * 3), calc(var(--u) * 1)); z-index: 3; }
+.pages-anim__page--3 { transform: translate(0, 0); z-index: 2; }
+.pages-anim__page--4 { transform: translate(calc(var(--u) * -3), calc(var(--u) * -1)); z-index: 1; }
+
+.ai-action:hover .pages-anim__page { animation: pages-anim-cycle 3.2s infinite; }
+/* A negative delay starts a page partway through its loop, matching its rest position. */
+.ai-action:hover .pages-anim__page--1 { animation-delay: 0s; }
+.ai-action:hover .pages-anim__page--2 { animation-delay: -0.8s; }  /* 25% in: front */
+.ai-action:hover .pages-anim__page--3 { animation-delay: -1.6s; }  /* 50% in: middle */
+.ai-action:hover .pages-anim__page--4 { animation-delay: -2.4s; }  /* 75% in: back */
+
+@keyframes pages-anim-cycle {
+  /* step 1 (0-0.8s): slide in from the top right, fading in, onto the front */
+  0%   { transform: translate(calc(var(--u) * 9), calc(var(--u) * -7)); opacity: 0; z-index: 4; animation-timing-function: ease-out; }
+  15%  { transform: translate(calc(var(--u) * 3), calc(var(--u) * 1)); opacity: 1; z-index: 4; }
+  /* step 2 (0.8-1.6s): front -> middle */
+  25%  { transform: translate(calc(var(--u) * 3), calc(var(--u) * 1)); opacity: 1; z-index: 3; animation-timing-function: ease-out; }
+  35%  { transform: translate(0, 0); opacity: 1; z-index: 3; }
+  /* step 3 (1.6-2.4s): middle -> back */
+  50%  { transform: translate(0, 0); opacity: 1; z-index: 2; animation-timing-function: ease-out; }
+  60%  { transform: translate(calc(var(--u) * -3), calc(var(--u) * -1)); opacity: 1; z-index: 2; }
+  /* step 4 (2.4-3.2s): back -> off to the left, fading out as fast as a new one fades in */
+  75%  { transform: translate(calc(var(--u) * -3), calc(var(--u) * -1)); opacity: 1; z-index: 1; animation-timing-function: ease-out; }
+  90%  { transform: translate(calc(var(--u) * -6), calc(var(--u) * -2)); opacity: 0; z-index: 1; }
+  100% { transform: translate(calc(var(--u) * -6), calc(var(--u) * -2)); opacity: 0; z-index: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-action:hover .pages-anim__page { animation: none; }
+}

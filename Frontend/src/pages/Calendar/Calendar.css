@@ -1,0 +1,993 @@
+.calendar-shell {
+  min-height: 100vh;
+  display: flex;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+/* Sidebar */
+
+.calendar-sidebar {
+  width: 240px;
+  min-height: 100vh;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  left: 0;
+  top: 0;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.sidebar-logo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.sidebar-brand h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-link {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 9px;
+  color: #64748b;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-link:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.sidebar-link.active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.logout-button {
+  margin-top: auto;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #64748b;
+  padding: 11px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.logout-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Main */
+
+.calendar-main {
+  flex: 1;
+  margin-left: 240px;
+  min-width: 0;
+}
+
+/* Top bar */
+
+.calendar-topbar {
+  height: 72px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.search-wrapper {
+  width: min(520px, 55%);
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0 12px;
+  color: #94a3b8;
+}
+
+.search-wrapper input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.user-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+}
+
+.user-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+
+.user-details p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.user-details span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* Page content */
+
+.calendar-content {
+  padding: 32px;
+}
+
+/* Main grid */
+
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 22px;
+}
+
+/* Calendar card */
+
+.month-card,
+.side-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.month-card {
+  overflow: hidden;
+}
+
+/* The month bar: just tall enough for the 34px arrows and Add task (8px above and below),
+   everything centred on one line. */
+.month-toolbar {
+  padding: 8px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.month-navigation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.month-navigation h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.month-navigation button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #475569;
+  cursor: pointer;
+}
+
+.month-navigation button:hover {
+  background: #f8fafc;
+}
+
+/* Scrolling between months (Calendar.jsx, the month gesture). The month name and the grid
+   each sit on a track with the months either side (.month-label-peek / .month-peek, only
+   there while it plays); the script slides the tracks and these clip them. At rest the
+   wrappers add nothing: the name and grid look and sit as before. */
+.month-label {
+  overflow: hidden; /* the window: as wide as the shown month's name */
+}
+
+.month-label-track {
+  position: relative;
+}
+
+/* A neighbour's name, one name-width to the left or right, left-aligned like the shown one
+   so it lands in the same spot. */
+.month-navigation .month-label-peek {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  white-space: nowrap;
+}
+
+    .month-navigation .month-label-peek.next {
+        left: 100%;
+    }
+
+.month-slider {
+  overflow: hidden;
+}
+
+.month-track {
+  position: relative;
+}
+
+/* A neighbouring month: a full card-width to the left or right of the shown one. */
+.month-peek {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+}
+
+    .month-peek.next {
+        left: 100%;
+    }
+
+
+/* Calendar grid */
+
+.weekday-row,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekday-row {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.weekday-row span {
+  text-align: center;
+  padding: 10px 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.calendar-day {
+  min-height: 160px;
+  padding: 9px;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.calendar-day:nth-child(7n) {
+  border-right: none;
+}
+
+.day-number {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+/* Each event is in its class's colour: Calendar.jsx sets --course-color (courseColors.js).
+   Same fill as the class headers in the Tasks panel (.course-group-toggle): the colour
+   darkened with 15% black, white text. The left edge is darkened further to keep the stripe. */
+.calendar-event {
+    box-sizing: border-box;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--course-color, #2563eb) 85%, #000000);
+    border-left: 3px solid color-mix(in srgb, var(--course-color, #2563eb) 60%, #000000);
+    padding: 3px 7px; /* fits the title and time lines in EVENT_HEIGHT (34px, Calendar.jsx) */
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 11px;
+}
+
+.calendar-event strong,
+.calendar-event span {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.calendar-event strong {
+    font-size: 11px;
+    line-height: 1.25;
+}
+
+.calendar-event span {
+    margin-top: 1px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 10px;
+}
+/* Done assignments: grey bubble, title crossed out with a grey line (.task-strike below).
+   The colours fade over to grey as the line draws across. */
+.calendar-event {
+    transition: background-color 0.3s, border-color 0.3s, color 0.3s, transform 0.18s ease-out;
+}
+
+.calendar-event.done {
+background: #f1f5f9;
+border-left-color: #94a3b8;
+color: #94a3b8;
+}
+
+/* The crossing-out line, on the title (an <em> in Calendar.jsx, since every span in an
+   event is styled as its time line). A 1.5px stripe of the text colour whose width grows
+   from 0 to 100% when the task becomes done, so the line draws across left to right; it
+   shrinks back when un-marked. Tasks already done when the page loads just show it. */
+.task-strike {
+    font-style: normal;
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone; /* a title that wraps (Tasks list) gets the line on each row */
+    transition: background-size 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.calendar-event.done .task-strike,
+.upcoming-assignment.done .task-strike {
+    background-size: 100% 1.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .task-strike,
+    .calendar-event {
+        transition: none;
+    }
+    .calendar-event[role="button"]:not(.done):hover {
+        transform: none;
+    }
+}
+
+    .calendar-event.done span {
+        color: #94a3b8;
+    }
+    /* Every task can be clicked to check it off, or to un-mark it if it's done
+       (Calendar.jsx adds role="button"). */
+    .calendar-event[role="button"],
+    .upcoming-assignment[role="button"] {
+        cursor: pointer;
+    }
+
+    /* Hovered: grows about 5% (done ones stay put). A size change, not the old brightness
+       filter, which made the white text look bolder while hovered. */
+    .calendar-event[role="button"]:not(.done):hover {
+        transform: scale(1.05);
+    }
+
+    .calendar-event[role="button"]:focus-visible,
+    .upcoming-assignment[role="button"]:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+
+        .calendar-event.done[role="button"]:hover {
+            background: #e2e8f0;
+        }
+
+        .upcoming-assignment.done[role="button"]:hover p {
+            color: #64748b;
+        }
+
+
+.loading-text {
+  padding: 30px 20px;
+  color: #64748b;
+}
+
+/* Right column */
+
+.calendar-right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.side-card {
+  padding: 18px;
+}
+
+.side-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.side-card-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.side-card-heading span {
+  font-size: 11px;
+  color: #2563eb;
+}
+
+/* Every assignment, grouped by class. Scrolls inside the card, with a thin scrollbar
+   (4px, slate on a pale track). scrollbar-gutter keeps its space even when nothing
+   overflows, so the class headers don't change width when a class opens or closes. */
+.upcoming-list-wrap {
+  position: relative; /* holds the floating "Scroll for more" */
+}
+
+.upcoming-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 460px;
+  padding-right: 8px; /* room between the rows and the scrollbar (index.css .thin-scroll) */
+  /* Opaque (the card's white), so the browser can keep drawing the text the same sharp way
+     while the list scrolls under the frosted button; see-through, it switches the text's
+     smoothing back and forth, which looks like the tasks going bold and back. */
+  background: #ffffff;
+}
+
+/* A class in the list: a header in the class's colour that collapses its assignments.
+   It sticks to the top of the list while that class's tasks scroll under it, until the
+   next class's header pushes it away. Calendar.jsx sets --course-color on .course-group.
+   The colour is darkened 15% so white text stays readable on every class colour
+   (the green, amber and pink ones are too light for white text as they are). */
+.course-group-toggle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--course-color, #2563eb) 85%, #000000);
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 8px 12px -8px rgba(15, 23, 42, 0.45); /* lifts it over the rows scrolling under */
+  font: inherit;
+  font-size: 13px;
+  color: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+    .course-group-toggle:hover {
+        background: color-mix(in srgb, var(--course-color, #2563eb) 75%, #000000);
+    }
+
+    .course-group-toggle:focus-visible {
+        outline: 2px solid #0f172a;
+        outline-offset: 2px;
+    }
+
+/* Code on top, the class's full name under it. */
+.course-group-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+    .course-group-name strong {
+        line-height: 1.2;
+    }
+
+    .course-group-name span {
+        font-size: 11px;
+        line-height: 1.3;
+        color: rgba(255, 255, 255, 0.85);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+/* Inside a class in the Tasks list (Calendar.jsx): the gray "Week 2 · Nov 8 – 14" above
+   each run of its tasks due that week. */
+.task-week-label {
+  margin: 8px 0 2px 10px;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.course-group-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* "Scroll for more": while the list has more below, the bottom fades to white and a
+   button floats over it. The fade lets clicks through; the button scrolls the list down.
+   Frosted glass like the landing page's (.glass-card, "Explore Features": a see-through
+   white fill and border over a 14px blur), with more white and a slate edge so it still
+   shows up on this white card instead of the landing page's dark background. */
+.scroll-more-fade {
+  position: absolute;
+  left: 0;
+  right: 12px; /* clear of the scrollbar */
+  bottom: 0;
+  height: 64px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8px;
+  box-sizing: border-box;
+  background: linear-gradient(rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.9) 75%);
+  pointer-events: none;
+  /* Always on the page; faded in while there's more below (.shown). */
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
+}
+
+    .scroll-more-fade.shown {
+        opacity: 1;
+    }
+
+.scroll-more-button {
+  pointer-events: none; /* clickable only while shown */
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  color: #334155;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.25s, transform 0.2s ease-out;
+}
+
+    .scroll-more-fade.shown .scroll-more-button {
+        pointer-events: auto;
+    }
+
+    .scroll-more-button:hover {
+        background: rgba(255, 255, 255, 0.75);
+        transform: translateY(-1px);
+    }
+
+    .scroll-more-button:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+
+.course-group .upcoming-assignment {
+  padding-left: 4px;
+}
+
+.upcoming-assignment {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+/* No line under a class's last task. Each task sits in its own grow-in row
+   (.grow-in-row > .grow-in-cell), so "last" is the last row, not the task itself. */
+.course-group .grow-in-row:last-child .upcoming-assignment {
+  border-bottom: none;
+}
+
+.upcoming-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--course-color, #2563eb) 10%, #ffffff);
+  color: var(--course-color, #2563eb);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.upcoming-assignment p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.upcoming-assignment span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+/* Done assignments in the side list: grey icon, title crossed out in grey (.task-strike). */
+.upcoming-assignment .upcoming-icon,
+.upcoming-assignment p {
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.upcoming-assignment.done .upcoming-icon {
+    background: #f1f5f9;
+    color: #94a3b8;
+}
+
+.upcoming-assignment.done p {
+    color: #94a3b8;
+}
+
+.empty-message {
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* Calendar sync */
+
+.sync-description {
+  margin: 0 0 12px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.google-calendar-button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.google-calendar-button:hover:not(:disabled) {
+    background: #f8fafc;
+}
+
+.google-calendar-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.google-calendar-button:hover {
+  background: #1d4ed8;
+}
+
+.sync-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 11px;
+  margin: 12px 0;
+}
+
+.sync-divider::before,
+.sync-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.calendar-link-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  outline: none;
+  font-size: 12px;
+}
+
+.calendar-link-input:focus {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 8%);
+}
+
+.advanced-note {
+  margin: 10px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Wide screens (the Tasks column beside the calendar): the column is exactly the window's
+   height below the dashboard's 70px top bar and this page's 32px top and bottom padding.
+   Calendar Sync keeps its own height and the Tasks card takes the rest, so the list is as
+   tall as it can be while Calendar Sync stays on screen, connected or not. Narrower, the
+   column sits under the calendar and the list keeps its 460px cap. */
+@media (min-width: 1101px) {
+  .calendar-right-column {
+    height: calc(100vh - 70px - 64px);
+    min-height: 560px; /* short windows: scroll the page rather than squash the list */
+  }
+
+  .calendar-right-column > .side-card {
+    flex-shrink: 0;
+  }
+
+  .tasks-card,
+  .tasks-card .upcoming-list-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tasks-card .upcoming-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  /* The month, the same height as the Tasks column beside it: the toolbar, legend and
+     weekday row keep their size and the weeks share what's left, so a whole month (5 or
+     6 weeks) fits on screen. A busy day scrolls inside its own cell. */
+  .month-card {
+    height: calc(100vh - 70px - 64px);
+    min-height: 560px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .month-card .calendar-grid {
+    flex: 1;
+    min-height: 0;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  /* The month gesture's wrappers pass that height down to each month's grid. */
+  .month-slider,
+  .month-track {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .month-peek {
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .month-card .calendar-day {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+/* Responsive */
+
+@media (max-width: 1100px) {
+  .calendar-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-right-column {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  .calendar-sidebar {
+    display: none;
+  }
+
+  .calendar-main {
+    margin-left: 0;
+  }
+
+  .calendar-topbar {
+    padding: 0 18px;
+  }
+
+  .user-details {
+    display: none;
+  }
+
+  .search-wrapper {
+    width: 70%;
+  }
+
+  .calendar-content {
+    padding: 20px;
+  }
+
+  .calendar-right-column {
+    grid-template-columns: 1fr;
+  }
+}
+.calendar-day-empty {
+  background: #f8fafc;
+}
+
+/* Calendar Sync messages and its Disconnect button. (The Add Task popup has its own
+   styles: components/AddTaskModal.css.) */
+.task-form-error {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+.task-cancel-button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 15px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+
+/* ---------- A busy day: tasks stacked like folders in a file cabinet ----------
+   Calendar.jsx puts STACK_FROM (3) or more tasks in a .day-stack, with --n (how many) and
+   each task's --i (its place, soonest first). Closed, each task sits a step below the one
+   before, later ones in front, so every task shows its top strip, its title, like a folder's
+   tab. The step is 14px, or less if the stack wouldn't otherwise fit the cell (100cqh is the
+   stack's height: it's a size container). Hovering the day, or tabbing into it, spreads them
+   into a full list (38px apart) on a white card over the cells below; the bottom two weeks
+   ("up") spread upward instead, so the calendar's edge doesn't cut them off. */
+.calendar-day {
+  position: relative; /* stacking order for a spread stack (z-index below) */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Raised over the neighbouring days its spread list covers. Dropping back waits until the
+   list has finished closing (0.45s), so the neighbours don't pop over it mid-close. */
+.calendar-day.stacked {
+  transition: z-index 0s linear 0.45s;
+}
+
+.calendar-day.stacked:hover,
+.calendar-day.stacked:focus-within {
+  z-index: 5;
+  transition-delay: 0s;
+}
+
+.month-card .calendar-day.stacked {
+  overflow: visible; /* the spread list reaches past the cell */
+}
+
+.day-stack {
+  position: relative;
+  flex: 1;
+  min-height: 34px;
+  margin-top: 4px;
+  container-type: size;
+}
+
+.day-stack > .calendar-event {
+  --step: min(14px, (100cqh - 34px) / max(var(--n) - 1, 1));
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--i) * var(--step));
+  box-shadow: 0 -1px 3px rgba(15, 23, 42, 0.28); /* the edge of the folder in front */
+  /* Closing waits 0.12s, so a pointer that slips off the edge for a moment and comes back
+     doesn't make the list snap shut and open again. */
+  transition: top 0.3s cubic-bezier(0.22, 1, 0.36, 1) 0.12s, box-shadow 0.2s 0.12s,
+    background-color 0.3s, border-color 0.3s, color 0.3s, transform 0.18s ease-out;
+}
+
+.day-stack.up > .calendar-event {
+  top: calc(100cqh - 34px - (var(--n) - 1 - var(--i)) * var(--step));
+}
+
+.calendar-day.stacked:hover .day-stack > .calendar-event,
+.calendar-day.stacked:focus-within .day-stack > .calendar-event {
+  top: calc(var(--i) * 38px);
+  box-shadow: none;
+  transition-delay: 0s, 0s, 0s, 0s, 0s, 0s; /* opening starts at once */
+}
+
+.calendar-day.stacked:hover .day-stack.up > .calendar-event,
+.calendar-day.stacked:focus-within .day-stack.up > .calendar-event {
+  top: calc(100cqh - 34px - (var(--n) - 1 - var(--i)) * 38px);
+}
+
+/* The white card behind the spread list (fades in as it opens). */
+.day-stack::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: -6px;
+  height: calc(var(--n) * 38px - 4px + 12px);
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #e2e8f0, 0 14px 30px -10px rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  /* Closed: click-through, so it can't catch the pointer over the days around it. */
+  pointer-events: none;
+  transition: opacity 0.2s 0.12s;
+}
+
+.day-stack.up::before {
+  top: auto;
+  bottom: -6px;
+}
+
+/* Open: the card catches the pointer. It's part of this day, so the gaps between the
+   tasks (and its edges) count as still hovering the day, even where it covers other days,
+   and the list stays open anywhere on it. */
+.calendar-day.stacked:hover .day-stack::before,
+.calendar-day.stacked:focus-within .day-stack::before {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-stack > .calendar-event,
+  .day-stack::before,
+  .calendar-day.stacked {
+    transition: none;
+  }
+}

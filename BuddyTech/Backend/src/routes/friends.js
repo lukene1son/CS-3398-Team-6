@@ -1,7 +1,7 @@
 const express = require("express");
 const pool = require("../db");
 const { friendRequestLimiter, friendRequestPairLimiter, userSearchLimiter } = require("../middleware/rateLimits");
-const { emitTo } = require("../realtime");
+const { emitTo, isOnlineNow } = require("../realtime");
 
 // Tell these users (every open tab) that their friends or requests changed.
 function notifyFriendsChanged(...userIds) {
@@ -17,6 +17,29 @@ function toId(value) {
     const id = Number(value);
     return Number.isInteger(id) && id > 0 ? id : null;
 }
+
+// ---- What you have in common with someone (the Chat page's Study Partners profile) ----
+
+// Course codes you and users.id are both in, e.g. "BIO 1330,CS 3398". One "?" = you.
+const SHARED_COURSES_SQL = `
+    (SELECT GROUP_CONCAT(DISTINCT courses.course_code ORDER BY courses.course_code)
+     FROM course_members AS mine
+     JOIN course_members AS theirs ON theirs.course_id = mine.course_id
+     JOIN courses ON courses.id = mine.course_id
+     WHERE mine.user_id = ? AND theirs.user_id = users.id)`;
+
+// Study groups you're both members of: [{ id, name, course_code }] (NULL when none).
+// One "?" = you. Each group appears once (a member has one row per group).
+const SHARED_GROUPS_SQL = `
+    (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', study_groups.id, 'name', study_groups.name, 'course_code', courses.course_code))
+     FROM study_group_members AS mine
+     JOIN study_group_members AS theirs ON theirs.group_id = mine.group_id
+     JOIN study_groups ON study_groups.id = mine.group_id
+     JOIN courses ON courses.id = study_groups.course_id
+     WHERE mine.user_id = ? AND theirs.user_id = users.id)`;
+
+const splitCodes = (codes) => (codes ? codes.split(",") : []);
+const parseGroups = (groups) => (typeof groups === "string" ? JSON.parse(groups) : groups) || [];
 
 // ---- Find other users ----
 
@@ -53,11 +76,8 @@ router.get("/me/study-partners/suggested", async (req, res) => {
             [me, me, me]
         );
 
-        // "CS3398,MATH2471" -> ["CS3398", "MATH2471"]
-        res.json(rows.map(row => ({
-            ...row,
-            shared_courses: row.shared_courses ? row.shared_courses.split(",") : []
-        })));
+        // "CS 3398,BIO 1330" -> ["CS 3398", "BIO 1330"]
+        res.json(rows.map(row => ({ ...row, shared_courses: splitCodes(row.shared_courses) })));
     } catch (error) {
         console.error("Error fetching suggested partners:", error);
         res.status(500).json({ error: "Failed to fetch suggested study partners" });
@@ -203,7 +223,7 @@ router.post("/me/friend-requests", friendRequestPairLimiter, friendRequestLimite
 
 // GET /api/me/friend-requests?direction=incoming|outgoing
 // Pending requests sent TO you (incoming, the default) or BY you (outgoing),
-// with the other person's name.
+// with the other person's name and the courses you share.
 router.get("/me/friend-requests", async (req, res) => {
     try {
         const direction = req.query.direction || "incoming";
@@ -226,17 +246,18 @@ router.get("/me/friend-requests", async (req, res) => {
                 users.id AS other_user_id,
                 users.name AS other_user_name,
                 users.avatar_color AS other_user_avatar_color,
-                users.avatar_stored_name IS NOT NULL AS other_user_has_avatar
+                users.avatar_stored_name IS NOT NULL AS other_user_has_avatar,
+                ${SHARED_COURSES_SQL} AS shared_courses
             FROM friend_requests
             JOIN users ON users.id = friend_requests.${otherColumn}
             WHERE friend_requests.${myColumn} = ?
               AND friend_requests.status = 'pending'
             ORDER BY friend_requests.created_at DESC
             `,
-            [req.user.id]
+            [req.user.id, req.user.id]
         );
 
-        res.json(rows);
+        res.json(rows.map(row => ({ ...row, shared_courses: splitCodes(row.shared_courses) })));
     } catch (error) {
         console.error("Error fetching friend requests:", error);
         res.status(500).json({ error: "Failed to fetch friend requests" });
@@ -353,7 +374,8 @@ router.delete("/me/friend-requests/:id", async (req, res) => {
 // ---- Friends ----
 
 // GET /api/me/friends
-// Everyone you have an accepted request with, whichever of you sent it.
+// Everyone you have an accepted request with, whichever of you sent it, with the courses
+// and study groups you share (the Chat page's profile panel).
 router.get("/me/friends", async (req, res) => {
     try {
         const me = req.user.id;
@@ -364,7 +386,9 @@ router.get("/me/friends", async (req, res) => {
                 users.name,
                 users.avatar_color,
                 users.avatar_stored_name IS NOT NULL AS has_avatar,
-                MIN(friend_requests.responded_at) AS friends_since
+                MIN(friend_requests.responded_at) AS friends_since,
+                ${SHARED_COURSES_SQL} AS shared_courses,
+                ${SHARED_GROUPS_SQL} AS shared_groups
             FROM friend_requests
             JOIN users
                 ON users.id = IF(friend_requests.sender_id = ?, friend_requests.receiver_id, friend_requests.sender_id)
@@ -373,10 +397,16 @@ router.get("/me/friends", async (req, res) => {
             GROUP BY users.id, users.name, users.avatar_color, users.avatar_stored_name
             ORDER BY users.name ASC
             `,
-            [me, me, me]
+            // The two subqueries' "?"s come first: they're in the SELECT.
+            [me, me, me, me, me]
         );
 
-        res.json(rows);
+        res.json(rows.map(row => ({
+            ...row,
+            shared_courses: splitCodes(row.shared_courses),
+            shared_groups: parseGroups(row.shared_groups),
+            online: isOnlineNow(row.id), // "Active now"; live changes come as "presence-changed"
+        })));
     } catch (error) {
         console.error("Error fetching friends:", error);
         res.status(500).json({ error: "Failed to fetch friends" });
@@ -391,10 +421,6 @@ router.delete("/me/friends/:userId", async (req, res) => {
         if (!otherId) {
             return res.status(400).json({ error: "Invalid user id" });
         }
-        const [[request]] = await pool.query(
-            "SELECT receiver_id FROM friend_requests WHERE id = ? AND sender_id = ? AND status = 'pending'",
-            [requestId, req.user.id]
-        );
         // Only matches rows that involve the logged-in user, so you can only
         // remove your own friendships.
         const [result] = await pool.query(
@@ -417,5 +443,17 @@ router.delete("/me/friends/:userId", async (req, res) => {
         res.status(500).json({ error: "Failed to remove friend" });
     }
 });
+
+// For realtime.js: the ids of everyone this user is study partners with (accepted requests,
+// either direction), who get told when they come online or go offline.
+router.getFriendIds = async (userId) => {
+    const [rows] = await pool.query(
+        `SELECT IF(sender_id = ?, receiver_id, sender_id) AS id
+         FROM friend_requests
+         WHERE status = 'accepted' AND (sender_id = ? OR receiver_id = ?)`,
+        [userId, userId, userId]
+    );
+    return [...new Set(rows.map((row) => row.id))];
+};
 
 module.exports = router;

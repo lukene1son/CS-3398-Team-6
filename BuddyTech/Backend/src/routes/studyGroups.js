@@ -1,7 +1,7 @@
 const express = require("express");
 const pool = require("../db");
 const { groupInviteLimiter } = require("../middleware/rateLimits");
-const { emitTo, removeFromRoom } = require("../realtime");
+const { emitTo, removeFromRoom, isOnlineNow } = require("../realtime");
 
 const router = express.Router();
 
@@ -122,6 +122,9 @@ router.get("/me/study-groups/discover", async (req, res) => {
 // Groups whose chat you can open (the Chat tab's Study Groups section):
 // groups you're in, plus every group in courses where you're a teacher/TA.
 // access = "member", or "staff" (a teacher/TA of the course who hasn't joined). Both can post.
+// For groups you're a MEMBER of: member_ids (the others in it) and online_ids (those of them
+// with the app open), for the sidebar's green dot. Presence is only shared within a group
+// you're in, so staff who only teach the course get neither (null).
 router.get("/me/study-groups", async (req, res) => {
     try {
         const me = req.user.id;
@@ -147,11 +150,32 @@ router.get("/me/study-groups", async (req, res) => {
             `,
             [me]
         );
-        res.json(rows.map(({ is_member, ...row }) => ({
-            ...row,
-            access: is_member ? "member" : "staff",
-            can_post: true,
-        })));
+        // Everyone else in the groups you're a member of, in one query.
+        const memberGroupIds = rows.filter(row => row.is_member).map(row => row.id);
+        const othersByGroup = new Map(memberGroupIds.map(id => [id, []]));
+        if (memberGroupIds.length > 0) {
+            const [memberRows] = await pool.query(
+                `SELECT study_group_members.group_id, study_group_members.user_id
+                 FROM study_group_members
+                 JOIN study_groups ON study_groups.id = study_group_members.group_id
+                 JOIN course_members
+                     ON course_members.course_id = study_groups.course_id
+                    AND course_members.user_id = study_group_members.user_id
+                 WHERE study_group_members.group_id IN (?) AND study_group_members.user_id <> ?`,
+                [memberGroupIds, me]
+            );
+            memberRows.forEach(({ group_id, user_id }) => othersByGroup.get(group_id).push(user_id));
+        }
+        res.json(rows.map(({ is_member, ...row }) => {
+            const others = is_member ? othersByGroup.get(row.id) : null;
+            return {
+                ...row,
+                access: is_member ? "member" : "staff",
+                can_post: true,
+                member_ids: others,
+                online_ids: others ? others.filter(isOnlineNow) : null,
+            };
+        }));
     } catch (error) {
         console.error("Error fetching my study groups:", error);
         res.status(500).json({ error: "Failed to fetch your study groups" });
@@ -331,6 +355,8 @@ router.delete("/me/study-groups/:id", async (req, res) => {
 // GET /api/study-groups/:id/members
 // The group's members, for the Chat header's member strip. Same access as the
 // chat itself: members, plus teachers/TAs of the group's course.
+// Each has `online` (the header's "N online") only if YOU are a member: presence is shared
+// within a group, not with staff who only teach the course.
 router.get("/study-groups/:id/members", async (req, res) => {
     try {
         const groupId = toId(req.params.id);
@@ -362,7 +388,7 @@ router.get("/study-groups/:id/members", async (req, res) => {
             `,
             [groupId]
         );
-        res.json(rows);
+        res.json(access.isMember ? rows.map(row => ({ ...row, online: isOnlineNow(row.id) })) : rows);
     } catch (error) {
         console.error("Error fetching study group members:", error);
         res.status(500).json({ error: "Failed to fetch group members" });
@@ -401,16 +427,33 @@ router.get("/study-groups/:id/messages", async (req, res) => {
                 users.name AS user_name,
                 users.avatar_color,
                 users.avatar_stored_name IS NOT NULL AS has_avatar,
+                -- 'teacher' or 'ta' for the group's course staff (the chat badges them); NULL otherwise.
+                IF(course_members.role IN ('teacher', 'ta'), course_members.role, NULL) AS user_role,
                 study_group_messages.content,
                 study_group_messages.created_at
             FROM study_group_messages
             JOIN users ON users.id = study_group_messages.user_id
+            LEFT JOIN course_members
+                ON course_members.course_id = ?
+               AND course_members.user_id = study_group_messages.user_id
             WHERE study_group_messages.group_id = ? AND study_group_messages.channel = ?
             ORDER BY study_group_messages.created_at DESC, study_group_messages.id DESC
             LIMIT ?
             `,
-            [groupId, channel, MESSAGE_HISTORY_LIMIT]
+            [access.courseId, groupId, channel, MESSAGE_HISTORY_LIMIT]
         );
+        // Opening a channel marks it read up to its newest message (rows[0], since
+        // they're still newest-first here). GREATEST keeps the marker from going backwards.
+        if (rows.length > 0) {
+            const [marked] = await pool.query(
+                `INSERT INTO study_group_reads (user_id, group_id, channel, last_read_message_id)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE last_read_message_id = GREATEST(last_read_message_id, ?)`,
+                [req.user.id, groupId, channel, rows[0].id, rows[0].id]
+            );
+            // 0 = nothing changed, so the 60-second poll doesn't ping the bell every time.
+            if (marked.affectedRows > 0) emitTo(`user:${req.user.id}`, "group-unread-changed", {});
+        }
         // Fetched newest-first so LIMIT keeps the latest ones; send them oldest-first.
         res.json(rows.reverse());
     } catch (error) {
@@ -418,6 +461,35 @@ router.get("/study-groups/:id/messages", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch messages" });
     }
 });
+// POST /api/study-groups/:id/read
+// Marks every channel of the group read up to its newest message. Used when you
+// open a group from the bell, so its whole notification clears, not just one channel.
+router.post("/study-groups/:id/read", async (req, res) => {
+    try {
+        const groupId = toId(req.params.id);
+        if (!groupId) return res.status(400).json({ error: "Invalid group id" });
+
+        const access = await getGroupAccess(req.user.id, groupId);
+        if (!access || !access.canRead) return res.status(404).json({ error: "Study group not found" });
+
+        // GREATEST keeps a marker from going backwards.
+        await pool.query(
+            `INSERT INTO study_group_reads (user_id, group_id, channel, last_read_message_id)
+             SELECT ?, newest.group_id, newest.channel, newest.max_id
+             FROM (SELECT group_id, channel, MAX(id) AS max_id
+                   FROM study_group_messages WHERE group_id = ? GROUP BY group_id, channel) AS newest
+             ON DUPLICATE KEY UPDATE
+                 last_read_message_id = GREATEST(study_group_reads.last_read_message_id, newest.max_id)`,
+            [req.user.id, groupId]
+        );
+        emitTo(`user:${req.user.id}`, "group-unread-changed", {});
+        res.json({ ok: true });
+    } catch (error) {
+        console.error("Error marking study group read:", error);
+        res.status(500).json({ error: "Failed to mark the group read" });
+    }
+});
+
 // POST /api/study-groups/:id/messages  { channel, content }
 // Members and the course's teachers/TAs can post. Everyone else gets a 403.
 
@@ -468,6 +540,13 @@ router.post("/study-groups/:id/messages", async (req, res) => {
             [result.insertId]
         );
         emitTo(`group:${groupId}`, "group-message", { group_id: groupId, channel });
+
+        // Also tell the other members, wherever they are in the app, so their bell updates.
+        const [members] = await pool.query(
+            "SELECT user_id FROM study_group_members WHERE group_id = ? AND user_id <> ?",
+            [groupId, req.user.id]
+        );
+        members.forEach((member) => emitTo(`user:${member.user_id}`, "group-unread-changed", {}));
        res.status(201).json(rows[0]);
     } catch (error) {
         console.error("Error sending study group message:", error);
@@ -733,5 +812,18 @@ router.delete("/me/study-group-invites/:id", async (req, res) => {
 
 // Used by realtime.js to check who can join a group's live updates.
 router.getGroupAccess = getGroupAccess;
+
+// For realtime.js: everyone who shares a study group with this user (as members), who get
+// told when they come online or go offline (the group's green dot and "N online").
+router.getCoMemberIds = async (userId) => {
+    const [rows] = await pool.query(
+        `SELECT DISTINCT theirs.user_id AS id
+         FROM study_group_members AS mine
+         JOIN study_group_members AS theirs ON theirs.group_id = mine.group_id
+         WHERE mine.user_id = ? AND theirs.user_id <> ?`,
+        [userId, userId]
+    );
+    return rows.map(row => row.id);
+};
 
 module.exports = router;

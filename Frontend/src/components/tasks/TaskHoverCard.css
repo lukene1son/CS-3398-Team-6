@@ -1,0 +1,83 @@
+/* The task hover card (TaskHoverCard.jsx). --thc-c is the task's course colour. */
+
+.thc {
+  position: fixed;
+  z-index: 900;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 14px 14px 12px;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 16px 36px -10px rgba(15, 23, 42, 0.35);
+  font-size: 13px;
+  /* Hidden: faded out and click-through. visibility waits for the fade before hiding. */
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s linear 0.14s;
+}
+.thc.show {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out, visibility 0s;
+}
+
+/* An invisible strip over the gap to the task, so moving onto the card keeps it open. */
+.thc::before { content: ""; position: absolute; }
+.thc[data-side="right"]::before { right: 100%; top: 0; bottom: 0; width: 12px; }
+.thc[data-side="left"]::before { left: 100%; top: 0; bottom: 0; width: 12px; }
+.thc[data-side="below"]::before { bottom: 100%; left: 0; right: 0; height: 12px; }
+
+/* The small pointer toward the task. */
+.thc::after {
+  content: ""; position: absolute; width: 10px; height: 10px;
+  background: #ffffff; border: 1px solid rgba(148, 163, 184, 0.35); transform: rotate(45deg);
+}
+.thc[data-side="right"]::after { left: -6px; top: var(--thc-arrow, 20px); border-top: 0; border-right: 0; }
+.thc[data-side="left"]::after { right: -6px; top: var(--thc-arrow, 20px); border-bottom: 0; border-left: 0; }
+.thc[data-side="below"]::after { top: -6px; left: var(--thc-arrow, 24px); border-right: 0; border-bottom: 0; }
+
+.thc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.thc-course {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; color: var(--thc-c); background: color-mix(in srgb, var(--thc-c) 10%, #ffffff);
+}
+.thc-course b { width: 16px; height: 16px; border-radius: 5px; background: var(--thc-c); }
+.thc-due {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 600; color: #64748b; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.thc-due.late { color: #b91c1c; font-weight: 700; }
+.thc-tags { margin: 0 0 6px; }
+.thc-title { margin: 0 0 4px; font-size: 15px; font-weight: 700; line-height: 1.3; }
+/* Up to 3 lines; longer summaries end in "…". */
+.thc-summary {
+  margin: 0; color: #64748b; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.thc-summary.none { font-style: italic; color: #94a3b8; }
+
+.thc-attach { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.thc-attach > span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+.thc-files { background: #dbeafe; color: #2563eb; }
+.thc-links { background: #ede9fe; color: #7c3aed; }
+.thc-none { background: #f8fafc; color: #94a3b8; font-weight: 500 !important; }
+.thc-private { color: #64748b; padding-left: 0 !important; font-weight: 500 !important; }
+
+.thc-full {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 12px; border: 0; border-radius: 10px; background: #eff6ff; color: #2563eb;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.thc-full:hover { background: #dbeafe; }
+.thc-full:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .thc, .thc.show { transform: none; }
+}

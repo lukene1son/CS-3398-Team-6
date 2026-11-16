@@ -1,0 +1,19 @@
+# Serves the built app (dist/, copied to /srv by the Dockerfile) inside the frontend
+# container. HTTPS and /api routing are handled by the main Caddy in front (root Caddyfile).
+:5173 {
+	root * /srv
+	encode gzip
+
+	# Never serve source maps, even if a build ever produces them. (A handle block, so this
+	# is decided before the index.html fallback below can rewrite the request.)
+	@maps path *.map
+	handle @maps {
+		respond 404
+	}
+
+	handle {
+		# React Router pages (/login, /dashboard, ...) are all index.html.
+		try_files {path} /index.html
+		file_server
+	}
+}
