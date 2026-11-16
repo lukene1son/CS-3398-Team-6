@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => {
     // addresses, which blocks DNS-rebinding attacks from other websites.
     server: {
       host: '0.0.0.0',
+      // In Docker dev (docker-compose.dev.yml), file-change events from the host
+      // folder don't reach the container, so poll for edits instead.
+      watch: env.VITE_DEV_POLLING === 'true' ? { usePolling: true, interval: 300 } : undefined,
       proxy: {
         '/api': {
           target: env.VITE_API_TARGET || 'http://localhost:3000',
