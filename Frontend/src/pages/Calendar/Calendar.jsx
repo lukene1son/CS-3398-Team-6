@@ -7,17 +7,17 @@ import {
   ChevronDown,
   ArrowDown
 } from 'lucide-react';
-import { courseAccent } from '../courseColors';
-import { easeScrollBy } from '../smoothScroll';
-import { useTaskHoverCard } from '../components/useTaskHoverCard';
-import AddTaskModal from '../components/AddTaskModal';
+import { courseAccent } from '../../utils/courseColors';
+import { easeScrollBy } from '../../animation/smoothScroll';
+import { useTaskHoverCard } from '../../components/tasks/useTaskHoverCard';
+import AddTaskModal from '../../components/tasks/AddTaskModal';
 
 import {
   getGoogleCalendarStatus,
   getGoogleCalendarConnectUrl,
   syncGoogleCalendar,
   disconnectGoogleCalendar
-} from '../api';
+} from '../../api';
 import './Calendar.css';
 
 // The side Tasks list's grow-in: rows after this many all start together.

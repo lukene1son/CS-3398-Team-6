@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getGoogleSignInConfig, loginWithGoogle } from "../api";
+import { getGoogleSignInConfig, loginWithGoogle } from "../../api";
 
 // Google's script, loaded once per page however many times this component mounts.
 let scriptPromise = null;

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Users, MessageSquare, Hash, Bell, Check, X, ChevronRight, ShieldAlert } from 'lucide-react';
-import Avatar from './Avatar';
+import Avatar from '../Avatar';
 
 const rowStyle = {
   display: 'flex',

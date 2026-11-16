@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Check, Clock, FileText, Folder, Link2, MessageSquare, Paperclip, Plus } from 'lucide-react';
-import { getAssignment, downloadResourceFile, viewResourceFile, VIEWABLE_TYPES } from '../api';
-import { courseAccent } from '../courseColors';
-import AddTaskModal from '../components/AddTaskModal';
-import TaskTags from '../components/TaskTags';
+import { getAssignment, downloadResourceFile, viewResourceFile, VIEWABLE_TYPES } from '../../api';
+import { courseAccent } from '../../utils/courseColors';
+import AddTaskModal from '../../components/tasks/AddTaskModal';
+import TaskTags from '../../components/tasks/TaskTags';
 import './Assignments.css';
 
 // The Assignments page: every assignment and personal task across your courses. A list on the

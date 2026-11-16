@@ -1,6 +1,6 @@
 import { useLayoutEffect } from 'react';
 import { ArrowRight, Clock, Link2, Lock, Paperclip } from 'lucide-react';
-import { courseAccent } from '../courseColors';
+import { courseAccent } from '../../utils/courseColors';
 import TaskTags from './TaskTags';
 import './TaskHoverCard.css';
 

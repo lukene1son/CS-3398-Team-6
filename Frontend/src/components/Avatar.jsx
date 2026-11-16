@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getUserAvatarUrl, peekUserAvatarUrl } from "../api";
-import { avatarColor, getInitial } from "../avatarColors";
+import { avatarColor, getInitial } from "../utils/avatarColors";
 
 // Profile picture if the user has one, otherwise their initials on their color.
 // Change refreshKey to reload the picture (e.g. right after uploading a new one).

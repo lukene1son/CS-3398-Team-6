@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { login, register, checkLoginAttempt } from "../api";
+import { login, register, checkLoginAttempt } from "../../api";
 import GoogleSignInButton from "./GoogleSignInButton";
 import CanvasSignInButton from "./CanvasSignInButton";
-import AnimatedLogo from "./AnimatedLogo";
+import AnimatedLogo from "../../animation/AnimatedLogo";
 import "./Login.css";
 
 // The logo heading every version of the card. It always sits in the same place in the tree

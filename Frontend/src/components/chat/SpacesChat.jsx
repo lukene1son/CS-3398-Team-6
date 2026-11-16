@@ -3,12 +3,12 @@ import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage
 sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend,
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
-getCourseMembers, getGroupMembers } from "../api";
+getCourseMembers, getGroupMembers } from "../../api";
 import { Search, ArrowDown, Check, X, Plus, MessageSquare } from "lucide-react";
-import Avatar from "./Avatar";
-import { onSocketEvent, watchRoom } from "../socket";
-import { courseAccent } from "../courseColors";
-import { easeScrollBy } from "../smoothScroll";
+import Avatar from "../Avatar";
+import { onSocketEvent, watchRoom } from "../../socket";
+import { courseAccent } from "../../utils/courseColors";
+import { easeScrollBy } from "../../animation/smoothScroll";
 import "./StudyPartners.css";
 
 // The sidebar's two views. The white pill slides to the active one (index.css .segment-pill).

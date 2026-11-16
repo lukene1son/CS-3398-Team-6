@@ -1,4 +1,4 @@
-import AnimatedLogo from './AnimatedLogo';
+import AnimatedLogo from '../../animation/AnimatedLogo';
 
 // The landing page's navbar: the logo on the left, the section links in the middle of the
 // page, the account buttons on the right. When the page loads, the links and buttons pop in

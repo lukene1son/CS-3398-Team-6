@@ -3,8 +3,8 @@ import { BookOpen, CheckSquare, ChevronDown, FileText, Folder, Link2, Plus } fro
 import {
   getMyCourses, getResources, addResourceLink, uploadResourceFile, addAssignmentLink, uploadAssignmentFile,
   deleteResource, downloadResourceFile, viewResourceFile, VIEWABLE_TYPES,
-} from "../api";
-import { courseAccent } from "../courseColors";
+} from "../../api";
+import { courseAccent } from "../../utils/courseColors";
 import "./Resources.css";
 
 // What the file picker offers. Code files are shown as plain text by View and keep

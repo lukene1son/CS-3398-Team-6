@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Users, GraduationCap, Laptop, Sparkles } from 'lucide-react';
 import './Landing.css';
-import AsciiBackground from '../components/AsciiBackground';
+import AsciiBackground from './AsciiBackground';
 import { useHeroSeam } from './heroSeam';
 import { useFeatureCardsEntrance } from './featureCardsPin';
 import { useStudyScene } from './studyScene';

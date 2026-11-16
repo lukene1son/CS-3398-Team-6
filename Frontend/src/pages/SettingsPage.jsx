@@ -3,7 +3,7 @@ import { Pencil } from "lucide-react";
 import { getSettings, saveSettings, uploadAvatar, deleteAvatar, saveAvatarColor, forgetUserAvatar, USE_MOCK } from "../api";
 
 import Avatar from "../components/Avatar";
-import { AVATAR_COLORS, AVATAR_COLOR_NAMES, avatarColor } from "../avatarColors";
+import { AVATAR_COLORS, AVATAR_COLOR_NAMES, avatarColor } from "../utils/avatarColors";
 
 const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" };
 const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none", width: "100%" };

@@ -4,12 +4,12 @@ import { disconnectSocket } from './socket';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 
-import Navbar from './components/Navbar';
-import Home from './pages/Home';
-import Footer from './components/Footer';
-import Login from './components/Login';
-import Dashboard from './pages/Dashboard';
-import ErrorBoundary from './components/ErrorBoundary';
+import Navbar from './components/layout/Navbar';
+import Home from './pages/Landing/Home';
+import Footer from './components/layout/Footer';
+import Login from './components/auth/Login';
+import Dashboard from './pages/Dashboard/Dashboard';
+import ErrorBoundary from './components/layout/ErrorBoundary';
 
 const STORAGE_KEY = 'buddytech-user';
 

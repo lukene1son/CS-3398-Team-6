@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ClipboardCheck, CheckSquare, FileText, Folder, Hand, Link2, Lock, Star, Upload, Users, X } from 'lucide-react';
-import { addAssignmentLink, createAssignment, uploadAssignmentFile } from '../api';
-import { courseAccent } from '../courseColors';
+import { addAssignmentLink, createAssignment, uploadAssignmentFile } from '../../api';
+import { courseAccent } from '../../utils/courseColors';
 import './AddTaskModal.css';
 
 // The Add Task popup (opened from the dashboard's Current Tasks panel).

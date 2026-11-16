@@ -6,22 +6,22 @@ import {
 import { getMyAssignments, getMyCourses, updateAssignmentStatus,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
     respondToFriendRequest, respondToGroupInvite, getActivity, markGroupRead,
-    getLoginAttempts, decideLoginAttempt} from '../api';
-import {onSocketEvent} from '../socket';
+    getLoginAttempts, decideLoginAttempt} from '../../api';
+import {onSocketEvent} from '../../socket';
 
-import SpacesChat from '../components/SpacesChat';
-import PartnerNotifications from '../components/PartnerNotifications';
-import CalendarView from './Calendar';
-import AITools from './AITools';
-import Resources from './Resources';
-import AssignmentsPage from './Assignments';
-import SettingsPage from './SettingsPage';
-import Avatar from '../components/Avatar';
-import AnimatedLogo from '../components/AnimatedLogo';
-import AddTaskModal from '../components/AddTaskModal';
-import { useTaskHoverCard } from '../components/useTaskHoverCard';
+import SpacesChat from '../../components/chat/SpacesChat';
+import PartnerNotifications from '../../components/chat/PartnerNotifications';
+import CalendarView from '../Calendar/Calendar';
+import AITools from '../AITools';
+import Resources from '../Resources/Resources';
+import AssignmentsPage from '../Assignments/Assignments';
+import SettingsPage from '../SettingsPage';
+import Avatar from '../../components/Avatar';
+import AnimatedLogo from '../../animation/AnimatedLogo';
+import AddTaskModal from '../../components/tasks/AddTaskModal';
+import { useTaskHoverCard } from '../../components/tasks/useTaskHoverCard';
 // One colour per course: the Study Spaces card stripes, Recent Activity placards and Spaces course tabs.
-import { courseAccent } from '../courseColors';
+import { courseAccent } from '../../utils/courseColors';
 // AI Quick Actions icons: each animates while its row (.ai-action) is hovered.
 import './pagesAnimation.css';
 import './messagesAnimation.css';
