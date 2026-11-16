@@ -8,9 +8,62 @@ Students chat in their courses ("Study Spaces"), find and connect with classmate
 
 The publicly hosted version of BuddyTech is at **https://buddytechdemo.devs.li**.
 
-To run your own copy locally, use the [Native Development Setup](#native-development-setup) below. The Docker setup in this repository is now the **hosted server's** setup (see the next section).
+To run your own copy locally, use [Local Development with Docker](#local-development-with-docker) (the easiest way: only Docker needed) or the [Native Development Setup](#native-development-setup). The repository has two Docker setups:
+
+| File | For | Start with |
+| --- | --- | --- |
+| `docker-compose.dev.yml` | your own computer (development) | `docker compose -f docker-compose.dev.yml up --build` |
+| `docker-compose.yml` | the hosted server (production, HTTPS) | `docker compose up -d --build` |
 
 Backend setup, database, permissions, sign-in sessions, real-time events, and the full API list: [`BuddyTech/Backend/README.md`](BuddyTech/Backend/README.md)
+
+## Local Development with Docker
+
+`docker-compose.dev.yml` runs the whole app on your own computer: MySQL, the backend, and the **Vite dev server**, which reloads the page as soon as you save a file in `Frontend/`. You only need **Git** and **Docker Desktop** (no Node.js or MySQL install). See the Windows tip under [Requirements](#requirements) if PowerShell can't find `docker`.
+
+### 1. Clone and start
+
+    git clone https://github.com/lukene1son/CS-3398-Team-6.git
+    cd CS-3398-Team-6
+    docker compose -f docker-compose.dev.yml up --build
+
+**No `.env` file is needed.** The database password and `JWT_SECRET` have local-only defaults, and the Google, Gemini, and email settings are optional: without them, those features are turned off (the **Sign in with Google** button is hidden, Calendar sync says it isn't configured, the AI tools say they aren't set up, and sign-in approval emails are skipped; approve sign-ins from the bell instead).
+
+The first launch takes a few minutes. Docker builds the images, creates the database, loads the demo data (see the demo accounts under [Current Development Status](#current-development-status); password `password123`), and starts everything. It's ready when the log shows `Server running on port 3000` and `VITE ... ready`.
+
+> **Shortcut:** add the line `COMPOSE_FILE=docker-compose.dev.yml` to a root `.env` file (git-ignored), and plain `docker compose up --build` uses the dev setup from then on. Every command below can then drop the `-f docker-compose.dev.yml` part.
+
+### 2. Open BuddyTech
+
+- Site: http://localhost:5173
+- Backend API (for testing it directly, e.g. with Postman): http://localhost:3000
+
+Both are published on `127.0.0.1` only, so they're reachable from your own computer but not from other devices on your network.
+
+### Editing code
+
+- **Frontend (`Frontend/`):** your folder is shared with the container, so saved changes show up in the browser right away. No restart needed.
+- **Backend (`BuddyTech/Backend/`):** the backend runs from its image, so rebuild after changing it:
+
+      docker compose -f docker-compose.dev.yml up --build
+
+- **New npm packages:** after you (or a teammate) change `Frontend/package.json` / `package-lock.json`, run the same `up --build`. The frontend reinstalls its packages only when `package-lock.json` changed.
+
+### Logs and stopping
+
+    docker compose -f docker-compose.dev.yml logs backend --tail 100
+    docker compose -f docker-compose.dev.yml down
+
+Your local database and uploaded files are kept in Docker volumes between runs. To erase them and reload fresh demo data:
+
+    docker compose -f docker-compose.dev.yml down -v
+    docker compose -f docker-compose.dev.yml up --build
+
+### Optional settings
+
+To try the optional features locally, create a root `.env` file with any of the settings listed in [Create the root `.env` file](#2-create-the-root-env-file) below. For Google Calendar sync, use `GOOGLE_REDIRECT_URI=http://localhost:5173/api/auth/google/callback` and add that address to your Google Cloud OAuth client. `APP_URL` is always `http://localhost:5173` in the dev setup.
+
+**Troubleshooting:** if the backend log shows `Access denied for user 'root'`, your database volume was created with a different `MYSQL_ROOT_PASSWORD` than the one in use now. Either set the old password in `.env`, or erase the local database with `down -v` as above.
 
 ## Hosting with Docker
 
@@ -18,7 +71,7 @@ Backend setup, database, permissions, sign-in sessions, real-time events, and th
 
 The site address is set in the `Caddyfile` at the repository root (`buddytechdemo.devs.li`). For your own server, change it to your domain and point that domain's DNS at the server before starting, so Caddy can get the certificate.
 
-> **Running Docker on your own computer:** with this setup, `http://localhost:5173` and `http://localhost:3000` are no longer published, and Caddy only answers for the domain in the `Caddyfile`. For local development, use the [Native Development Setup](#native-development-setup).
+> **Running Docker on your own computer:** don't use `docker-compose.yml` locally. It publishes no `localhost:5173` or `localhost:3000`, and Caddy only answers for the domain in the `Caddyfile` (it would also keep trying to get that domain's certificate from your computer). Use [Local Development with Docker](#local-development-with-docker) instead.
 
 ### Requirements
 
@@ -125,7 +178,7 @@ Only use the `-v` option when you intentionally want to erase BuddyTech data.
 
 ## Native Development Setup
 
-This is the way to run BuddyTech on your own computer.
+This runs BuddyTech on your own computer without Docker (you install Node.js and MySQL yourself). For the Docker way, see [Local Development with Docker](#local-development-with-docker).
 
 ### Backend
 
@@ -286,7 +339,7 @@ Demo Student, Study Partner, and Study Partner2 are all in **CS 3398 Exam Prep**
 Known limitations:
 
 - **New accounts can't join a course yet.** Signing up (with a password or with Google) doesn't add the user to any course, and there is no "join course" feature, so a new account sees no channels, classmates, study groups, resources, or course assignments. For testing, use the demo accounts or add a row to `course_members` by hand.
-- **`JWT_SECRET` must be set.** Natively, the backend reads it from `BuddyTech/Backend/port.env`; without it, sign-in and sign-up fail with a server error. Under Docker, `docker compose up` refuses to start until the root `.env` sets it.
+- **`JWT_SECRET` must be set.** Natively, the backend reads it from `BuddyTech/Backend/port.env`; without it, sign-in and sign-up fail with a server error. The hosted Docker setup (`docker-compose.yml`) refuses to start until the root `.env` sets it; the local Docker setup (`docker-compose.dev.yml`) uses a local-only default instead.
 - **Google features need a Google Cloud OAuth client.** Without `GOOGLE_CLIENT_ID`, the **Sign in with Google** button is hidden. Without all four Google Calendar settings, the Planner's sync card says sync isn't configured.
 - **Google Calendar sync is one-way.** Changes made in Google Calendar don't come back to BuddyTech, and disconnecting leaves the "BuddyTech" calendar in your Google account.
 - **The email notification and assignment reminder switches don't send anything yet.** They are saved, but the only email the backend sends is the sign-in approval email.
@@ -300,10 +353,9 @@ Known limitations:
 - **Teachers and TAs show up in Find Study Partners suggestions,** because suggestions are based on shared courses, not roles.
 - **Rate-limit counts, the Google Calendar sync queue, and "who has the app open" reset on restart.** They are kept in the backend's memory, which only works while a single backend server is running.
 - **The hosted Docker setup still has demo-grade parts:**
-  - the frontend runs on the Vite development server instead of a production build
   - the demo accounts use a password that is published in this repository
-  - Docker uses the MySQL root user with a weak password
-- **There's no Docker setup for running on your own computer** right now; `docker-compose.yml` is the hosted server's setup. Use the native setup locally.
+  - the backend connects to MySQL as the root user
+- **The local Docker setup doesn't hot-reload the backend.** Frontend edits show up live, but backend changes need `docker compose -f docker-compose.dev.yml up --build`.
 - **AI tools need a Gemini API key.** Without `GEMINI_API_KEY`, the AI route returns "AI service is not configured yet".
 
 ## Technology Stack
@@ -315,4 +367,4 @@ Known limitations:
 - Google Identity Services (Sign in with Google) and the Google Calendar API
 - Gemini (AI study tools)
 - Resend (sign-in approval emails)
-- Docker / Docker Compose, with Caddy (HTTPS and routing) on the hosted server
+- Docker / Docker Compose: `docker-compose.dev.yml` for local development, `docker-compose.yml` with Caddy (HTTPS and routing) on the hosted server

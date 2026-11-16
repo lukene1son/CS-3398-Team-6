@@ -1,0 +1,92 @@
+# Local development on your own computer. Start it with:
+#
+#     docker compose -f docker-compose.dev.yml up --build
+#
+# (Or put COMPOSE_FILE=docker-compose.dev.yml in your root .env, and plain
+# `docker compose up --build` uses this file.)
+#
+#   - Site:    http://localhost:5173  (Vite dev server; edits in Frontend/ reload live)
+#   - Backend: http://localhost:3000  (for testing the API directly)
+#
+# No .env file is needed. Every setting has a local default, and the Google, Gemini and
+# email settings are optional: without them those features are simply turned off.
+# Put any of them in the root .env to override the defaults below.
+#
+# docker-compose.yml is the PRODUCTION setup (Caddy + HTTPS on the droplet); leave it as is.
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      # Local-only default. (Only used when the database volume is first created.)
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-buddytech}
+      MYSQL_DATABASE: buddytech
+    volumes:
+      - buddytech_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h localhost --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./BuddyTech/Backend
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-buddytech}
+      DB_NAME: buddytech
+      # Local-only default; it signs sign-in tokens, so never use this value in production.
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-jwt-secret-change-me}
+      # Optional features: leave unset to turn them off.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_TOKEN_KEY: ${GOOGLE_TOKEN_KEY:-}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # Links in emails (e.g. sign-in approval) point at the local site.
+      APP_URL: http://localhost:5173
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: sh -c "npm run db:ensure && npm run db:migrate && npm start"
+    # 127.0.0.1 only: reachable from your own computer, not from your network.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - buddytech_uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./Frontend
+      # Stop at the Node stage of Frontend/Dockerfile (source + node_modules) instead of
+      # the final static-file image used in production.
+      target: build
+    environment:
+      VITE_API_TARGET: http://backend:3000
+      # File-change events from a Windows/macOS folder don't reach inside the container,
+      # so Vite checks for changes itself (server.watch in vite.config.js).
+      VITE_DEV_POLLING: "true"
+    # Reinstall packages only when package-lock.json is newer than the last install
+    # (e.g. after pulling a teammate's new dependency), then start the dev server.
+    command: sh -c "[ package-lock.json -ot node_modules/.package-lock.json ] || npm ci; npm run dev"
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      # Your Frontend/ folder, live, so edits show up without a rebuild...
+      - ./Frontend:/app
+      # ...except node_modules: the container keeps its own Linux packages instead of
+      # the ones on your computer (which may be built for Windows/macOS).
+      - /app/node_modules
+
+volumes:
+  buddytech_mysql_data:
+  buddytech_uploads:
