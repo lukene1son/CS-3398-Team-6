@@ -1253,6 +1253,31 @@ export default function SpacesChat({
 
   // 2. Load channels whenever the selected course changes
   const courseId = course?.id;
+
+  // A space you're in was deleted by its teacher (spaces.js sends "course-deleted" to every
+  // member). Drop it right away. If it was the one on screen, or one of its study groups
+  // was open, go back to the first remaining space's channel. Refs, so the listener
+  // always sees what's on screen now without re-subscribing on every render.
+  const shownCourseIdRef = useRef(courseId);
+  shownCourseIdRef.current = courseId;
+  const myGroupsRef = useRef(myGroups);
+  myGroupsRef.current = myGroups;
+  useEffect(() => {
+    if (!userId) return;
+    return onSocketEvent("course-deleted", ({ courseId: deletedId }) => {
+      const deletedGroupIds = myGroupsRef.current.filter(g => g.course_id === deletedId).map(g => g.id);
+      setCourses(prev => prev.filter(c => c.id !== deletedId));
+      setMyGroups(prev => prev.filter(g => g.course_id !== deletedId));
+      setChatTarget(prev => (prev.type === "group" && deletedGroupIds.includes(prev.id) ? { type: "channel" } : prev));
+      if (shownCourseIdRef.current === deletedId) {
+        setSelectedCourseId(null);  // null = the first course in the list
+        setSelectedChannelId(null); // null = that course's first channel
+      }
+      // Discover and Invites can list the deleted space's groups too.
+      loadDiscoverGroups().catch(() => {});
+      loadGroupInvites().catch(() => {});
+    });
+  }, [userId, loadDiscoverGroups, loadGroupInvites]);
   useEffect(() => {
     if (!courseId) return;
     let cancelled = false;

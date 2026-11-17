@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
-  Bell,
-  Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2} from 'lucide-react';
+  Search, Bell,
+  Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2, Settings2} from 'lucide-react';
 import { getMyAssignments, getMyCourses, updateAssignmentStatus,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
     respondToFriendRequest, respondToGroupInvite, getActivity, markGroupRead,
@@ -277,11 +277,13 @@ const TASK_HEADER_BUTTON = {
 const WELCOME_AVATAR = 68;
 const STALE_LATE_DAYS = 14;   // unfinished work this many days late drops off Home (it stays on the Planner page)
 
-// Study Spaces cards: at most 3 per row, sharing the left column's width (about 235px
-// each on a 1440px screen). The 180px floor drops them to 2, then 1, on narrow screens.
+// Study Spaces cards (and the progress band's course bars): at most 3 per row, sharing the
+// left column's width (about 235px each on a 1440px screen). The 180px floor drops them to
+// 2, then 1, on narrow screens. auto-fit (not auto-fill): with fewer than 3 items, the
+// empty columns collapse and the items stretch to fill the whole width.
 const SPACE_GRID = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(max(180px, calc((100% - 2rem) / 3)), 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(max(180px, calc((100% - 2rem) / 3)), 1fr))',
   gap: '1rem'
 };
 
@@ -521,6 +523,9 @@ useEffect(() => {
       .then(setCourses)
       .catch((error) => console.error('Failed to refresh spaces:', error));
   };
+  // A space you're in was deleted (by its teacher, maybe in another tab): drop its card,
+  // and its Delete Space entry on Settings, right away.
+  useEffect(() => onSocketEvent('course-deleted', refreshCourses), []);
   // Tasks playing the check-off animation. They stay on screen until it ends.
   const [leavingIds, setLeavingIds] = useState([]);
 
@@ -549,9 +554,18 @@ useEffect(() => {
       : 'home';
   });
 
+  // Settings has two sections: 'user' (profile, notifications) and 'spaces' (your spaces,
+  // Delete Space). The sidebar's Settings opens User Settings; Manage Spaces opens Spaces.
+  const [settingsSection, setSettingsSection] = useState('user');
+  const openSpaceSettings = () => {
+    changeTab('settings');
+    setSettingsSection('spaces');
+  };
+
   const changeTab = (tab) => {
     sessionStorage.setItem('buddytechActiveTab', tab);
     setActiveTab(tab);
+    if (tab === 'settings') setSettingsSection('user');
     // Leaving Spaces: forget the bell's last "open this chat", so coming back
     // later doesn't jump to that chat again.
     if (tab !== 'spaces') setOpenTarget(null);
@@ -914,7 +928,15 @@ useEffect(() => {
           </div>
         ) : activeTab === 'settings' ? (
           <div style={{ padding: '2rem', flex: 1 }}>
-             <SettingsPage user={user} onUserChange={onUserChange} />
+             <SettingsPage
+               user={user}
+               onUserChange={onUserChange}
+               courses={courses}
+               onCoursesChanged={refreshCourses}
+               section={settingsSection}
+               onSectionChange={setSettingsSection}
+               onJoinOrCreate={() => setShowSpaceModal(true)}
+             />
           </div>
         ) : (
         // Two columns: on the left, the welcome panel (welcome, then the progress band), the
@@ -924,9 +946,11 @@ useEffect(() => {
         // bottom panels (Current Tasks, Recent Activity) grow to fill it, so their bottoms
         // line up. Once a "Show N more" is open, each column is just as tall as its content,
         // so the other panel doesn't grow a big empty space to match.
-        <div style={{ padding: '2rem 2rem 4rem', display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', columnGap: '2rem', alignItems: showAllTasks || showAllDueSoon || showAllMessages ? 'start' : 'stretch' }}>
+        // On narrow windows the right column moves under the left one (index.css .home-grid),
+        // so every panel, its cards and its message bubbles get the full width.
+        <div className="home-grid" style={{ padding: '2rem 2rem 4rem', alignItems: showAllTasks || showAllDueSoon || showAllMessages ? 'start' : 'stretch' }}>
           {/* Left column */}
-          <div style={{ gridColumn: 1, gridRow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div className="home-col-left" style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
            {/* Welcome panel: the welcome, then the progress band. */}
            <div style={{ ...PANEL, marginBottom: '1.5rem' }}>
           <div style={{ marginBottom: '1rem' }}>
@@ -1026,17 +1050,14 @@ useEffect(() => {
            {/* Study Spaces panel: the heading, then one card per course; clicking a card opens
                that course in Spaces. */}
            <div style={{ ...PANEL, marginBottom: '1.5rem' }}>
-            {/* The heading is as wide as the card grid, so "+ Join or create" sits over the third card. */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            {/* The heading is as wide as the card grid, so "Manage Spaces" sits over the last card.
+                It opens Settings on its Spaces section. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
               <h3 id="study-spaces-heading" style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                 <Users size={18} color="#2563eb" /> Study Spaces
               </h3>
-              <button
-                type="button"
-                onClick={() => setShowSpaceModal(true)}
-                style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}
-              >
-                + Join or create
+              <button type="button" className="manage-spaces-button" onClick={openSpaceSettings}>
+                <Settings2 size={15} strokeWidth={2.4} /> Manage Spaces
               </button>
             </div>
             <section aria-labelledby="study-spaces-heading">
@@ -1216,7 +1237,7 @@ useEffect(() => {
           </div>
 
           {/* Right column: the AI Quick Actions and Recent Activity panels, level with the welcome panel */}
-          <div style={{ gridColumn: 2, gridRow: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div className="home-col-right" style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={PANEL}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
@@ -1226,7 +1247,9 @@ useEffect(() => {
               </div>
 
               {/* Two compact tiles per row. Each shows its icon and title; the longer
-                  description is the tile's tooltip. */}
+                  description is the tile's tooltip. When a tile gets too narrow for its title,
+                  the title hides and the icon centres (index.css .ai-action container query);
+                  the tooltip still names the action. */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.6rem' }}>
                 {[
                   { icon: PagesIcon, title: 'Catch me up', sub: 'Summarize discussions and updates' },
@@ -1238,11 +1261,13 @@ useEffect(() => {
                     key={i}
                     className="ai-action" // hovering plays its icon's animation (*Animation.css)
                     onClick={() => changeTab('ai')}
-                    title={action.sub}
-                    style={{ minWidth: 0, minHeight: '64px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '10px', padding: '0.9rem 0.75rem', borderRadius: '10px', boxShadow: ON_PANEL_SHADOW, cursor: 'pointer' }}
+                    title={`${action.title}: ${action.sub}`}
+                    style={{ minWidth: 0, minHeight: '64px', boxSizing: 'border-box', padding: '0.9rem 0.75rem', borderRadius: '10px', boxShadow: ON_PANEL_SHADOW, cursor: 'pointer' }}
                   >
-                    <action.icon />
-                    <p style={{ fontSize: '0.85rem', fontWeight: 600, margin: 0, lineHeight: 1.25, minWidth: 0 }}>{action.title}</p>
+                    <div className="ai-action-inner">
+                      <action.icon />
+                      <p className="ai-action-title" style={{ fontSize: '0.85rem', fontWeight: 600, margin: 0, lineHeight: 1.25, minWidth: 0 }}>{action.title}</p>
+                    </div>
                   </div>
                 ))}
               </div>
