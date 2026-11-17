@@ -220,10 +220,8 @@ function notConnected(message) {
 
 // Pushes this user's assignments (or just one of them) to their Google calendar.
 // Returns how many were pushed.
-async function syncUser(userId, timeZone, onlyAssignmentId = null) {
-    const link = await getLink(userId);
-    if (!link) throw notConnected("Google Calendar is not connected");
-
+// A fresh access token from the user's stored refresh token.
+async function getAccessToken(userId, link) {
     const refreshed = await tokenRequest({
         grant_type: "refresh_token",
         refresh_token: decrypt(link.refresh_token_enc),
@@ -236,7 +234,13 @@ async function syncUser(userId, timeZone, onlyAssignmentId = null) {
         }
         throw new Error(`Token refresh failed: ${refreshed.data.error || "unknown"}`);
     }
-    const accessToken = refreshed.data.access_token;
+    return refreshed.data.access_token;
+}
+
+async function syncUser(userId, timeZone, onlyAssignmentId = null) {
+    const link = await getLink(userId);
+    if (!link) throw notConnected("Google Calendar is not connected");
+    const accessToken = await getAccessToken(userId, link);
 
     let calendarId = link.calendar_id || await createCalendar(userId, accessToken);
     let assignments = await getAssignmentsToSync(userId, onlyAssignmentId);
@@ -267,10 +271,15 @@ async function syncUser(userId, timeZone, onlyAssignmentId = null) {
 const syncQueues = new Map(); // user id -> that user's most recent sync
 
 function queueSync(userId, timeZone, onlyAssignmentId = null) {
+    return queueForUser(userId, () => syncUser(userId, timeZone, onlyAssignmentId));
+}
+
+// Runs task() after this user's earlier syncs/removals finish (see syncQueues).
+function queueForUser(userId, task) {
     const previous = syncQueues.get(userId) || Promise.resolve();
     const next = previous
         .catch(() => {}) // a failed sync shouldn't block the next one
-        .then(() => syncUser(userId, timeZone, onlyAssignmentId));
+        .then(task);
     syncQueues.set(userId, next);
     next.catch(() => {}).finally(() => {
         if (syncQueues.get(userId) === next) syncQueues.delete(userId);
@@ -419,6 +428,38 @@ router.syncNewAssignment = async function syncNewAssignment(assignmentId) {
         }
     } catch (error) {
         console.error("Google Calendar push failed:", error);
+    }
+};
+
+// Called by DELETE /api/courses/:id (spaces.js) and DELETE /api/assignments/:id (server.js)
+// after the space or assignment is gone.
+// rows = [{ user_id, google_event_id }], collected BEFORE the delete (the cascade has
+// since removed them from google_calendar_events). Takes those events out of each
+// user's "BuddyTech" calendar. Best effort and never throws: the space is already deleted.
+router.removeCalendarEvents = async function removeCalendarEvents(rows) {
+    if (!isConfigured() || rows.length === 0) return;
+    const byUser = new Map();
+    for (const row of rows) {
+        if (!byUser.has(row.user_id)) byUser.set(row.user_id, []);
+        byUser.get(row.user_id).push(row.google_event_id);
+    }
+    for (const [userId, eventIds] of byUser) {
+        // In the user's queue, so a sync running right now can't interleave with this.
+        await queueForUser(userId, async () => {
+            const link = await getLink(userId);
+            if (!link || !link.calendar_id) return; // disconnected since: nothing of ours to remove
+            const accessToken = await getAccessToken(userId, link);
+            const events = `/calendars/${encodeURIComponent(link.calendar_id)}/events`;
+            for (const eventId of eventIds) {
+                const { status } = await calendarRequest(accessToken, "DELETE", `${events}/${encodeURIComponent(eventId)}`);
+                // 204 = removed; 404/410 = already gone (deleted in Google). Anything else: log, keep going.
+                if (status !== 204 && status !== 200 && status !== 404 && status !== 410) {
+                    console.error(`Couldn't remove Google event for user ${userId} (${status})`);
+                }
+            }
+        }).catch((error) => {
+            console.error(`Google Calendar cleanup failed for user ${userId}:`, error.message);
+        });
     }
 };
 
