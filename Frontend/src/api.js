@@ -228,6 +228,21 @@ export function decideLoginAttempt(attemptId, decision) {
   return request(`/api/me/login-attempts/${attemptId}/${decision}`, { method: "POST" });
 }
 
+// Change my password. A wrong current password rejects with its message.
+// Also signs out my other devices.
+export function changePassword(currentPassword, newPassword) {
+  return request("/api/me/password", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+// Sign out every OTHER device (this one stays signed in). -> { signedOut: <count> }
+export function logoutOtherDevices() {
+  return request("/api/me/logout-everywhere", { method: "POST" });
+}
+
 // Marks every channel of a study group read (opening it from the bell).
 export function markGroupRead(groupId) {
   return request(`/api/study-groups/${groupId}/read`, { method: "POST" });
