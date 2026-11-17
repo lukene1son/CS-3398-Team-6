@@ -369,7 +369,27 @@ a {
     position: relative;
     background: #ffffff;
     transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+    display: flex;
+    align-items: center;
+    /* Lets .ai-action-inner react to the TILE's width (not the window's): see below. */
+    container-type: inline-size;
 }
+
+    /* Icon, then the title beside it. */
+    .ai-action-inner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-width: 0;
+    }
+
+    /* Too narrow for the title ("Generate study guide" needs ~150px with its icon): hide
+       it and centre the icon in the tile. The tile's tooltip still names the action. */
+    @container (max-width: 150px) {
+        .ai-action-title { display: none; }
+        .ai-action-inner { justify-content: center; }
+    }
 
     .ai-action:hover {
         transform: scale(1.05);
@@ -576,6 +596,10 @@ a {
 .grow-in-row {
     display: grid;
     grid-template-rows: 1fr;
+    /* One column that can shrink below its content. Without this the column grows to the
+       item's full one-line text (the message bubbles' nowrap previews), pushing the bubble
+       past its panel on narrow windows instead of cutting the text with an ellipsis. */
+    grid-template-columns: minmax(0, 1fr);
 }
 
     .grow-in-row + .grow-in-row {
@@ -584,6 +608,7 @@ a {
 
 .grow-in-cell {
     min-height: 0; /* lets the row shrink below its item's height */
+    min-width: 0;  /* ...and the bubble inside it below its text's width */
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -852,6 +877,49 @@ html,
     .add-task-button:disabled {
         opacity: 0.6;
         cursor: default;
+    }
+
+/* Home (Dashboard.jsx): two columns, the left twice as wide. On narrow windows the right
+   column (AI Quick Actions, Latest Messages, Recent Activity) moves under the left one, so
+   each panel, its cards and its message bubbles get the full width instead of squeezing. */
+.home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    column-gap: 2rem;
+    row-gap: 1.5rem;
+}
+.home-col-left { grid-column: 1; grid-row: 1; }
+.home-col-right { grid-column: 2; grid-row: 1; }
+
+@media (max-width: 1100px) {
+    .home-grid { grid-template-columns: minmax(0, 1fr); }
+    .home-col-right { grid-column: 1; grid-row: 2; }
+}
+
+/* The gray "Manage Spaces" pill in the Dashboard's Study Spaces header (opens the Join or
+   create a space popup). The same shape and size as .add-task-button, in gray with dark
+   gray text; a slightly darker gray while hovered. */
+.manage-spaces-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 0.95rem 0 0.75rem;
+    border: none;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+    .manage-spaces-button:hover {
+        background: #cbd5e1;
     }
 
 /* How a course assignment counts (components/TaskTags.jsx): hover cards and the Assignments page. */

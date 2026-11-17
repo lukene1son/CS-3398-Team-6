@@ -5,6 +5,7 @@ import {
   deleteResource, downloadResourceFile, viewResourceFile, VIEWABLE_TYPES,
 } from "../../api";
 import { courseAccent } from "../../utils/courseColors";
+import { onSocketEvent } from "../../socket";
 import "./Resources.css";
 
 // What the file picker offers. Code files are shown as plain text by View and keep
@@ -63,7 +64,8 @@ export default function Resources() {
   const [error, setError] = useState("");
   const fileInputRef = useRef(null);
 
-  const courseId = selectedCourseId ?? courses[0]?.id;
+  // The picked course, or the first one if none is picked (or the picked one was deleted).
+  const courseId = courses.some((c) => c.id === selectedCourseId) ? selectedCourseId : courses[0]?.id;
   const course = courses.find((c) => c.id === courseId);
   const canAdd = UPLOAD_ROLES.includes(course?.role);
   const canDelete = course?.role === "teacher";
@@ -87,6 +89,19 @@ export default function Resources() {
     load();
     return () => { cancelled = true; };
   }, []);
+
+  // A space you're in was deleted (spaces.js sends "course-deleted" to every member):
+  // take it off the course list and forget its resources. If it was the one on screen,
+  // the first remaining course shows instead (see courseId above).
+  useEffect(() => onSocketEvent("course-deleted", ({ courseId: deletedId }) => {
+    setCourses((prev) => prev.filter((c) => c.id !== deletedId));
+    setItemsByCourse((prev) => {
+      const next = { ...prev };
+      delete next[deletedId];
+      return next;
+    });
+    setFormFolder(null);
+  }), []);
 
   // The selected course's resources, newest first.
   useEffect(() => {

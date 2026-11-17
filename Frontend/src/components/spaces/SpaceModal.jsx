@@ -7,7 +7,8 @@ import './SpaceModal.css';
 // The "Join or create a space" popup (opened from the dashboard's Study Spaces panel).
 //   Join   - type a space's join code.
 //   Create - make a new space; you become its administrator and get a code to share.
-//   Share  - the codes of the spaces you're already in, to pass on to classmates.
+//   Share  - the codes of the spaces you're a teacher or TA of, to pass on to classmates.
+//            Only shown to teachers and TAs.
 //
 // Props:
 //   courses   from getMyCourses (each has join_code), for the Share tab
@@ -16,6 +17,7 @@ import './SpaceModal.css';
 //   onOpen(course) "Open space" on the finished screen
 
 const EMPTY_FORM = { course_code: '', course_name: '', professor: '', university: '' };
+const ADMIN_ROLES = ['teacher', 'ta'];
 
 export default function SpaceModal({ courses, onClose, onChanged, onOpen }) {
   const [tab, setTab] = useState('join'); // 'join' | 'create' | 'share'
@@ -27,7 +29,11 @@ export default function SpaceModal({ courses, onClose, onChanged, onOpen }) {
   const [copied, setCopied] = useState('');
   const firstField = useRef(null);
 
-  const shareable = courses.filter((course) => course.join_code);
+  // Share codes is only for a space's administrators (teacher, TA): students don't get
+  // the tab at all. (The backend also sends join_code as null to students.)
+  const shareable = courses.filter((course) => ADMIN_ROLES.includes(course.role) && course.join_code);
+  const canShare = courses.some((course) => ADMIN_ROLES.includes(course.role));
+  const tabs = [['join', 'Join with a code'], ['create', 'Create a space'], ...(canShare ? [['share', 'Share codes']] : [])];
 
   useEffect(() => { firstField.current?.focus(); }, [tab, result]);
   useEffect(() => {
@@ -143,8 +149,9 @@ export default function SpaceModal({ courses, onClose, onChanged, onOpen }) {
           </div>
         ) : (
           <>
-            <div className="spm-tabs" role="tablist">
-              {[['join', 'Join with a code'], ['create', 'Create a space'], ['share', 'Share codes']].map(([id, label]) => (
+            {/* One column per tab shown (2 for students, 3 for teachers and TAs). */}
+            <div className="spm-tabs" role="tablist" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
+              {tabs.map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
@@ -173,7 +180,7 @@ export default function SpaceModal({ courses, onClose, onChanged, onOpen }) {
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <small>Ask a classmate or your teacher for the code.</small>
+                  <small>Ask your teacher or a TA for the code.</small>
                 </label>
                 {error && <p className="spm-error" role="alert">{error}</p>}
                 <div className="spm-actions">
@@ -214,10 +221,10 @@ export default function SpaceModal({ courses, onClose, onChanged, onOpen }) {
               </form>
             )}
 
-            {tab === 'share' && (
+            {tab === 'share' && canShare && (
               <div className="spm-card">
                 {shareable.length === 0 ? (
-                  <p className="spm-help">Join or create a space and its code will show up here.</p>
+                  <p className="spm-help">Your spaces' codes will show up here.</p>
                 ) : (
                   <ul className="spm-list">
                     {shareable.map((course) => (
