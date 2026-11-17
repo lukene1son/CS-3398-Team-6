@@ -42,7 +42,11 @@ CREATE TABLE users (
     avatar_mime_type VARCHAR(100) NULL,
     avatar_color VARCHAR(7) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    name_changed_at TIMESTAMP NULL
+    name_changed_at TIMESTAMP NULL,
+    -- Delete Space password check (migration 028): wrong tries in a row, and the 48-hour
+    -- lock on deleting spaces after 3 of them.
+    delete_pw_failures TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    delete_locked_until DATETIME NULL
 );
 
 CREATE TABLE courses (

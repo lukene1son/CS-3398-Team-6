@@ -4,6 +4,20 @@ BuddyTech is a student-focused academic collaboration platform built with React,
 
 Students chat in their courses ("Study Spaces"), find and connect with classmates ("Study Partners"), message each other directly, organize small study groups, keep a planner that can sync to Google Calendar, and use Gemini-powered AI study tools. Teachers and TAs can see and take part in every study group in the courses they teach, and teachers share course resources (links and files).
 
+## Screenshots
+
+**Landing page**
+
+![BuddyTech landing page: "Learn, Build, and Connect with BuddyTech" hero over an animated code background](docs/screenshots/landing.png)
+
+**Sign in**
+
+![BuddyTech sign-in page with email and password fields and a "Join with Canvas" button](docs/screenshots/login.png)
+
+**Home dashboard** (signed in as the Demo Student account)
+
+![BuddyTech home dashboard showing course progress, study spaces, current tasks, AI quick actions, and recent activity](docs/screenshots/dashboard.png)
+
 ## Live Version
 
 The publicly hosted version of BuddyTech is at **https://buddytechdemo.devs.li**.

@@ -139,10 +139,6 @@ export default function SettingsPage({ user, onUserChange, courses = [], onCours
     <div style={{ maxWidth: "600px" }}>
       <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0f172a", marginBottom: "0.75rem" }}>Settings</h1>
 
-  return (
-    <>
-    <form onSubmit={handleSave} style={{ maxWidth: "600px" }}>
-      <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0f172a", marginBottom: "0.25rem" }}>Settings</h1>
       {/* User Settings / Spaces Settings: the same sliding-pill toggle as the Spaces sidebar (index.css .segment). */}
       <div className="segment" role="tablist" aria-label="Settings section" style={{ maxWidth: "360px", marginBottom: "1rem" }}>
         <span
@@ -175,6 +171,9 @@ export default function SettingsPage({ user, onUserChange, courses = [], onCours
       ) : !form ? (
         <p style={{ color: "#94a3b8" }}>{message || "Loading settings..."}</p>
       ) : (
+    // User Settings: the profile/notifications form, then Security (its own forms, which
+    // can't nest inside this one). One fragment, since a ternary branch returns one element.
+    <>
     <form onSubmit={handleSave}>
       <p style={{ color: "#64748b", marginBottom: "1rem" }}>
         Manage your profile and notifications.

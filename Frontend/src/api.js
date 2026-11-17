@@ -52,6 +52,7 @@ async function authFetch(path, options = {}) {
     const body = await res.json().catch(() => ({}));
     const error = new Error(body.error || `Request failed (${res.status})`);
     error.status = res.status; // lets callers tell a 409 from a 429 without matching the message text
+    error.data = body;         // the rest of the error body, e.g. { triesLeft } or { lockedUntil }
     throw error;
   }
   return res;
@@ -156,8 +157,28 @@ export function getMyCourses() {
 
 // Deletes a whole space and everything in it. Its teacher only (403 otherwise).
 // -> { id, deleted: true, files_deleted }
-export function deleteSpace(courseId) {
-  return request(`/api/courses/${courseId}`, { method: "DELETE" });
+// verifyToken comes from verifySpaceDelete(): the backend refuses the delete without it.
+export function deleteSpace(courseId, verifyToken) {
+  return request(`/api/courses/${courseId}`, {
+    method: "DELETE",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ verifyToken }),
+  });
+}
+
+// The Delete Space window's password check. -> { verifyToken } on the right password.
+// Errors carry err.status and err.data: 403 { triesLeft }, 423 { lockedUntil }, 409 { code: "no_password" }.
+export function verifySpaceDelete(courseId, password) {
+  return request(`/api/courses/${courseId}/verify-delete`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ password }),
+  });
+}
+
+// -> { hasPassword, triesLeft, lockedUntil }  (lockedUntil: ms timestamp, or null)
+export function getSpaceDeleteStatus() {
+  return request("/api/me/space-delete-status");
 }
 
 export function getMyAssignments() {

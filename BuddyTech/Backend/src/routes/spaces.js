@@ -1,5 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const pool = require("../db");
 const { spaceCreateLimiter, spaceJoinLimiter, spaceDeleteLimiter } = require("../middleware/rateLimits");
 const { emitTo, closeRooms } = require("../realtime");
@@ -160,7 +162,147 @@ router.post("/courses/join", spaceJoinLimiter, async (req, res) => {
     }
 });
 
-// DELETE /api/courses/:id
+// ---------- Password check before deleting a space ----------
+// The Delete Space window asks for the teacher's password. 3 wrong ones in a row lock
+// DELETING SPACES (nothing else) for 48 hours. The count and the lock live in the users
+// table (migration 028), so closing the window or reloading can't reset them.
+// A right password gets a short-lived verify token, which DELETE /api/courses/:id requires:
+// skipping the window and calling DELETE directly doesn't work.
+
+const MAX_DELETE_TRIES = 3;
+const DELETE_LOCK_HOURS = 48;
+const VERIFY_MINUTES = 5;
+
+// Its own secret, so a verify token can never pass as a login token (or the other way round).
+const verifySecret = () => `${process.env.JWT_SECRET}:space-delete`;
+
+// The caller's role in a course, or null if they're not in it.
+async function roleIn(db, userId, courseId) {
+    const [[row]] = await db.query(
+        "SELECT role FROM course_members WHERE user_id = ? AND course_id = ?",
+        [userId, courseId]
+    );
+    return row ? row.role : null;
+}
+
+// GET /api/me/space-delete-status
+// -> { hasPassword, triesLeft, lockedUntil }   lockedUntil: ms timestamp, or null when not locked
+// The Delete Space window shows the right state as soon as it opens.
+router.get("/me/space-delete-status", async (req, res) => {
+    try {
+        const [[user]] = await pool.query(
+            `SELECT password_hash IS NOT NULL AS has_password, delete_pw_failures,
+                    IF(delete_locked_until > NOW(), UNIX_TIMESTAMP(delete_locked_until) * 1000, NULL) AS locked_until_ms
+             FROM users WHERE id = ?`,
+            [req.user.id]
+        );
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json({
+            hasPassword: Boolean(user.has_password),
+            triesLeft: Math.max(0, MAX_DELETE_TRIES - user.delete_pw_failures),
+            lockedUntil: user.locked_until_ms === null ? null : Number(user.locked_until_ms),
+        });
+    } catch (error) {
+        console.error("Error checking space delete status:", error);
+        res.status(500).json({ error: "Failed to check your delete status" });
+    }
+});
+
+// POST /api/courses/:id/verify-delete  { password }
+// -> 200 { verifyToken }                         right password (valid VERIFY_MINUTES)
+//    403 { error, triesLeft }                    wrong password, tries left
+//    423 { error, lockedUntil }                  locked (now, or by this wrong try)
+//    409 { error, code: "no_password" }          a Google-only account has no password
+// (Never 401: the frontend treats 401 as "signed out".)
+router.post("/courses/:id/verify-delete", async (req, res) => {
+    const id = toId(req.params.id);
+    if (!id) return res.status(404).json({ error: "Space not found" });
+    const password = req.body && req.body.password;
+    if (typeof password !== "string" || !password) {
+        return res.status(400).json({ error: "Enter your password" }); // doesn't use up a try
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const role = await roleIn(connection, req.user.id, id);
+        if (!role) return res.status(404).json({ error: "Space not found" });
+        if (role !== "teacher") return res.status(403).json({ error: "Only the space's teacher can delete it" });
+
+        // FOR UPDATE: two tries sent at once are counted one after the other, so they
+        // can't both read "2 failures" and slip a 4th try past the lock.
+        await connection.beginTransaction();
+        const [[user]] = await connection.query(
+            `SELECT password_hash, delete_pw_failures, delete_locked_until > NOW() AS locked,
+                    UNIX_TIMESTAMP(delete_locked_until) * 1000 AS locked_until_ms
+             FROM users WHERE id = ? FOR UPDATE`,
+            [req.user.id]
+        );
+        if (!user.password_hash) {
+            await connection.rollback();
+            return res.status(409).json({ error: "Set a password to delete spaces", code: "no_password" });
+        }
+        if (user.locked) {
+            await connection.rollback();
+            return res.status(423).json({ error: "Deleting spaces is locked", lockedUntil: Number(user.locked_until_ms) });
+        }
+
+        if (await bcrypt.compare(password, user.password_hash)) {
+            await connection.query(
+                "UPDATE users SET delete_pw_failures = 0, delete_locked_until = NULL WHERE id = ?",
+                [req.user.id]
+            );
+            await connection.commit();
+            // Tied to this user, this space and this sign-in: useless for any other space,
+            // and dead as soon as this device signs out.
+            const verifyToken = jwt.sign(
+                { id: req.user.id, courseId: id, sid: req.user.sessionId },
+                verifySecret(),
+                { algorithm: "HS256", expiresIn: `${VERIFY_MINUTES}m` }
+            );
+            return res.json({ verifyToken });
+        }
+
+        const failures = user.delete_pw_failures + 1;
+        if (failures >= MAX_DELETE_TRIES) {
+            // Lock, and start the count again for when the lock ends.
+            await connection.query(
+                `UPDATE users SET delete_pw_failures = 0,
+                     delete_locked_until = NOW() + INTERVAL ${DELETE_LOCK_HOURS} HOUR
+                 WHERE id = ?`,
+                [req.user.id]
+            );
+            const [[lock]] = await connection.query(
+                "SELECT UNIX_TIMESTAMP(delete_locked_until) * 1000 AS ms FROM users WHERE id = ?",
+                [req.user.id]
+            );
+            await connection.commit();
+            return res.status(423).json({ error: "Too many wrong passwords. Deleting spaces is locked.", lockedUntil: Number(lock.ms) });
+        }
+        await connection.query("UPDATE users SET delete_pw_failures = ? WHERE id = ?", [failures, req.user.id]);
+        await connection.commit();
+        res.status(403).json({ error: "Incorrect password", triesLeft: MAX_DELETE_TRIES - failures });
+    } catch (error) {
+        if (connection) await connection.rollback().catch(() => {});
+        console.error("Error checking password for space delete:", error);
+        res.status(500).json({ error: "Failed to check your password" });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// True if this verify token came from verify-delete for this user, space and sign-in.
+function hasValidVerifyToken(token, req, courseId) {
+    if (typeof token !== "string" || !token) return false;
+    try {
+        const payload = jwt.verify(token, verifySecret(), { algorithms: ["HS256"] });
+        return payload.id === req.user.id && payload.courseId === courseId && payload.sid === req.user.sessionId;
+    } catch {
+        return false; // bad signature or expired
+    }
+}
+
+// DELETE /api/courses/:id  { verifyToken }   (verifyToken from POST /api/courses/:id/verify-delete)
 // Deletes the whole space. Only its teacher (the creator: joining always makes you a
 // student) can do this; TAs can see the join code but not delete.
 // The database removes every row (ON DELETE CASCADE from courses: members, channels,
@@ -171,6 +313,10 @@ router.post("/courses/join", spaceJoinLimiter, async (req, res) => {
 router.delete("/courses/:id", spaceDeleteLimiter, async (req, res) => {
     const id = toId(req.params.id);
     if (!id) return res.status(404).json({ error: "Space not found" });
+    // The password must have been confirmed in the Delete Space window (verify-delete).
+    if (!hasValidVerifyToken(req.body && req.body.verifyToken, req, id)) {
+        return res.status(403).json({ error: "Confirm your password first", code: "verify_required" });
+    }
 
     let connection;
     try {
