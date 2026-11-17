@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
-  Search, Bell,
+  Bell,
   Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2} from 'lucide-react';
 import { getMyAssignments, getMyCourses, updateAssignmentStatus,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
@@ -10,6 +10,7 @@ import { getMyAssignments, getMyCourses, updateAssignmentStatus,
 import {onSocketEvent} from '../../socket';
 
 import SpacesChat from '../../components/chat/SpacesChat';
+import SearchBox from '../../components/search/SearchBox';
 import PartnerNotifications from '../../components/chat/PartnerNotifications';
 import CalendarView from '../Calendar/Calendar';
 import AITools from '../AITools';
@@ -463,6 +464,18 @@ const openActivityMessage = (message) => {
   changeTab('spaces');
 };
 
+// A search result message: same as a Recent Activity message, but search reports the
+// kind as channel / group / dm, so map it to the names above first.
+const openSearchMessage = (message) => {
+  const kind = message.kind === 'channel' ? 'space' : message.kind === 'dm' ? 'direct' : 'group';
+  openActivityMessage({
+    kind,
+    target_id: message.target_id,
+    course_id: message.course_id,
+    group_channel: message.channel
+  });
+};
+
 // For the Spaces dots: every unread chat, and whether its notification has been
 // seen in the window (with no new messages since).
 const chatsUnread = Object.fromEntries(Object.entries(unreadChats(notifications)).map(
@@ -786,14 +799,7 @@ useEffect(() => {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
         <header style={{ height: '70px', background: '#ffffff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2rem' }}>
-          <div style={{ position: 'relative', width: '380px' }}>
-            <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input 
-              type="text" 
-              placeholder="Search your spaces, courses, or study groups..." 
-              style={{ width: '100%', padding: '0.6rem 0.6rem 0.6rem 2.4rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.9rem' }}
-            />
-          </div>
+          <SearchBox courses={courses} onOpenSpace={openSpace} onOpenAssignment={openAssignment} onOpenMessage={openSearchMessage} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
             
