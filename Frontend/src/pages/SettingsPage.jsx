@@ -1,18 +1,46 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Pencil } from "lucide-react";
+import { FolderPlus, Pencil } from "lucide-react";
 import { getSettings, saveSettings, uploadAvatar, deleteAvatar, saveAvatarColor, forgetUserAvatar, USE_MOCK } from "../api";
 
 import Avatar from "../components/Avatar";
 import SecuritySettings from "../components/settings/SecuritySettings";
+import DeleteSpaceModal from "../components/spaces/DeleteSpaceModal";
 import { AVATAR_COLORS, AVATAR_COLOR_NAMES, avatarColor } from "../utils/avatarColors";
+import { courseAccent } from "../utils/courseColors";
+
+const SECTIONS = [["user", "User Settings"], ["spaces", "Spaces Settings"]];
+const ROLE_BADGES = { teacher: "Teacher", ta: "TA", student: "Student" };
 
 const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" };
 const input = { padding: "0.6rem 0.8rem", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none", width: "100%" };
 const AVATAR_SIZE = 72;
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024; // matches the backend limit
 
-export default function SettingsPage({ user, onUserChange }) {
+// Two sections, switched at the top: User Settings (profile, notifications, Save changes)
+// and Spaces Settings (your spaces, Join or create, Delete Space).
+// Props from Dashboard:
+//   courses / onCoursesChanged()  getMyCourses() and a reload of it
+//   section / onSectionChange()   which section is open ("user" | "spaces"); Manage Spaces opens "spaces"
+//   onJoinOrCreate()              opens the Join or create a space popup
+export default function SettingsPage({ user, onUserChange, courses = [], onCoursesChanged, section, onSectionChange, onJoinOrCreate }) {
   const userId = user?.id;
+
+  // Controlled by Dashboard when it passes `section`; on its own otherwise.
+  const [localSection, setLocalSection] = useState("user");
+  const currentSection = section ?? localSection;
+  const changeSection = onSectionChange ?? setLocalSection;
+
+  // Delete Space: only for the spaces you own (you're their teacher). No owned
+  // spaces = no button. TAs can see a join code but can't delete.
+  const ownedSpaces = courses.filter((c) => c.role === "teacher");
+  const [showDeleteSpace, setShowDeleteSpace] = useState(false);
+  const [spaceMessage, setSpaceMessage] = useState("");
+
+  function handleSpaceDeleted(space) {
+    setShowDeleteSpace(false);
+    setSpaceMessage(`Deleted ${space.course_code} ✓`);
+    onCoursesChanged?.();
+  }
 
   const [form, setForm] = useState(null); // null = still loading
   const [saving, setSaving] = useState(false);
@@ -107,12 +135,47 @@ export default function SettingsPage({ user, onUserChange }) {
     }
   }
 
-  if (!form) return <p style={{ color: "#94a3b8" }}>{message || "Loading settings..."}</p>;
+  return (
+    <div style={{ maxWidth: "600px" }}>
+      <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0f172a", marginBottom: "0.75rem" }}>Settings</h1>
 
   return (
     <>
     <form onSubmit={handleSave} style={{ maxWidth: "600px" }}>
       <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0f172a", marginBottom: "0.25rem" }}>Settings</h1>
+      {/* User Settings / Spaces Settings: the same sliding-pill toggle as the Spaces sidebar (index.css .segment). */}
+      <div className="segment" role="tablist" aria-label="Settings section" style={{ maxWidth: "360px", marginBottom: "1rem" }}>
+        <span
+          aria-hidden="true"
+          className="segment-pill"
+          style={{ transform: currentSection === "spaces" ? "translateX(calc(100% + 4px))" : "none" }}
+        />
+        {SECTIONS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={currentSection === id}
+            className={currentSection === id ? "segment-btn active" : "segment-btn"}
+            onClick={() => changeSection(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {currentSection === "spaces" ? (
+        <SpacesSettings
+          courses={courses}
+          ownedSpaces={ownedSpaces}
+          spaceMessage={spaceMessage}
+          onJoinOrCreate={onJoinOrCreate}
+          onDeleteSpace={() => { setSpaceMessage(""); setShowDeleteSpace(true); }}
+        />
+      ) : !form ? (
+        <p style={{ color: "#94a3b8" }}>{message || "Loading settings..."}</p>
+      ) : (
+    <form onSubmit={handleSave}>
       <p style={{ color: "#64748b", marginBottom: "1rem" }}>
         Manage your profile and notifications.
         {USE_MOCK.settings && " (Saved in this browser only until the settings API is ready.)"}
@@ -236,6 +299,73 @@ export default function SettingsPage({ user, onUserChange }) {
 
     <h2 style={{ fontSize: "1.2rem", fontWeight: 800, color: "#0f172a", margin: "1.5rem 0 0.75rem" }}>Security</h2>
     <SecuritySettings />
+    </>
+      )}
+
+      {showDeleteSpace && ownedSpaces.length > 0 && (
+        <DeleteSpaceModal
+          spaces={ownedSpaces}
+          onClose={() => setShowDeleteSpace(false)}
+          onDeleted={handleSpaceDeleted}
+        />
+      )}
+    </div>
+  );
+}
+
+// Spaces Settings: every space you're in (with its join code if you're its teacher or TA),
+// a way to join or create another, and, for the spaces you own, Delete Space.
+function SpacesSettings({ courses, ownedSpaces, spaceMessage, onJoinOrCreate, onDeleteSpace }) {
+  return (
+    <>
+      <p style={{ color: "#64748b", marginBottom: "1rem" }}>Manage the study spaces you're in.</p>
+
+      <div style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          <h3 style={{ margin: 0 }}>Your spaces</h3>
+          {onJoinOrCreate && (
+            <button type="button" className="manage-spaces-button" onClick={onJoinOrCreate}>
+              <FolderPlus size={15} strokeWidth={2.4} /> Join or create a space
+            </button>
+          )}
+        </div>
+        {courses.length === 0 ? (
+          <p style={{ margin: 0, color: "#64748b" }}>You're not in any spaces yet.</p>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {courses.map((course) => (
+              <li key={course.id} style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", padding: "0.6rem 0.75rem", border: "1px solid #e2e8f0", borderLeft: `4px solid ${courseAccent(courses, course.id)}`, borderRadius: "8px" }}>
+                <span style={{ flex: "1 1 200px", minWidth: 0 }}>
+                  <strong style={{ color: "#1e293b" }}>{course.course_code}</strong>{" "}
+                  <span style={{ color: "#64748b", overflowWrap: "anywhere" }}>{course.course_name}</span>
+                </span>
+                {/* Only teachers and TAs get a code from the backend (students get null). */}
+                {course.join_code && (
+                  <span title="Join code" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", letterSpacing: "0.1em", fontSize: "0.85rem", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "2px 8px" }}>
+                    {course.join_code}
+                  </span>
+                )}
+                <span style={{ fontSize: "0.75rem", fontWeight: 600, padding: "2px 8px", borderRadius: "999px", ...(course.role === "student" ? { background: "#dbeafe", color: "#1e40af" } : { background: "#ede9fe", color: "#5b21b6" }) }}>
+                  {ROLE_BADGES[course.role] ?? course.role}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Only for the spaces you own (you're their teacher). */}
+      {ownedSpaces.length > 0 && (
+        <div style={card}>
+          <h3 style={{ marginTop: 0 }}>Delete a space</h3>
+          <p style={{ marginTop: 0, color: "#64748b" }}>
+            Permanently delete a space you teach, along with its files, tasks, chats and members.
+          </p>
+          {/* Same size as Save changes (DeleteSpaceModal.css .dsm-open-btn). */}
+          <button type="button" className="dsm-open-btn" onClick={onDeleteSpace}>Delete Space</button>
+          {spaceMessage && <span style={{ marginLeft: "1rem", fontSize: "0.9rem", color: "#15803d" }}>{spaceMessage}</span>}
+        </div>
+      )}
     </>
   );
 }
