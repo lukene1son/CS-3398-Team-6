@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { getToken } from "./api";
+import { getToken, getMe } from "./api";
 
 // ONE live connection to the backend (see BuddyTech/Backend/src/realtime.js).
 // It only tells us WHEN something changed; we still load the data through api.js.
@@ -15,6 +15,15 @@ export function getSocket() {
       auth: (cb) => cb({ token: getToken() }),
     });
     socket.on("connect_error", (err) => console.warn("Live updates unavailable:", err.message));
+    // The SERVER closed this connection: this device was signed out from another one
+    // ("Sign out other devices", a password change) or its session expired. Socket.IO
+    // never reconnects after that, so without this the tab would look signed in until
+    // its next request. Ask the server once: a 401 runs api.js's normal sign-out right away.
+    // (Signing out here is "io client disconnect", and a backend restart is
+    // "transport close": neither lands here.)
+    socket.on("disconnect", (reason) => {
+      if (reason === "io server disconnect") getMe().catch(() => {});
+    });
   }
   return socket;
 }
