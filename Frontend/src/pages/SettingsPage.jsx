@@ -3,6 +3,7 @@ import { Pencil } from "lucide-react";
 import { getSettings, saveSettings, uploadAvatar, deleteAvatar, saveAvatarColor, forgetUserAvatar, USE_MOCK } from "../api";
 
 import Avatar from "../components/Avatar";
+import SecuritySettings from "../components/settings/SecuritySettings";
 import { AVATAR_COLORS, AVATAR_COLOR_NAMES, avatarColor } from "../utils/avatarColors";
 
 const card = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" };
@@ -109,6 +110,7 @@ export default function SettingsPage({ user, onUserChange }) {
   if (!form) return <p style={{ color: "#94a3b8" }}>{message || "Loading settings..."}</p>;
 
   return (
+    <>
     <form onSubmit={handleSave} style={{ maxWidth: "600px" }}>
       <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#0f172a", marginBottom: "0.25rem" }}>Settings</h1>
       <p style={{ color: "#64748b", marginBottom: "1rem" }}>
@@ -231,5 +233,9 @@ export default function SettingsPage({ user, onUserChange }) {
       </button>
       {message && <span style={{ marginLeft: "1rem", fontSize: "0.9rem", color: message.startsWith("Could not") ? "#b91c1c" : "#15803d" }}>{message}</span>}
     </form>
+
+    <h2 style={{ fontSize: "1.2rem", fontWeight: 800, color: "#0f172a", margin: "1.5rem 0 0.75rem" }}>Security</h2>
+    <SecuritySettings />
+    </>
   );
 }
