@@ -52,11 +52,13 @@ export default function SecuritySettings() {
       setSignOutMessage(signedOut > 0
         ? `Signed out ${signedOut} other ${signedOut === 1 ? "device" : "devices"} ✓`
         : "No other devices were signed in ✓");
+      setConfirmingSignOut(false); // done: back to the plain button
     } catch (err) {
+      // Keep the confirmation open, with the error under it, so "Yes, sign them out"
+      // can simply be clicked again (no reopening, and the error stays visible).
       setSignOutMessage(`Could not sign out: ${err.message}`);
     } finally {
       setSigningOut(false);
-      setConfirmingSignOut(false);
     }
   }
 
