@@ -136,6 +136,18 @@ export function getMe() {
 }
 
 /* ---------- Courses & assignments (for the logged-in user) ---------- */
+// Create a space. You become its administrator (role "teacher") and get a join code.
+// -> { id, course_code, course_name, professor, university, role, join_code }
+export function createSpace(data) {
+  return request("/api/courses", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(data) });
+}
+
+// Join a space by its code. -> { id, course_code, ..., role, joined }
+// `joined` is false when you were already in it.
+export function joinSpace(code) {
+  return request("/api/courses/join", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ code }) });
+}
+
 export function getMyCourses() {
   return request("/api/me/courses");
 }

@@ -61,6 +61,7 @@ const resourcesRouter = require("./routes/resources");
 app.use("/api", resourcesRouter);
 app.use("/api", require("./routes/userSettings"));
 app.use("/api", require("./routes/search"));
+app.use("/api", require("./routes/spaces"));
 app.use("/api", loginAttempts.meRouter);
 app.use("/api", require("./routes/account"));
 
@@ -439,6 +440,7 @@ app.get("/api/me/courses", async (req, res) => {
                 courses.course_name,
                 courses.professor,
                 courses.university,
+                courses.join_code,
                 course_members.role,
                 course_members.color,
                 (SELECT COUNT(*) FROM channels WHERE channels.course_id = courses.id) AS channel_count,

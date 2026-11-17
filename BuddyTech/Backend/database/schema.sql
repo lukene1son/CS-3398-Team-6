@@ -50,7 +50,10 @@ CREATE TABLE courses (
     course_code VARCHAR(50) NOT NULL,
     course_name VARCHAR(255) NOT NULL,
     professor VARCHAR(255),
-    university VARCHAR(255)
+    university VARCHAR(255),
+    -- typed on the dashboard's "Join or create a space" to join this space (migration 027)
+    join_code VARCHAR(12) NULL,
+    UNIQUE KEY uq_courses_join_code (join_code)
 );
 
 CREATE TABLE course_members (

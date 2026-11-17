@@ -19,6 +19,7 @@ import SettingsPage from '../SettingsPage';
 import Avatar from '../../components/Avatar';
 import AnimatedLogo from '../../animation/AnimatedLogo';
 import AddTaskModal from '../../components/tasks/AddTaskModal';
+import SpaceModal from '../../components/spaces/SpaceModal';
 import { useTaskHoverCard } from '../../components/tasks/useTaskHoverCard';
 // One colour per course: the Study Spaces card stripes, Recent Activity placards and Spaces course tabs.
 import { courseAccent } from '../../utils/courseColors';
@@ -499,6 +500,14 @@ useEffect(() => {
 }, [showNotifications, closing, closeNotifications]);
 
   const [showAddTask, setShowAddTask] = useState(false);
+  // The "Join or create a space" popup. After a join or create, reload the course list
+  // so the new space's card appears behind the popup.
+  const [showSpaceModal, setShowSpaceModal] = useState(false);
+  const refreshCourses = () => {
+    getMyCourses()
+      .then(setCourses)
+      .catch((error) => console.error('Failed to refresh spaces:', error));
+  };
   // Tasks playing the check-off animation. They stay on screen until it ends.
   const [leavingIds, setLeavingIds] = useState([]);
 
@@ -684,6 +693,14 @@ useEffect(() => {
       {activeTab === 'home' && hoverCard.card}
       {showAddTask && (
         <AddTaskModal courses={courses} onClose={() => setShowAddTask(false)} onCreated={handleTaskCreated} />
+      )}
+      {showSpaceModal && (
+        <SpaceModal
+          courses={courses}
+          onClose={() => setShowSpaceModal(false)}
+          onChanged={refreshCourses}
+          onOpen={(course) => { setShowSpaceModal(false); openSpace(course.id); }}
+        />
       )}
       {/* Sidebar */}
       {/* Navy sidebar (SIDEBAR_NAVY); the nav pill is BuddyTech blue (index.css .nav-pill). */}
@@ -1003,12 +1020,18 @@ useEffect(() => {
            {/* Study Spaces panel: the heading, then one card per course; clicking a card opens
                that course in Spaces. */}
            <div style={{ ...PANEL, marginBottom: '1.5rem' }}>
-            {/* The heading is as wide as the card grid, so "+ Browse Spaces" sits over the third card. */}
+            {/* The heading is as wide as the card grid, so "+ Join or create" sits over the third card. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="study-spaces-heading" style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                 <Users size={18} color="#2563eb" /> Study Spaces
               </h3>
-              <span style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>+ Browse Spaces</span>
+              <button
+                type="button"
+                onClick={() => setShowSpaceModal(true)}
+                style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: '0.85rem', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}
+              >
+                + Join or create
+              </button>
             </div>
             <section aria-labelledby="study-spaces-heading">
               <div style={SPACE_GRID}>
@@ -1057,7 +1080,7 @@ useEffect(() => {
 
                 {/* The grid's next slot, so it's the same size as a card: beside the courses
                     when a row has room, on a new row after every third course. */}
-                <button type="button" style={{
+                <button type="button" onClick={() => setShowSpaceModal(true)} style={{
                   minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                   padding: '0.6rem 0.9rem', background: 'rgba(255, 255, 255, 0.55)', border: '2px dashed #94a3b8', borderRadius: '12px',
                   color: '#475569', font: 'inherit', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer'

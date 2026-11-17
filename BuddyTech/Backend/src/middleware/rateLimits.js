@@ -192,6 +192,28 @@ const passwordChangeLimiter = rateLimit({
     handler: tooMany("Too many password change attempts. Please wait 15 minutes and try again."),
 });
 
+// Per user: ten new Study Spaces an hour.
+const spaceCreateLimiter = rateLimit({
+    windowMs: ONE_HOUR,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're creating spaces too quickly. Please try again later."),
+});
+
+// Per user: fifteen WRONG join codes every 15 minutes, so codes can't be guessed.
+// A join that works doesn't use up a try.
+const spaceJoinLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 15,
+    skipSuccessfulRequests: true,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("Too many wrong codes. Please wait a few minutes and try again."),
+});
+
 module.exports = {
     messageLimiter,
     loginPollLimiter,
@@ -207,4 +229,6 @@ module.exports = {
     groupInviteLimiter,
     avatarUploadLimiter,
     calendarSyncLimiter,
+    spaceCreateLimiter,
+    spaceJoinLimiter,
 };

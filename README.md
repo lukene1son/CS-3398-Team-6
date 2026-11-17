@@ -338,7 +338,7 @@ Demo Student, Study Partner, and Study Partner2 are all in **CS 3398 Exam Prep**
 
 Known limitations:
 
-- **New accounts can't join a course yet.** Signing up (with a password or with Google) doesn't add the user to any course, and there is no "join course" feature, so a new account sees no channels, classmates, study groups, resources, or course assignments. For testing, use the demo accounts or add a row to `course_members` by hand.
+- **New accounts start in no space.** Signing up (with a password or with Google) doesn't add the user to any course. After signing up, use **Join or create a space** on the dashboard: type a space's join code to join it, or create your own (you become its administrator and get a code to share). Members can see their spaces' codes there. The demo spaces' codes are `CS3398DEMO` and `BIO1330DEMO` (published in this repository, so don't treat them as secret). A signed-in user can guess codes only slowly: 15 wrong tries per 15 minutes.
 - **`JWT_SECRET` must be set.** Natively, the backend reads it from `BuddyTech/Backend/port.env`; without it, sign-in and sign-up fail with a server error. The hosted Docker setup (`docker-compose.yml`) refuses to start until the root `.env` sets it; the local Docker setup (`docker-compose.dev.yml`) uses a local-only default instead.
 - **Google features need a Google Cloud OAuth client.** Without `GOOGLE_CLIENT_ID`, the **Sign in with Google** button is hidden. Without all four Google Calendar settings, the Planner's sync card says sync isn't configured.
 - **Google Calendar sync is one-way.** Changes made in Google Calendar don't come back to BuddyTech, and disconnecting leaves the "BuddyTech" calendar in your Google account.
