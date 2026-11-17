@@ -22,9 +22,9 @@ UPDATE users SET avatar_stored_name = 'mandala.gif', avatar_mime_type = 'image/g
 UPDATE users SET avatar_stored_name = 'AI-cat.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner4@buddytech.local';
 UPDATE users SET avatar_stored_name = 'cat.gif', avatar_mime_type = 'image/gif' WHERE email = 'partner5@buddytech.local';
 
-INSERT INTO courses (course_code, course_name, professor, university) VALUES
-('CS 3398', 'Software Engineering', 'Rui Wang', 'Texas State University'),
-('BIO 1330', 'Functional Biology', 'Joel Bergh', 'Texas State University');
+INSERT INTO courses (course_code, course_name, professor, university, join_code) VALUES
+('CS 3398', 'Software Engineering', 'Rui Wang', 'Texas State University', 'CS3398DEMO'),
+('BIO 1330', 'Functional Biology', 'Joel Bergh', 'Texas State University', 'BIO1330DEMO');
 
  -- Users: 1 Demo Student, 2 Study Partner, 3 Demo Teacher, 4-10 Study Partner1-7, 11 Demo Teacher2.
 -- Courses: 1 CS 3398, 2 BIO 1330.

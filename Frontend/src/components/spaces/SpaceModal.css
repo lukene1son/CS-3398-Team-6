@@ -1,0 +1,100 @@
+/* The Join or create a space popup (SpaceModal.jsx). Same look as the Add Task popup:
+   the panel gray (#e3e8ef) with white cards inside and BuddyTech blue buttons. */
+
+.spm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 8vh 16px;
+  overflow-y: auto;
+}
+
+.spm {
+  width: min(520px, 100%);
+  background: #e3e8ef;
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: #0f172a;
+  animation: spm-pop 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes spm-pop { from { transform: scale(0.94); opacity: 0; } }
+
+.spm button { font: inherit; cursor: pointer; }
+.spm button:disabled { cursor: default; opacity: 0.6; }
+.spm button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+.spm-head { display: flex; align-items: center; gap: 12px; }
+.spm-icon {
+  flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+  color: #ffffff; background: linear-gradient(135deg, #2563eb, #7c3aed);
+}
+.spm-head h2 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+.spm-head p { margin: 2px 0 0; font-size: 13px; color: #64748b; }
+.spm-close {
+  margin-left: auto; align-self: flex-start; flex: none; width: 34px; height: 34px; border-radius: 10px; border: 0;
+  background: rgba(255, 255, 255, 0.6); color: #64748b; display: grid; place-items: center;
+}
+.spm-close:hover { background: #ffffff; color: #0f172a; }
+
+.spm-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: rgba(255, 255, 255, 0.55); }
+.spm-tab { border: 0; border-radius: 9px; padding: 8px 6px; background: transparent; color: #475569; font-size: 13px; font-weight: 600; }
+.spm-tab:hover { background: rgba(255, 255, 255, 0.8); }
+.spm-tab[aria-selected="true"] { background: #ffffff; color: #1d4ed8; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1); }
+
+.spm-card {
+  background: #ffffff; border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.spm-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.spm-row .spm-field { flex: 1 1 150px; }
+.spm-row .spm-grow { flex: 2 1 220px; }
+.spm-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.spm-field > span { font-size: 13px; font-weight: 600; }
+.spm-field small { font-weight: 400; color: #64748b; }
+.spm-field input {
+  font: inherit; font-size: 14px; color: #0f172a; background: #f8fafc; width: 100%; box-sizing: border-box;
+  border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.spm-field input:hover { border-color: #cbd5e1; }
+.spm-field input:focus { background: #ffffff; border-color: #2563eb; outline: none; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
+.spm-code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important; font-size: 18px !important; letter-spacing: 0.12em; text-align: center; }
+.spm-help { margin: 0; font-size: 13px; color: #64748b; }
+.spm-error { margin: 0; color: #b91c1c; font-size: 13px; font-weight: 600; }
+
+.spm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.spm-primary, .spm-secondary { border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 600; border: 0; }
+.spm-primary { background: #2563eb; color: #ffffff; }
+.spm-primary:hover:not(:disabled) { background: #1d4ed8; }
+.spm-secondary { background: #f1f5f9; color: #334155; }
+.spm-secondary:hover:not(:disabled) { background: #e2e8f0; }
+
+.spm-codebox { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 10px; padding: 8px 8px 8px 14px; }
+.spm-codebox code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 17px; font-weight: 700; letter-spacing: 0.12em; color: #0f172a; overflow-wrap: anywhere; }
+.spm-copy { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 8px; padding: 6px 10px; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 600; flex: none; }
+.spm-copy:hover { background: #dbeafe; }
+
+.spm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.spm-list li { border-left: 4px solid var(--c); padding-left: 10px; display: flex; flex-direction: column; gap: 6px; }
+.spm-list-name { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 14px; }
+.spm-list-name span { color: #64748b; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.spm-done { align-items: center; text-align: center; }
+.spm-done h3 { margin: 0; font-size: 1.1rem; }
+.spm-done-check { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: #dcfce7; color: #15803d; }
+.spm-done-name { margin: 0; color: #334155; }
+.spm-done .spm-codebox { width: 100%; box-sizing: border-box; }
+.spm-done .spm-actions { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) { .spm { animation: none; } }
