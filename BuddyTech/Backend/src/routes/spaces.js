@@ -1,7 +1,10 @@
 const express = require("express");
 const crypto = require("crypto");
 const pool = require("../db");
-const { spaceCreateLimiter, spaceJoinLimiter } = require("../middleware/rateLimits");
+const { spaceCreateLimiter, spaceJoinLimiter, spaceDeleteLimiter } = require("../middleware/rateLimits");
+const { emitTo, closeRooms } = require("../realtime");
+const resourcesRouter = require("./resources");           // .removeUploads
+const googleCalendarRouter = require("./googleCalendar"); // .removeCalendarEvents
 
 const router = express.Router();
 
@@ -27,6 +30,15 @@ const normalizeCode = (value) => (typeof value === "string" ? value : "").toUppe
 
 // Trims and collapses spaces. Anything that isn't a string is not valid.
 const cleanText = (value) => (typeof value === "string" ? value.trim().replace(/\s+/g, " ") : null);
+
+function toId(value) {
+    const id = Number(value);
+    return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+// Only a space's administrators (teacher, TA) see its join code, so students can't share it.
+const ADMIN_ROLES = ["teacher", "ta"];
+const forRole = (course, role) => (ADMIN_ROLES.includes(role) ? course : { ...course, join_code: null });
 
 // POST /api/courses  { course_code, course_name, professor?, university? }
 // Makes the space, adds the creator as its teacher (the "Administrator" badge: they can post
@@ -126,7 +138,7 @@ router.post("/courses/join", spaceJoinLimiter, async (req, res) => {
             [req.user.id, course.id]
         );
         if (existing.length > 0) {
-            return res.status(200).json({ ...course, role: existing[0].role, joined: false });
+            return res.status(200).json({ ...forRole(course, existing[0].role), role: existing[0].role, joined: false });
         }
 
         try {
@@ -137,14 +149,82 @@ router.post("/courses/join", spaceJoinLimiter, async (req, res) => {
         } catch (error) {
             // Two requests at the same moment: the other one added them first. Same as already in.
             if (error.code === "ER_DUP_ENTRY") {
-                return res.status(200).json({ ...course, role: "student", joined: false });
+                return res.status(200).json({ ...forRole(course, "student"), role: "student", joined: false });
             }
             throw error;
         }
-        res.status(201).json({ ...course, role: "student", joined: true });
+        res.status(201).json({ ...forRole(course, "student"), role: "student", joined: true });
     } catch (error) {
         console.error("Error joining space:", error);
         res.status(500).json({ error: "Failed to join the space" });
+    }
+});
+
+// DELETE /api/courses/:id
+// Deletes the whole space. Only its teacher (the creator: joining always makes you a
+// student) can do this; TAs can see the join code but not delete.
+// The database removes every row (ON DELETE CASCADE from courses: members, channels,
+// messages, assignments, study groups, resources, calendar event rows). This route
+// cleans up what the database can't: files on disk, live chat rooms, open tabs, and
+// the events already copied into people's Google calendars.
+// -> { id, deleted: true, files_deleted }
+router.delete("/courses/:id", spaceDeleteLimiter, async (req, res) => {
+    const id = toId(req.params.id);
+    if (!id) return res.status(404).json({ error: "Space not found" });
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // FOR UPDATE holds the course row until commit, so a join or an upload at the
+        // same moment either finishes first (and is cleaned up below) or fails.
+        const [[course]] = await connection.query("SELECT id FROM courses WHERE id = ? FOR UPDATE", [id]);
+        const [[me]] = await connection.query(
+            "SELECT role FROM course_members WHERE user_id = ? AND course_id = ?",
+            [req.user.id, id]
+        );
+        // Same answer for "doesn't exist" and "not in it", like the other routes.
+        if (!course || !me) {
+            await connection.rollback();
+            return res.status(404).json({ error: "Space not found" });
+        }
+        if (me.role !== "teacher") {
+            await connection.rollback();
+            return res.status(403).json({ error: "Only the space's teacher can delete it" });
+        }
+
+        // Collect what the cascade can't clean up, BEFORE the rows are gone.
+        const [files] = await connection.query(
+            "SELECT stored_name FROM course_resources WHERE course_id = ? AND stored_name IS NOT NULL", [id]);
+        const [members] = await connection.query("SELECT user_id FROM course_members WHERE course_id = ?", [id]);
+        const [channels] = await connection.query("SELECT id FROM channels WHERE course_id = ?", [id]);
+        const [groups] = await connection.query("SELECT id FROM study_groups WHERE course_id = ?", [id]);
+        const [events] = await connection.query(
+            `SELECT google_calendar_events.user_id, google_calendar_events.google_event_id
+             FROM google_calendar_events
+             JOIN assignments ON assignments.id = google_calendar_events.assignment_id
+             WHERE assignments.course_id = ?`,
+            [id]
+        );
+
+        await connection.query("DELETE FROM courses WHERE id = ?", [id]); // everything else cascades
+        await connection.commit();
+
+        // Only after the commit: had the DELETE failed, all of this would still be needed.
+        resourcesRouter.removeUploads(files.map((file) => file.stored_name));
+        closeRooms([...channels.map((c) => `channel:${c.id}`), ...groups.map((g) => `group:${g.id}`)]);
+        // Every open tab of every member drops the space (Settings, Spaces, Planner...).
+        members.forEach((member) => emitTo(`user:${member.user_id}`, "course-deleted", { courseId: id }));
+        googleCalendarRouter.removeCalendarEvents(events); // not awaited: never holds up the response
+
+        res.json({ id, deleted: true, files_deleted: files.length });
+    } catch (error) {
+        if (connection) await connection.rollback().catch(() => {});
+        console.error("Error deleting space:", error);
+        res.status(500).json({ error: "Failed to delete the space" });
+    } finally {
+        if (connection) connection.release();
     }
 });
 

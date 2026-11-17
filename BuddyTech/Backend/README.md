@@ -377,8 +377,9 @@ Every route except `/test-db`, `/api/auth/*`, and `GET /api/auth/google/callback
 **Courses, channels, assignments** (`server.js`)
 
 - `GET /test-db`
-- `GET /api/courses`, `GET /api/courses/:id`
-- `GET /api/me/courses`: your courses, including your `role` in each
+- `GET /api/me/courses`: your courses, including your `role` in each, plus `member_count`, `channel_count`, `task_count` (course-wide assignments), `file_count` and `study_group_count`. `join_code` is only filled in for teachers and TAs (`null` for students, so they can't pass it around)
+- `DELETE /api/courses/:id`: the space's **teacher** only (TAs get 403); deletes the whole space. The database cascade removes every row; the route also deletes its uploaded files, empties its live chat rooms, sends `course-deleted { courseId }` to every member's open tabs, and removes its events from members' Google calendars (best effort). Rate-limited to 10 an hour per user
+- (`GET /api/courses` and `GET /api/courses/:id` were removed: they returned every course, join codes included, to anyone signed in)
 - `GET /api/courses/:id/channels`, `GET /api/courses/:id/assignments`
 - `GET /api/courses/:id/members`: everyone in the course, teachers and TAs first
 - `GET /api/channels/:id/messages`: also marks the channel as read for you; `POST /api/channels/:id/messages` (`{ content }`; the author is the logged-in user)

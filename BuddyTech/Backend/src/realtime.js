@@ -132,6 +132,11 @@ function removeFromRoom(userId, room) {
     if (io) io.in(`user:${userId}`).socketsLeave(room);
 }
 
+// Take every socket out of these rooms, e.g. a deleted space's channels and study groups.
+function closeRooms(rooms) {
+    if (io && rooms.length > 0) io.in(rooms).socketsLeave(rooms);
+}
+
 // Close every live socket of these sessions (sign-out, password change, "sign out everywhere").
 function disconnectSessions(sessionIds) {
     if (io && sessionIds.length > 0) io.in(sessionIds.map((id) => `session:${id}`)).disconnectSockets(true);
@@ -144,4 +149,4 @@ async function isUserOnline(userId) {
     return (await io.in(`user:${userId}`).fetchSockets()).length > 0;
 }
 
-module.exports = { initRealtime, emitTo, removeFromRoom, disconnectSessions, isUserOnline, isOnlineNow };
+module.exports = { initRealtime, emitTo, removeFromRoom, closeRooms, disconnectSessions, isUserOnline, isOnlineNow };
