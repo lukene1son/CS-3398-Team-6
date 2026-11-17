@@ -214,7 +214,19 @@ const spaceJoinLimiter = rateLimit({
     handler: tooMany("Too many wrong codes. Please wait a few minutes and try again."),
 });
 
+// Per user: ten space deletions an hour. A teacher never needs more; it stops a script
+// (or a stolen sign-in) from wiping out every space the account owns in one go.
+const spaceDeleteLimiter = rateLimit({
+    windowMs: ONE_HOUR,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're deleting spaces too quickly. Please try again later."),
+});
+
 module.exports = {
+    spaceDeleteLimiter,
     messageLimiter,
     loginPollLimiter,
     loginPollIpLimiter,

@@ -1,0 +1,90 @@
+/* Settings' "Delete Space" button and its popup (DeleteSpaceModal.jsx, SettingsPage.jsx).
+   The popup has the same look as the Join or create a space popup (SpaceModal.css):
+   the panel gray (#e3e8ef) with white cards inside. Red = the Sign Out button's red. */
+
+/* Settings > Spaces Settings' Delete Space button.
+   Same padding, radius and weight as Save changes (SettingsPage.jsx). No `font: inherit`
+   on purpose: Save changes uses the browser's default button font, and inheriting the
+   page font instead made this button taller and wider than Save changes. */
+.dsm-open-btn {
+  padding: 0.7rem 1.4rem; background: #dc2626; color: #ffffff; border: none; border-radius: 8px;
+  font-weight: 600; cursor: pointer; transition: background 0.15s;
+}
+.dsm-open-btn:hover { background: #b91c1c; }
+.dsm-open-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+.dsm-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(2px);
+  display: flex; justify-content: center; align-items: flex-start;
+  padding: 7vh 16px; overflow-y: auto;
+}
+
+.dsm {
+  width: min(860px, 100%); background: #e3e8ef; border-radius: 20px; padding: 22px;
+  box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.45);
+  display: flex; flex-direction: column; gap: 14px; color: #0f172a;
+  animation: dsm-pop 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes dsm-pop { from { transform: scale(0.94); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .dsm { animation: none; } }
+
+.dsm button, .dsm select { font: inherit; }
+.dsm button { cursor: pointer; }
+.dsm button:focus-visible, .dsm select:focus-visible, .dsm input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+.dsm-head { display: flex; align-items: center; gap: 12px; }
+.dsm-icon { flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; color: #ffffff; background: #dc2626; }
+.dsm-head h2 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+.dsm-head p { margin: 2px 0 0; font-size: 13px; color: #64748b; }
+.dsm-close {
+  margin-left: auto; align-self: flex-start; flex: none; width: 34px; height: 34px; border-radius: 10px; border: 0;
+  background: rgba(255, 255, 255, 0.6); color: #64748b; display: grid; place-items: center;
+}
+.dsm-close:hover { background: #ffffff; color: #0f172a; }
+
+/* Two cards side by side: the space's info, then the confirmation. Stacked on phones. */
+.dsm-cols { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+@media (max-width: 720px) { .dsm-cols { grid-template-columns: minmax(0, 1fr); } }
+
+.dsm-card {
+  background: #ffffff; border-radius: 14px; padding: 16px; min-width: 0;
+  display: flex; flex-direction: column; gap: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.dsm-card h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #64748b; }
+
+.dsm-picker { display: flex; flex-direction: column; gap: 6px; }
+.dsm-picker label { font-size: 0.85rem; color: #475569; }
+.dsm-picker select { padding: 0.55rem 0.7rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; color: #0f172a; width: 100%; }
+.dsm-name { margin: 0; font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
+
+.dsm-code-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dsm-code-row > span { color: #64748b; font-size: 13px; }
+.dsm-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 16px; letter-spacing: 0.12em;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px;
+}
+
+.dsm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dsm-stat { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+.dsm-stat b { display: block; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.dsm-stat span { color: #64748b; font-size: 12px; }
+.dsm-meta { margin: 0; color: #64748b; font-size: 12px; }
+
+.dsm-confirm { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; line-height: 1.5; }
+.dsm-confirm input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: #dc2626; cursor: pointer; }
+.dsm-confirm strong { display: block; margin-bottom: 6px; }
+.dsm-confirm span { color: #334155; }
+
+.dsm-error { margin: 0; color: #b91c1c; font-size: 13px; }
+
+/* Delete and Back, centered at the bottom of the Confirm card. */
+.dsm-actions { margin-top: auto; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
+.dsm-actions button { border: 0; border-radius: 10px; padding: 10px 18px; font-weight: 600; min-width: 110px; }
+.dsm-back { background: #f1f5f9; color: #0f172a; }
+.dsm-back:hover:not(:disabled) { background: #e2e8f0; }
+
+/* Washed out until the box is checked, then full red; slightly darker on hover. */
+.dsm-delete { background: #dc2626; color: #ffffff; transition: filter 0.2s, opacity 0.2s, background 0.15s; }
+.dsm-delete:disabled { filter: saturate(0.25); opacity: 0.55; cursor: not-allowed; }
+.dsm-delete:not(:disabled):hover { background: #b91c1c; }

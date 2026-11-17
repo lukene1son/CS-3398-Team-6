@@ -148,8 +148,16 @@ export function joinSpace(code) {
   return request("/api/courses/join", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ code }) });
 }
 
+// Each course has your `role`, its counts (member_count, channel_count, task_count, file_count,
+// study_group_count), and `join_code`, which is null unless you're its teacher or TA.
 export function getMyCourses() {
   return request("/api/me/courses");
+}
+
+// Deletes a whole space and everything in it. Its teacher only (403 otherwise).
+// -> { id, deleted: true, files_deleted }
+export function deleteSpace(courseId) {
+  return request(`/api/courses/${courseId}`, { method: "DELETE" });
 }
 
 export function getMyAssignments() {

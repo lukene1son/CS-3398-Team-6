@@ -255,41 +255,8 @@ app.get("/test-db", async (req, res) => {
     }
 });
 
-app.get("/api/courses", async (req, res) => {
-    try {
-        const [rows] = await pool.query("SELECT * FROM courses");
-        res.json(rows);
-    } catch (error) {
-        console.error("Error fetching courses:", error);
-
-        res.status(500).json({
-            error: "Failed to fetch courses"
-        });
-    }
-});
-
-app.get("/api/courses/:id", async (req, res) => {
-    try {
-        const [rows] = await pool.query(
-            "SELECT * FROM courses WHERE id = ?",
-            [req.params.id]
-        );
-
-        if (rows.length === 0) {
-            return res.status(404).json({
-                error: "Course not found"
-            });
-        }
-
-        res.json(rows[0]);
-    } catch (error) {
-        console.error("Error fetching course:", error);
-
-        res.status(500).json({
-            error: "Failed to fetch course"
-        });
-    }
-});
+// (GET /api/courses and GET /api/courses/:id were removed: they returned every course,
+// join codes included, to anyone signed in. Use GET /api/me/courses: only your own spaces.)
 
 app.get("/api/courses/:id/channels", async (req, res) => {
     try {
@@ -440,11 +407,20 @@ app.get("/api/me/courses", async (req, res) => {
                 courses.course_name,
                 courses.professor,
                 courses.university,
-                courses.join_code,
+                -- Only the space's administrators (teacher, TA) see its join code, so students
+                -- can't pass it around. Students get NULL (SpaceModal's Share tab skips those).
+                CASE WHEN course_members.role IN ('teacher', 'ta') THEN courses.join_code END AS join_code,
                 course_members.role,
                 course_members.color,
                 (SELECT COUNT(*) FROM channels WHERE channels.course_id = courses.id) AS channel_count,
                 (SELECT COUNT(*) FROM course_members AS cm WHERE cm.course_id = courses.id) AS member_count,
+                -- For Settings' Delete Space window: what deleting the space would remove.
+                -- task_count = course-wide assignments only (owner_user_id NULL), not personal tasks.
+                (SELECT COUNT(*) FROM assignments
+                    WHERE assignments.course_id = courses.id AND assignments.owner_user_id IS NULL) AS task_count,
+                (SELECT COUNT(*) FROM course_resources
+                    WHERE course_resources.course_id = courses.id AND course_resources.type = 'file') AS file_count,
+                (SELECT COUNT(*) FROM study_groups WHERE study_groups.course_id = courses.id) AS study_group_count,
                 (SELECT COUNT(*) FROM study_groups
                     JOIN study_group_members ON study_group_members.group_id = study_groups.id
                     WHERE study_groups.course_id = courses.id
@@ -701,11 +677,18 @@ app.delete("/api/assignments/:id", async (req, res) => {
             "SELECT stored_name FROM course_resources WHERE assignment_id = ? AND stored_name IS NOT NULL",
             [id]
         );
+        // The copies of it in people's Google calendars. The cascade removes these rows,
+        // so read them first; the events themselves are removed from Google after the commit.
+        const [calendarEvents] = await conn.query(
+            "SELECT user_id, google_event_id FROM google_calendar_events WHERE assignment_id = ?",
+            [id]
+        );
         await conn.query("DELETE FROM assignments WHERE id = ?", [id]);
         await conn.commit();
 
         // Only after the commit: had the DELETE failed, the files would still be needed.
         resourcesRouter.removeUploads(files.map(f => f.stored_name));
+        googleCalendarRouter.removeCalendarEvents(calendarEvents); // best effort, not awaited
         res.json({ id, deleted: true, files_deleted: files.length });
     } catch (error) {
         await conn.rollback().catch(() => {});
