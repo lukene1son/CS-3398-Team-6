@@ -30,6 +30,7 @@ const ON_PANEL_SHADOW = "0 1px 2px rgba(15, 23, 42, 0.06)";
 const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", background: "#fff", borderRadius: "10px", boxShadow: ON_PANEL_SHADOW };
 const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
+const COMPACT_CHAT_KEY = "buddytechCompactChat";
 const privateBadgeStyle = { marginLeft: "0.4rem", fontSize: "0.75rem", fontWeight: "500", color: "#64748b" };
 
 const GROUP_CHANNELS = ["general", "homework", "meetups"];
@@ -434,6 +435,9 @@ export default function SpacesChat({
   openTarget = null,        // from Dashboard: a chat clicked in the bell, { type, id, channel?, courseId?, nonce }
 }) {
   const userId = user?.id;
+  const [compactChat, setCompactChat] = useState(() => {
+    try { return localStorage.getItem(COMPACT_CHAT_KEY) === "true"; } catch { return false; }
+  });
   const [channelsByCourse, setChannelsByCourse] = useState({});
   const [messagesByChannel, setMessagesByChannel] = useState({});
   const [selectedCourseId, setSelectedCourseId] = useState(null);
@@ -2064,11 +2068,23 @@ export default function SpacesChat({
               })()}
             </span>
           )}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", marginLeft: "auto", fontSize: "0.85rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={compactChat}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setCompactChat(checked);
+                try { localStorage.setItem(COMPACT_CHAT_KEY, String(checked)); } catch { /* storage unavailable */ }
+              }}
+            />
+            Compact view
+          </label>
           {activeGroup?.access === "member" && (
             <button
               onClick={handleLeaveGroup}
               disabled={leavingGroup}
-              style={{ ...secondaryButtonStyle, padding: "0.45rem 0.8rem", marginLeft: "auto" }}
+              style={{ ...secondaryButtonStyle, padding: "0.45rem 0.8rem" }}
             >
               {leavingGroup ? "Leaving..." : "Leave group"}
             </button>
@@ -2091,7 +2107,7 @@ export default function SpacesChat({
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
-          gap: "0.75rem"
+          gap: compactChat ? "0.35rem" : "0.75rem"
         }}>
            {canSend && shownMessages.length === 0 && <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
             {activeFriend ? `This is the beginning of your conversation with ${activeFriend.name}.` : "No messages yet. Say hi!"}
@@ -2116,7 +2132,7 @@ export default function SpacesChat({
                 // stand out more from the white chat background.
                 background: mine ? "#2563eb" : "#e2e8f0",
                 color: mine ? "#ffffff" : "#0f172a",
-                padding: "0.6rem 0.9rem",
+                padding: compactChat ? "0.3rem 0.65rem" : "0.6rem 0.9rem",
                 borderRadius: "10px"
               }}>
                 <div style={{
