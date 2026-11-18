@@ -3,7 +3,7 @@ import {
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
   Bell,
   Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2} from 'lucide-react';
-import { getMyAssignments, getMyCourses, updateAssignmentStatus,
+import { getMyAssignments, getMyCourses, updateAssignmentStatus, updateCourseColor,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
     respondToFriendRequest, respondToGroupInvite, getActivity, markGroupRead,
     getLoginAttempts, decideLoginAttempt} from '../../api';
@@ -285,11 +285,51 @@ const SPACE_GRID = {
   gap: '1rem'
 };
 
+function ClassColorControl({ course, accent, onSaved }) {
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const color = draft ?? accent.toLowerCase();
+
+  async function save(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await updateCourseColor(course.id, color);
+      onSaved(course.id, saved.color);
+      setDraft(null);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="class-color" onSubmit={save}>
+      <label>
+        Class color
+        <input
+          aria-label={`Class color for ${course.course_code}`}
+          type="color"
+          value={color}
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      </label>
+      <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+      {error && <p role="alert">Couldn’t save class color. {error}</p>}
+    </form>
+  );
+}
+
 export default function Dashboard({ user, onLogout, onUserChange }) {
   const displayName = user?.name || "Student";
 
   const [tasks, setTasks] = useState([]);
   const [courses, setCourses] = useState([]);
+  const [coursesError, setCoursesError] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   
@@ -512,14 +552,23 @@ useEffect(() => {
   };
 }, [showNotifications, closing, closeNotifications]);
 
-  const [showAddTask, setShowAddTask] = useState(false);
+  const [taskDraft, setTaskDraft] = useState(null);
   // The "Join or create a space" popup. After a join or create, reload the course list
   // so the new space's card appears behind the popup.
   const [showSpaceModal, setShowSpaceModal] = useState(false);
-  const refreshCourses = () => {
+  const refreshCourses = useCallback(() => {
     getMyCourses()
-      .then(setCourses)
-      .catch((error) => console.error('Failed to refresh spaces:', error));
+      .then((userCourses) => {
+        setCourses(userCourses);
+        setCoursesError('');
+      })
+      .catch((error) => setCoursesError(error.message));
+  }, []);
+
+  const handleCourseColorSaved = (courseId, color) => {
+    setCourses((current) => current.map((course) =>
+      course.id === courseId ? { ...course, color } : course
+    ));
   };
   // Tasks playing the check-off animation. They stay on screen until it ends.
   const [leavingIds, setLeavingIds] = useState([]);
@@ -571,22 +620,17 @@ useEffect(() => {
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const [assignments, userCourses] = await Promise.all([
-          getMyAssignments(),
-          getMyCourses()
-        ]);
-
-        setTasks(assignments);
-        setCourses(userCourses);
+        setTasks(await getMyAssignments());
       } catch (error) {
-        // Keep tasks/courses as empty arrays so the page still renders.
+        // Keep tasks as an empty array so the page still renders.
         console.error('Failed to load dashboard data:', error);
         setLoadError(error.message);
       }
     }
 
     loadDashboardData();
-  }, []);
+    refreshCourses();
+  }, [refreshCourses]);
   // Recent Activity: the newest chats from every kind of space, plus newly posted assignments.
   const [activity, setActivity] = useState({ messages: [], assignments: [] });
   const [showAllMessages, setShowAllMessages] = useState(false);
@@ -704,8 +748,8 @@ useEffect(() => {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc', fontFamily: 'inherit' }}>
       {activeTab === 'home' && hoverCard.card}
-      {showAddTask && (
-        <AddTaskModal courses={courses} onClose={() => setShowAddTask(false)} onCreated={handleTaskCreated} />
+      {taskDraft && (
+        <AddTaskModal courses={courses} draft={taskDraft} onClose={() => setTaskDraft(null)} onCreated={handleTaskCreated} />
       )}
       {showSpaceModal && (
         <SpaceModal
@@ -879,7 +923,9 @@ useEffect(() => {
         {activeTab === 'spaces' ? (
           // No padding: Spaces fills the whole area under the top bar (SpacesChat sizes itself).
           <div style={{ flex: 1 }}>
-            <SpacesChat user={user} unread={chatsUnread} groupChannelsUnread={groupChannelsUnread}
+            <SpacesChat user={user} courses={courses} coursesError={coursesError}
+              onTaskFromMessage={setTaskDraft}
+              unread={chatsUnread} groupChannelsUnread={groupChannelsUnread}
               coursesUnread={coursesUnread} openTarget={openTarget}
               />
           </div>
@@ -892,6 +938,7 @@ useEffect(() => {
             onReopenTask={(id) => setTaskDone(id, false)}
             onTaskCreated={(task) => setTasks((currentTasks) => [...currentTasks, task])}
             onOpenCourseChat={openSpace}
+            onOpenSourceChat={openChat}
           />
         ) : activeTab === 'planner' ? (
           <CalendarView
@@ -968,8 +1015,8 @@ useEffect(() => {
                 <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.4, margin: 0 }}>Here is an overview of your active spaces and tasks.</p>
               </div>
             </div>
-            {loadError && (
-              <p role="alert" style={{ color: '#dc2626', fontSize: '0.9rem' }}>Couldn't load your data: {loadError}</p>
+            {(loadError || coursesError) && (
+              <p role="alert" style={{ color: '#dc2626', fontSize: '0.9rem' }}>Couldn't load your data: {loadError || coursesError}</p>
             )}
           </div>
 
@@ -1047,40 +1094,44 @@ useEffect(() => {
                 const unread = coursesUnread[course.id]?.unread ?? 0;
                 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
                 return (
-                  <button
-                    key={course.id}
-                    type="button"
-                    className="space-card"
-                    onClick={() => openSpace(course.id)}
-                    style={{
-                      minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem',
-                      padding: '0.6rem 1rem', background: '#ffffff', textAlign: 'left', font: 'inherit', cursor: 'pointer',
-                      border: 'none', borderTop: `4px solid ${accent}`, borderRadius: '12px', boxShadow: ON_PANEL_SHADOW
-                    }}
-                  >
-                    {/* Line 1: code and name */}
-                    <span style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', minWidth: 0, width: '100%' }}>
-                      <strong style={{ fontSize: '1rem', color: '#1e293b', whiteSpace: 'nowrap' }}>{course.course_code}</strong>
-                      <span className="space-ellipsis" style={{ fontSize: '0.8rem', color: '#64748b' }}>{course.course_name}</span>
-                    </span>
-                    {/* Line 2: counts */}
-                    <span className="space-ellipsis" style={{ width: '100%', fontSize: '0.75rem', color: '#475569' }}>
-                      {plural(course.channel_count, 'channel')} · {plural(course.group_count, 'group')} · {plural(course.member_count, 'member')}
-                    </span>
-                    {/* Line 3: badges; wraps if a course collects more than fit */}
-                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                      <span className="space-badge" style={staff
-                        ? { background: '#ede9fe', color: '#5b21b6' }
-                        : { background: '#dbeafe', color: '#1e40af' }}>
-                        {staff ? 'Administrator' : 'Enrolled'}
+                  <div key={course.id} style={{ minWidth: 0 }}>
+                    <button
+                      type="button"
+                      className="space-card"
+                      onClick={() => openSpace(course.id)}
+                      style={{
+                        minWidth: 0, width: '100%', display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                        padding: '0.6rem 1rem', background: '#ffffff', textAlign: 'left', font: 'inherit', cursor: 'pointer',
+                        border: 'none', borderTop: `4px solid ${accent}`, borderRadius: '12px', boxShadow: ON_PANEL_SHADOW
+                      }}
+                    >
+                      {/* Line 1: code and name */}
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', minWidth: 0, width: '100%' }}>
+                        <strong style={{ fontSize: '1rem', color: '#1e293b', whiteSpace: 'nowrap' }}>{course.course_code}</strong>
+                        <span className="space-ellipsis" style={{ fontSize: '0.8rem', color: '#64748b' }}>{course.course_name}</span>
                       </span>
-                      {unread > 0 && (
-                        <span className="space-badge" style={{ background: accent, color: '#ffffff', fontWeight: 700 }}>
-                          {unread > 99 ? '99+' : unread} new
+                      {/* Line 2: counts */}
+                      <span className="space-ellipsis" style={{ width: '100%', fontSize: '0.75rem', color: '#475569' }}>
+                        {plural(course.channel_count, 'channel')} · {plural(course.group_count, 'group')} · {plural(course.member_count, 'member')}
+                      </span>
+                      {/* Line 3: badges; wraps if a course collects more than fit */}
+                      <span style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <span className="space-badge" style={staff
+                          ? { background: '#ede9fe', color: '#5b21b6' }
+                          : { background: '#dbeafe', color: '#1e40af' }}>
+                          {staff ? 'Administrator' : 'Enrolled'}
                         </span>
-                      )}
-                    </span>
-                  </button>
+                        {unread > 0 && (
+                          <span className="space-badge" style={{ background: accent, color: '#ffffff', fontWeight: 700 }}>
+                            {unread > 99 ? '99+' : unread} new
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {course.role === 'student' && (
+                      <ClassColorControl course={course} accent={accent} onSaved={handleCourseColorSaved} />
+                    )}
+                  </div>
                 );
               })}
 
@@ -1112,7 +1163,7 @@ useEffect(() => {
                 <button
                   type="button"
                   className="add-task-button"
-                  onClick={() => setShowAddTask(true)}
+                  onClick={() => setTaskDraft({})}
                   disabled={courses.length === 0}
                   title={courses.length === 0 ? 'Join a Study Space to add tasks' : undefined}
                 >

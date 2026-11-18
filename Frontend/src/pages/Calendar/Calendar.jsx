@@ -209,6 +209,7 @@ export default function Calendar({
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
+  const today = new Date();
 
   const monthLabel = (y, m) =>
     new Date(y, m, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -327,6 +328,7 @@ export default function Calendar({
   const trackRef = useRef(null);      // the shown month and its neighbours: the part that moves
   const labelTrackRef = useRef(null); // the same for the month's name
   const stepMonthRef = useRef(null);  // the arrows and arrow keys: (-1 | 1) => slide to that month
+  const scrollToToday = useRef(false);
   const [peeking, setPeeking] = useState(false);
   const gesture = useRef({
     phase: 'idle',        // 'idle' | 'pull' | 'return' (springing back) | 'release' (sliding to the next month)
@@ -477,6 +479,24 @@ export default function Calendar({
     }
   }, [viewDate, paintMonths]);
 
+  useLayoutEffect(() => {
+    if (!scrollToToday.current) return;
+    scrollToToday.current = false;
+    trackRef.current?.querySelector(':scope > .calendar-grid [aria-current="date"]')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [viewDate]);
+
+  const backToToday = () => {
+    const g = gesture.current;
+    cancelAnimationFrame(g.frame);
+    Object.assign(g, { phase: 'idle', frame: 0, tween: null, pull: 0, frac: 0, locked: false, settle: false });
+    paintMonths(0);
+    setPeeking(false);
+    scrollToToday.current = true;
+    const now = new Date();
+    setViewDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  };
+
   const stepMonth = (dir) => stepMonthRef.current?.(dir);
   // Most of a list-height down, so the last row in view is still showing at the top.
   // Eases like every wheel scroll on the site (smoothScroll.js).
@@ -535,7 +555,10 @@ export default function Calendar({
                 >
                   {day && (
                     <>
-                      <span className="day-number">{day}</span>
+                      <span
+                        className="day-number"
+                        aria-current={y === today.getFullYear() && m === today.getMonth() && day === today.getDate() ? 'date' : undefined}
+                      >{day}</span>
 
                       {stacked ? (
                         // --n tasks, each told its place (--i); Calendar.css lays them out.
@@ -586,15 +609,13 @@ export default function Calendar({
               </button>
             </div>
 
-            {/* Right end of the month bar, the same height as the month arrows. */}
-            <button
-              className="add-task-button"
-              type="button"
-              onClick={() => setShowAddTask(true)}
-            >
-              <Plus size={15} strokeWidth={2.6} />
-              Add task
-            </button>
+            <div className="month-actions">
+              <button className="today-button" type="button" onClick={backToToday}>Back to today</button>
+              <button className="add-task-button" type="button" onClick={() => setShowAddTask(true)}>
+                <Plus size={15} strokeWidth={2.6} />
+                Add task
+              </button>
+            </div>
           </div>
 
           <div className="weekday-row">
