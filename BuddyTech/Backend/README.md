@@ -2,7 +2,7 @@
 
 Standalone backend for BuddyTech using Node.js, Express 5, MySQL, and Socket.IO.
 
-Canvas/LTI integration is deferred for now.
+See [Canvas course launch](CANVAS_LTI.md) for the optional LTI 1.3 sandbox pilot.
 
 - [Configure](#1-configure-portenv)
 - [Install dependencies](#2-install-dependencies)
@@ -284,6 +284,7 @@ Counts are kept in memory, so they reset when the backend restarts (except the h
 | 30 per waiting device per minute, and 120 per IP per minute | `POST /api/auth/login-attempts/:id/status` |
 | 20 per IP per 15 minutes | `POST /api/auth/login-attempts/email/details` and `/email/decide` |
 | 10 new accounts per IP per hour | `POST /api/auth/register` |
+| 30 per IP per 15 minutes | `/api/lti/login` and `POST /api/lti/launch` (Canvas launches) |
 | 15 messages per user per 30 seconds, all chats together | `POST /api/channels/:id/messages`, `/api/study-groups/:id/messages`, `/api/me/direct-messages/:userId` (every send counts) |
 | 5 per user per 15 minutes | `PUT /api/me/password` |
 | 20 per user per hour | `POST /api/me/friend-requests` |

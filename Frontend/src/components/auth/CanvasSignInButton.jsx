@@ -15,8 +15,7 @@ function CanvasLogo() {
   );
 }
 
-// Demo "Join with Canvas" button. Same size as the Google and Sign In buttons.
-// It doesn't sign in yet; clicking it shows a short note instead.
+// Canvas supplies the course context when the student starts inside a registered course.
 export default function CanvasSignInButton() {
   const [clicked, setClicked] = useState(false);
   return (
@@ -25,7 +24,7 @@ export default function CanvasSignInButton() {
         <CanvasLogo />
         <span>Join with Canvas</span>
       </button>
-      {clicked && <p className="canvas-note">Canvas sign-in is a demo and isn't connected yet.</p>}
+      {clicked && <p className="canvas-note">To join from Canvas, open the BuddyTech link inside a Canvas course where it has been installed.</p>}
     </>
   );
 }

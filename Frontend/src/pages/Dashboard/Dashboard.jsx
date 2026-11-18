@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
@@ -325,6 +326,7 @@ function ClassColorControl({ course, accent, onSaved }) {
 }
 
 export default function Dashboard({ user, onLogout, onUserChange }) {
+  const canvasCourseId = useLocation().state?.canvasCourseId;
   const displayName = user?.name || "Student";
 
   const [tasks, setTasks] = useState([]);
@@ -361,7 +363,11 @@ useEffect(() => {
 }, [user?.id, viewedChats]);
 
 // A chat to open in Spaces (clicked in the bell). A new nonce = a new request.
-const [openTarget, setOpenTarget] = useState(null);
+const [openTarget, setOpenTarget] = useState(() => (
+  Number.isSafeInteger(canvasCourseId) && canvasCourseId > 0
+    ? { type: 'course', id: canvasCourseId, nonce: 0 }
+    : null
+));
 const openCount = useRef(0); // nonce source: counts bell clicks
 
 // Load once, then again whenever the server says something changed.
@@ -591,6 +597,7 @@ useEffect(() => {
   const hiddenTaskCount = openTasks.length - ASSIGNMENT_PREVIEW;
 
   const [activeTab, setActiveTab] = useState(() => {
+    if (Number.isSafeInteger(canvasCourseId) && canvasCourseId > 0) return 'spaces';
     const savedTab = sessionStorage.getItem('buddytechActiveTab');
 
     return ['home', 'spaces', 'assignments', 'planner', 'ai', 'resources', 'settings'].includes(savedTab)

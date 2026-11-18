@@ -214,6 +214,18 @@ const spaceJoinLimiter = rateLimit({
     handler: tooMany("Too many wrong codes. Please wait a few minutes and try again."),
 });
 
+// Per IP address: caps Canvas LTI launch handshakes, so one machine can't fill the
+// launch route's pending-state slots and block real students' launches.
+const ltiLaunchLimiter = rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 30,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    handler: (req, res, next, options) => {
+        res.status(options.statusCode).send("Too many Canvas launches. Please wait a few minutes and try again.");
+    },
+});
+
 module.exports = {
     messageLimiter,
     loginPollLimiter,
@@ -231,4 +243,5 @@ module.exports = {
     calendarSyncLimiter,
     spaceCreateLimiter,
     spaceJoinLimiter,
+    ltiLaunchLimiter,
 };
