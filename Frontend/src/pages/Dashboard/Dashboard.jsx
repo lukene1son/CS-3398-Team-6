@@ -552,7 +552,7 @@ useEffect(() => {
   };
 }, [showNotifications, closing, closeNotifications]);
 
-  const [showAddTask, setShowAddTask] = useState(false);
+  const [taskDraft, setTaskDraft] = useState(null);
   // The "Join or create a space" popup. After a join or create, reload the course list
   // so the new space's card appears behind the popup.
   const [showSpaceModal, setShowSpaceModal] = useState(false);
@@ -748,8 +748,8 @@ useEffect(() => {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc', fontFamily: 'inherit' }}>
       {activeTab === 'home' && hoverCard.card}
-      {showAddTask && (
-        <AddTaskModal courses={courses} onClose={() => setShowAddTask(false)} onCreated={handleTaskCreated} />
+      {taskDraft && (
+        <AddTaskModal courses={courses} draft={taskDraft} onClose={() => setTaskDraft(null)} onCreated={handleTaskCreated} />
       )}
       {showSpaceModal && (
         <SpaceModal
@@ -924,6 +924,7 @@ useEffect(() => {
           // No padding: Spaces fills the whole area under the top bar (SpacesChat sizes itself).
           <div style={{ flex: 1 }}>
             <SpacesChat user={user} courses={courses} coursesError={coursesError}
+              onTaskFromMessage={setTaskDraft}
               unread={chatsUnread} groupChannelsUnread={groupChannelsUnread}
               coursesUnread={coursesUnread} openTarget={openTarget}
               />
@@ -937,6 +938,7 @@ useEffect(() => {
             onReopenTask={(id) => setTaskDone(id, false)}
             onTaskCreated={(task) => setTasks((currentTasks) => [...currentTasks, task])}
             onOpenCourseChat={openSpace}
+            onOpenSourceChat={openChat}
           />
         ) : activeTab === 'planner' ? (
           <CalendarView
@@ -1161,7 +1163,7 @@ useEffect(() => {
                 <button
                   type="button"
                   className="add-task-button"
-                  onClick={() => setShowAddTask(true)}
+                  onClick={() => setTaskDraft({})}
                   disabled={courses.length === 0}
                   title={courses.length === 0 ? 'Join a Study Space to add tasks' : undefined}
                 >

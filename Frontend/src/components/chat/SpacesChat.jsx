@@ -427,6 +427,7 @@ export default function SpacesChat({
   user,
   courses,
   coursesError,
+  onTaskFromMessage,
   unread = {},              // from Dashboard: { "dm-7": { unread, viewed }, "group-3": ..., "channel-2": ... }
   groupChannelsUnread = {}, // from Dashboard: { [groupId]: { general: 2, homework: 1 } }
   coursesUnread = {},       // from Dashboard: { [courseId]: { unread, viewed } }, all its channels together
@@ -2153,6 +2154,21 @@ export default function SpacesChat({
                   fontSize: "0.95rem",
                   overflowWrap: "anywhere"
                 }}>{msg.content}</div>
+                {!msg.pending && courses.length > 0 && (activeFriend || activeGroup || channelId) && onTaskFromMessage && (
+                  <button
+                    type="button"
+                    style={{ marginTop: "0.3rem", padding: 0, border: 0, background: "none", color: "inherit", fontSize: "0.75rem", textDecoration: "underline", cursor: "pointer" }}
+                    onClick={() => onTaskFromMessage({
+                      content: msg.content,
+                      courseId: activeFriend ? undefined : activeGroup?.course_id ?? course?.id,
+                      source: activeFriend ? `chat:dm:${activeFriend.id}`
+                        : activeGroup ? `chat:group:${activeGroup.id}:${groupChannel}`
+                        : `chat:channel:${channelId}:${course.id}`,
+                    })}
+                  >
+                    Create task
+                  </button>
+                )}
               </div>
             </div>;
           })}
