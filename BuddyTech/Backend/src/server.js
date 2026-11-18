@@ -470,6 +470,29 @@ app.get("/api/me/courses", async (req, res) => {
     }
 });
 
+app.patch("/api/me/courses/:id/color", async (req, res) => {
+    const courseId = toId(req.params.id);
+    const color = req.body?.color;
+    if (!courseId) return res.status(400).json({ error: "Invalid course ID" });
+    if (typeof color !== "string" || color.length !== 7 || !/^#[0-9a-f]{6}$/i.test(color)) {
+        return res.status(400).json({ error: "Class color must use #RRGGBB format" });
+    }
+
+    try {
+        const [result] = await pool.execute(
+            "UPDATE course_members SET color = ? WHERE course_id = ? AND user_id = ? AND role = 'student'",
+            [color, courseId, req.user.id]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(403).json({ error: "Only enrolled students can set a class color" });
+        }
+        res.json({ color });
+    } catch (error) {
+        console.error("Error saving class color:", error);
+        res.status(500).json({ error: "Failed to save class color" });
+    }
+});
+
 app.get("/api/courses/:id/assignments", async (req, res) => {
     try {
         if (!(await isCourseMember(req.user.id, req.params.id))) {

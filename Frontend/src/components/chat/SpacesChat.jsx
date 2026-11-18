@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useEffectEvent, useRef, useCallback } from "react";
-import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners, 
+import { getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners,
 sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend,
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
@@ -425,13 +425,14 @@ function formatTime(createdAt) {
  */
 export default function SpacesChat({
   user,
+  courses,
+  coursesError,
   unread = {},              // from Dashboard: { "dm-7": { unread, viewed }, "group-3": ..., "channel-2": ... }
   groupChannelsUnread = {}, // from Dashboard: { [groupId]: { general: 2, homework: 1 } }
   coursesUnread = {},       // from Dashboard: { [courseId]: { unread, viewed } }, all its channels together
   openTarget = null,        // from Dashboard: a chat clicked in the bell, { type, id, channel?, courseId?, nonce }
 }) {
   const userId = user?.id;
-  const [courses, setCourses] = useState([]);
   const [channelsByCourse, setChannelsByCourse] = useState({});
   const [messagesByChannel, setMessagesByChannel] = useState({});
   const [selectedCourseId, setSelectedCourseId] = useState(null);
@@ -439,7 +440,6 @@ export default function SpacesChat({
   const [inputText, setInputText] = useState("");
   const [pendingMessages, setPendingMessages] = useState([]);
   const pendingCount = useRef(0); // makes each tempId unique
-  const [status, setStatus] = useState("Connecting...");
   const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
   const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
   // Which list the sidebar shows, and what the main area shows:
@@ -1210,7 +1210,7 @@ export default function SpacesChat({
   ];
   // Chat-tab banner: sidebar errors always, plus the errors for whatever chat is open.
   const visibleErrors = [
-    errors.courses,
+    coursesError,
     errors.channels,
     errors.conversations,
     errors.groups,
@@ -1227,29 +1227,6 @@ export default function SpacesChat({
     activeGroup ? membersByGroup[activeGroup.id] ?? [] :
     showingChannel && course ? membersByCourse[course.id] ?? [] :
     [];
-
-  // 1. Load the user's courses ("spaces")
-  useEffect(() => {
-    if (!userId) return;
-    let cancelled = false;
-    async function loadCourses() {
-      try {
-        const data = await getMyCourses();
-        if (cancelled) return;
-        setCourses(data);
-        setStatus("Connected to Backend");
-        setErrorFor("courses", "");
-      } catch (err) {
-        if (cancelled) return;
-        setStatus("Backend offline");
-        setErrorFor("courses", err.message);
-      }
-    }
-    loadCourses();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, setErrorFor]);
 
   // 2. Load channels whenever the selected course changes
   const courseId = course?.id;
@@ -1352,11 +1329,9 @@ export default function SpacesChat({
       try {
         await loadMessages();
         if (cancelled) return;
-        setStatus("Connected to Backend");
         setErrorFor("channel", "");
       } catch (err) {
         if (cancelled) return;
-        setStatus("Backend offline");
         setErrorFor("channel", err.message);
       }
     }
@@ -1735,7 +1710,7 @@ export default function SpacesChat({
 
         {/* Study Spaces: the open course's channels and your study groups in it */}
         {sidebarView === "spaces" && <>
-          {courses.length === 0 && status === "Connected to Backend" && (
+          {courses.length === 0 && coursesError === "" && (
             <p style={{ ...sidebarHintStyle, marginTop: "1rem" }}>You aren't in any courses yet.</p>
           )}
 
