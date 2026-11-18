@@ -134,6 +134,17 @@ const calendarSyncLimiter = rateLimit({
     handler: tooMany("You're syncing too often. Please wait a few minutes and try again."),
 });
 
+// Per user: 20 AI requests every 5 minutes. Each one is a paid call to Gemini,
+// so this stops one account from spamming summarize/quiz/explain.
+const aiLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 20,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: userKey,
+    handler: tooMany("You're using the AI tools too quickly. Please wait a few minutes and try again."),
+});
+
 // Per user: 15 chat messages every 30 seconds, counted across course channels,
 // study groups and DMs together. Every send counts, even rejected ones: with
 // skipFailedRequests, a client that hangs up mid-request gets its count refunded
@@ -215,6 +226,7 @@ const spaceJoinLimiter = rateLimit({
 });
 
 module.exports = {
+    aiLimiter,
     messageLimiter,
     loginPollLimiter,
     loginPollIpLimiter,
