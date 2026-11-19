@@ -334,8 +334,12 @@
 }
 
 .day-number[aria-current="date"] {
-  padding: 0.15em 0.45em;
-  border-radius: 999px;
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  width: 1.75em;
+  height: 1.75em;
+  border-radius: 50%;
   background: #2563eb;
   color: #ffffff;
 }

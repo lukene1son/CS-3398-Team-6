@@ -1,10 +1,11 @@
 import { useLocation } from 'react-router-dom';
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { 
+import React, { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import {
   Home, Users, Calendar, Sparkles, BookOpen, Settings,
   Search, Bell,
-  Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2, Settings2} from 'lucide-react';
-import { getMyAssignments, getMyCourses, updateAssignmentStatus,
+  Clock, CheckSquare, Square, ChevronDown, LogOut, FolderPlus, MessageSquare, Plus, Paperclip, Link2, Settings2, Palette, X} from 'lucide-react';
+import { getMyAssignments, getMyCourses, updateAssignmentStatus, updateCourseColor,
     getFriendRequests, getGroupInvites, getNotifications, clearAcceptedNotifications,
     respondToFriendRequest, respondToGroupInvite, getActivity, markGroupRead,
     getLoginAttempts, decideLoginAttempt} from '../../api';
@@ -288,42 +289,178 @@ const SPACE_GRID = {
   gap: '1rem'
 };
 
-function ClassColorControl({ course, accent, onSaved }) {
-  const [draft, setDraft] = useState(null);
+// ---------- Class color window ----------
+// A student right-clicks (long-presses, or presses Shift+F10 on) a Study Spaces card, and this
+// small window opens at the pointer: a hue/strength wheel, a brightness slider (down to black,
+// so every #RRGGBB is reachable), and a hex box. The card previews the color while it's open;
+// Save sends one PATCH /api/me/courses/:id/color. Esc, ✕, Cancel, a click outside, scrolling
+// or resizing close it and put the old color back.
+
+// Color maths: h 0–360, s and v 0–1.
+function hsvToRgb(h, s, v) {
+  const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return [f(5), f(3), f(1)].map((x) => Math.round(x * 255));
+}
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s: max ? d / max : 0, v: max };
+}
+const rgbToHex = (rgb) => '#' + rgb.map((x) => x.toString(16).padStart(2, '0')).join('');
+function parseHex(text) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(text.trim());
+  return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null;
+}
+// The angle around the wheel (red at the top, clockwise) and the distance out from the centre.
+const wheelHue = (dx, dy) => (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+
+function ClassColorWindow({ course, initialColor, x, y, onPreview, onCancel, onSaved }) {
+  const [hsv, setHsv] = useState(() => rgbToHsv(...(parseHex(initialColor) || [37, 99, 235])));
+  const [hexText, setHexText] = useState(initialColor.toUpperCase());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const color = draft ?? accent.toLowerCase();
+  const [pos, setPos] = useState({ left: x + 4, top: y + 4 });
+  const windowRef = useRef(null);
+  const wheelRef = useRef(null);
+  const canvasRef = useRef(null);
+  const color = rgbToHex(hsvToRgb(hsv.h, hsv.s, hsv.v));
 
-  async function save(event) {
-    event.preventDefault();
+  // A new color from the wheel or slider (the hex box follows), or typed (it doesn't).
+  const pick = (next, typed = false) => {
+    setHsv(next);
+    if (!typed) setHexText(rgbToHex(hsvToRgb(next.h, next.s, next.v)).toUpperCase());
+  };
+
+  // Open at the pointer, moved back inside the screen if it would run off; focus the wheel.
+  useLayoutEffect(() => {
+    const el = windowRef.current, pad = 8;
+    let left = x + 4, top = y + 4;
+    if (left + el.offsetWidth > window.innerWidth - pad) left = Math.max(pad, x - el.offsetWidth - 4);
+    if (top + el.offsetHeight > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - el.offsetHeight - pad);
+    setPos({ left, top });
+    wheelRef.current.focus({ preventScroll: true });
+  }, [x, y]);
+
+  // Draw the wheel at the current brightness (only when brightness changes).
+  useEffect(() => {
+    const canvas = canvasRef.current, ctx = canvas.getContext('2d');
+    const N = canvas.width, R = N / 2, img = ctx.createImageData(N, N), d = img.data;
+    for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+      const dx = px + 0.5 - R, dy = py + 0.5 - R, r = Math.hypot(dx, dy) / R, i = (py * N + px) * 4;
+      if (r > 1) continue;
+      const [cr, cg, cb] = hsvToRgb(wheelHue(dx, dy), r, hsv.v);
+      d[i] = cr; d[i + 1] = cg; d[i + 2] = cb;
+      d[i + 3] = r > 1 - 1.5 / R ? Math.round(255 * (1 - r) * R / 1.5) : 255; // soft edge
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [hsv.v]);
+
+  // The card previews whatever is picked.
+  useEffect(() => { onPreview(color); }, [color, onPreview]);
+
+  // Close (without saving) on Esc, a click outside, scrolling, or resizing.
+  useEffect(() => {
+    const outside = (e) => { if (!windowRef.current.contains(e.target)) onCancel(); };
+    const esc = (e) => { if (e.key === 'Escape') onCancel(); };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', esc);
+    window.addEventListener('scroll', onCancel, true);
+    window.addEventListener('resize', onCancel);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('scroll', onCancel, true);
+      window.removeEventListener('resize', onCancel);
+    };
+  }, [onCancel]);
+
+  function fromPointer(e) {
+    const r = wheelRef.current.getBoundingClientRect(), R = r.width / 2;
+    const dx = e.clientX - r.left - R, dy = e.clientY - r.top - R;
+    // On an all-black wheel nothing would show, so a pick there brings brightness back up.
+    pick({ h: wheelHue(dx, dy), s: Math.min(1, Math.hypot(dx, dy) / R), v: hsv.v < 0.05 ? 1 : hsv.v });
+  }
+
+  function wheelKeys(e) {
+    const step = e.shiftKey ? 15 : 5;
+    const moves = {
+      ArrowLeft: { h: (hsv.h - step + 360) % 360 }, ArrowRight: { h: (hsv.h + step) % 360 },
+      ArrowUp: { s: Math.min(1, hsv.s + step / 100) }, ArrowDown: { s: Math.max(0, hsv.s - step / 100) },
+    };
+    if (!moves[e.key]) return;
+    e.preventDefault();
+    pick({ ...hsv, ...moves[e.key] });
+  }
+
+  async function save() {
+    if (saving) return;
     setSaving(true);
     setError('');
     try {
       const saved = await updateCourseColor(course.id, color);
       onSaved(course.id, saved.color);
-      setDraft(null);
-    } catch (error) {
-      setError(error.message);
-    } finally {
+    } catch (err) {
+      onPreview(null);          // the card goes back to its saved color
+      setError(err.message);
       setSaving(false);
     }
   }
 
-  return (
-    <form className="class-color" onSubmit={save}>
-      <label>
-        Class color
-        <input
-          aria-label={`Class color for ${course.course_code}`}
-          type="color"
-          value={color}
-          disabled={saving}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-      </label>
-      <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-      {error && <p role="alert">Couldn’t save class color. {error}</p>}
-    </form>
+  function windowKeys(e) {
+    if (e.key === 'Enter' && !e.target.closest('button')) { e.preventDefault(); save(); return; }
+    if (e.key !== 'Tab') return;  // keep Tab inside the window
+    const items = [...windowRef.current.querySelectorAll('button, input, [tabindex="0"]')];
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  const angle = hsv.h * Math.PI / 180;
+  const hexValid = Boolean(parseHex(hexText));
+  return createPortal(
+    <div ref={windowRef} className="color-window" role="dialog" aria-label={`Class color for ${course.course_code}`}
+      style={{ left: pos.left, top: pos.top, transformOrigin: `${x - pos.left}px ${y - pos.top}px` }} onKeyDown={windowKeys}>
+      <div className="color-window__head">
+        <p className="color-window__title">Class color <span>· {course.course_code}</span></p>
+        <button type="button" className="color-window__close" onClick={onCancel} aria-label="Close without saving">
+          <X size={14} strokeWidth={2.4} />
+        </button>
+      </div>
+      <div ref={wheelRef} className="color-window__wheel" tabIndex={0} role="slider"
+        aria-label="Hue and strength" aria-valuemin={0} aria-valuemax={360} aria-valuenow={Math.round(hsv.h)}
+        aria-valuetext={`${color.toUpperCase()}, hue ${Math.round(hsv.h)}°, strength ${Math.round(hsv.s * 100)}%`}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); fromPointer(e); }}
+        onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) fromPointer(e); }}
+        onKeyDown={wheelKeys}>
+        {/* Drawn at 2× (288px for 144px), so it stays sharp on high-DPI screens. */}
+        <canvas ref={canvasRef} width={288} height={288} />
+        <span className="color-window__knob" style={{
+          left: `${50 + Math.sin(angle) * hsv.s * 50}%`, top: `${50 - Math.cos(angle) * hsv.s * 50}%`, background: color,
+        }} />
+      </div>
+      <div className="color-window__row">
+        <label htmlFor={`color-brightness-${course.id}`}>Brightness</label>
+        <input id={`color-brightness-${course.id}`} className="color-window__brightness" type="range" min={0} max={100} step={1}
+          value={Math.round(hsv.v * 100)} onChange={(e) => pick({ ...hsv, v: e.target.value / 100 })}
+          style={{ '--full': rgbToHex(hsvToRgb(hsv.h, hsv.s, 1)), '--cur': color }} />
+      </div>
+      <div className="color-window__hex-row">
+        <span className="color-window__swatch" style={{ background: color }} aria-hidden="true" />
+        <input id={`color-hex-${course.id}`} className="color-window__hex" aria-label="Hex color code" aria-invalid={!hexValid}
+          value={hexText} maxLength={7} size={7} spellCheck={false} autoComplete="off"
+          onChange={(e) => { setHexText(e.target.value); const rgb = parseHex(e.target.value); if (rgb) pick(rgbToHsv(...rgb), true); }} />
+      </div>
+      {error && <p className="color-window__error" role="alert">Couldn’t save class color. {error}</p>}
+      <div className="color-window__actions">
+        <button type="button" className="color-window__btn" onClick={onCancel}>Cancel</button>
+        <button type="button" className="color-window__btn color-window__btn--save" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -578,6 +715,41 @@ useEffect(() => {
       course.id === courseId ? { ...course, color } : course
     ));
   };
+  // The class color window (students only): which card it's open for, where, and the color
+  // being previewed on that card until it's saved or cancelled.
+  const [colorWindow, setColorWindow] = useState(null); // { course, x, y }
+  const [colorPreview, setColorPreview] = useState(null);
+  const colorCardRef = useRef(null);       // the card it opened from, to give focus back to
+  const colorOpenFor = useRef(null);       // course id, read by events in the same moment
+  const longPress = useRef({ timer: 0, fired: false, x: 0, y: 0 });
+  const openColorWindow = (course, card, x, y) => {
+    if (colorOpenFor.current === course.id) return; // e.g. a long-press that also fires contextmenu
+    if (!x && !y) { const r = card.getBoundingClientRect(); x = r.left + 24; y = r.top + r.height / 2; } // from the keyboard
+    colorOpenFor.current = course.id;
+    colorCardRef.current = card;
+    setColorPreview(null);
+    setColorWindow({ course, x, y });
+  };
+  const closeColorWindow = useCallback(() => {
+    colorOpenFor.current = null;
+    setColorWindow(null);
+    setColorPreview(null);
+    colorCardRef.current?.focus({ preventScroll: true });
+  }, []);
+  const handleColorWindowSaved = (courseId, color) => {
+    handleCourseColorSaved(courseId, color);
+    closeColorWindow();
+  };
+  // Touch screens: hold a card for half a second (iOS has no right-click). The click that
+  // follows the long-press is swallowed so it doesn't also open the space.
+  const startLongPress = (e, course) => {
+    if (e.pointerType !== 'touch') return;
+    const card = e.currentTarget;
+    clearTimeout(longPress.current.timer);
+    longPress.current = { fired: false, x: e.clientX, y: e.clientY,
+      timer: setTimeout(() => { longPress.current.fired = true; openColorWindow(course, card, longPress.current.x, longPress.current.y); }, 500) };
+  };
+  const cancelLongPress = () => clearTimeout(longPress.current.timer);
   // A space you're in was deleted (by its teacher, maybe in another tab): drop its card,
   // and its Delete Space entry on Settings, right away.
   useEffect(() => onSocketEvent('course-deleted', refreshCourses), []);
@@ -1107,9 +1279,17 @@ useEffect(() => {
             {/* The heading is as wide as the card grid, so "Manage Spaces" sits over the last card.
                 It opens Settings on its Spaces section. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-              <h3 id="study-spaces-heading" style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                <Users size={18} color="#2563eb" /> Study Spaces
-              </h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.3rem 1rem', minWidth: 0 }}>
+                <h3 id="study-spaces-heading" style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <Users size={18} color="#2563eb" /> Study Spaces
+                </h3>
+                {/* Right-click has no on-screen sign, so say it's there (students pick colors). */}
+                {courses.some((course) => course.role === 'student') && (
+                  <span className="class-color-hint">
+                    <Palette size={14} aria-hidden="true" /> Right-click a card to change its color
+                  </span>
+                )}
+              </div>
               <button type="button" className="manage-spaces-button" onClick={openSpaceSettings}>
                 <Settings2 size={15} strokeWidth={2.4} /> Manage Spaces
               </button>
@@ -1117,8 +1297,11 @@ useEffect(() => {
             <section aria-labelledby="study-spaces-heading">
               <div style={SPACE_GRID}>
               {courses.map((course) => {
-                const accent = courseAccent(courses, course.id);
+                const editingColor = colorWindow?.course.id === course.id;
+                // While its color window is open, the card shows the color being picked.
+                const accent = (editingColor && colorPreview) || courseAccent(courses, course.id);
                 const staff = course.role === 'teacher' || course.role === 'ta';
+                const student = course.role === 'student';
                 const unread = coursesUnread[course.id]?.unread ?? 0;
                 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
                 return (
@@ -1126,7 +1309,22 @@ useEffect(() => {
                     <button
                       type="button"
                       className="space-card"
-                      onClick={() => openSpace(course.id)}
+                      data-editing={editingColor ? '' : undefined}
+                      aria-haspopup={student ? 'dialog' : undefined}
+                      aria-keyshortcuts={student ? 'Shift+F10' : undefined}
+                      onClick={() => {
+                        if (longPress.current.fired) { longPress.current.fired = false; return; }
+                        openSpace(course.id);
+                      }}
+                      // Students: right-click (also Shift+F10 / the menu key) opens the color window.
+                      // Administrators keep the browser's own menu.
+                      onContextMenu={student ? (e) => { e.preventDefault(); openColorWindow(course, e.currentTarget, e.clientX, e.clientY); } : undefined}
+                      onPointerDown={student ? (e) => startLongPress(e, course) : undefined}
+                      onPointerUp={student ? cancelLongPress : undefined}
+                      onPointerCancel={student ? cancelLongPress : undefined}
+                      onPointerMove={student ? (e) => {
+                        if (Math.hypot(e.clientX - longPress.current.x, e.clientY - longPress.current.y) > 10) cancelLongPress();
+                      } : undefined}
                       style={{
                         minWidth: 0, width: '100%', display: 'flex', flexDirection: 'column', gap: '0.4rem',
                         padding: '0.6rem 1rem', background: '#ffffff', textAlign: 'left', font: 'inherit', cursor: 'pointer',
@@ -1156,12 +1354,22 @@ useEffect(() => {
                         )}
                       </span>
                     </button>
-                    {course.role === 'student' && (
-                      <ClassColorControl course={course} accent={accent} onSaved={handleCourseColorSaved} />
-                    )}
                   </div>
                 );
               })}
+
+                {colorWindow && (
+                  <ClassColorWindow
+                    key={colorWindow.course.id}
+                    course={colorWindow.course}
+                    initialColor={courseAccent(courses, colorWindow.course.id)}
+                    x={colorWindow.x}
+                    y={colorWindow.y}
+                    onPreview={setColorPreview}
+                    onCancel={closeColorWindow}
+                    onSaved={handleColorWindowSaved}
+                  />
+                )}
 
                 {/* The grid's next slot, so it's the same size as a card: beside the courses
                     when a row has room, on a new row after every third course. */}
