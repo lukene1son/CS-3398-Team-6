@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS assignments;
 DROP TABLE IF EXISTS channels;
 DROP TABLE IF EXISTS course_members;
+DROP TABLE IF EXISTS canvas_lti_identities;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS courses;
 DROP TABLE IF EXISTS assignment_progress;
@@ -43,6 +44,12 @@ CREATE TABLE users (
     avatar_color VARCHAR(7) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     name_changed_at TIMESTAMP NULL
+);
+
+CREATE TABLE canvas_lti_identities (
+    identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    user_id INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE courses (

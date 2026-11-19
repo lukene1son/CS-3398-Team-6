@@ -121,6 +121,14 @@ export function getGoogleSignInConfig() {
   return request("/api/auth/google/config");
 }
 
+export function completeCanvasLaunch(confirm) {
+  return request("/api/lti/complete", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ confirm }),
+  });
+}
+
 export function logout() {
   const token = getToken();
   setToken(null);
