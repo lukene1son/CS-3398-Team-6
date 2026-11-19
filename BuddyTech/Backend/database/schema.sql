@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS assignments;
 DROP TABLE IF EXISTS channels;
 DROP TABLE IF EXISTS course_members;
+DROP TABLE IF EXISTS canvas_lti_identities;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS courses;
 DROP TABLE IF EXISTS assignment_progress;
@@ -47,6 +48,12 @@ CREATE TABLE users (
     -- lock on deleting spaces after 3 of them.
     delete_pw_failures TINYINT UNSIGNED NOT NULL DEFAULT 0,
     delete_locked_until DATETIME NULL
+);
+
+CREATE TABLE canvas_lti_identities (
+    identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    user_id INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE courses (

@@ -28,6 +28,9 @@ app.set("trust proxy", process.env.TRUST_PROXY || "loopback, linklocal, uniquelo
 
 app.use(express.json());
 
+const canvasLti = require("./routes/canvasLti").createCanvasLti(pool);
+app.use("/api/lti", canvasLti.publicRouter);
+
 // Above the auth router on purpose: the waiting device polls every few seconds,
 // which would use up authIpLimiter's shared budget. These routes have their own limiters.
 app.use("/api/auth/login-attempts", loginAttempts.publicRouter);
@@ -39,6 +42,7 @@ app.get("/api/auth/google/callback", googleCalendarRouter.callback);
 
 // Every /api route registered BELOW this line requires a valid login token.
 app.use("/api", requireAuth);
+app.use("/api/lti", canvasLti.sessionRouter);
 
 // Chat spam limit: 15 messages per 30 seconds per user, across all three kinds of chat.
 // Registered before the routers so it runs first; it calls next() while under the limit.

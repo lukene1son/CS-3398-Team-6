@@ -8,6 +8,7 @@ import Navbar from './components/layout/Navbar';
 import Home from './pages/Landing/Home';
 import Footer from './components/layout/Footer';
 import Login from './components/auth/Login';
+import CanvasContinue from './components/auth/CanvasContinue';
 import Dashboard from './pages/Dashboard/Dashboard';
 import ErrorBoundary from './components/layout/ErrorBoundary';
 
@@ -53,17 +54,15 @@ function HomeWrapper({ isLoggedIn }) {
 }
 
 // Wrapper for Login to handle successful sign in
-function LoginWrapper({ onLogin }) {
-  const navigate = useNavigate();
+function LoginWrapper({ currentUser, onLogin }) {
   // Opened from "Get Started": start on Create Account instead of Sign In.
-  const initialMode = useLocation().state?.mode === 'register' ? 'register' : 'login';
+  const routeState = useLocation().state;
+  const initialMode = routeState?.mode === 'register' ? 'register' : 'login';
 
-  const handleSuccessfulLogin = (userData) => {
-    onLogin(userData);
-    navigate('/dashboard');
-  };
-
-  return <Login onLogin={handleSuccessfulLogin} initialMode={initialMode} />;
+  if (currentUser) {
+    return <Navigate to={routeState?.returnToCanvas ? '/canvas/continue' : '/dashboard'} replace />;
+  }
+  return <Login onLogin={onLogin} initialMode={initialMode} />;
 }
 
 export default function App() {
@@ -147,14 +146,14 @@ export default function App() {
         {/* 2. Login Page */}
         <Route
           path="/login"
-          element={
-            currentUser ? (
-              <Navigate to="/dashboard" replace />
-            ) : (
-              <LoginWrapper onLogin={handleLogin} />
-            )
-          }
+          element={<LoginWrapper currentUser={currentUser} onLogin={handleLogin} />}
         />
+
+        {/* A verified Canvas launch resumes here after normal BuddyTech sign-in. */}
+        <Route path="/canvas/continue" element={
+          currentUser ? <CanvasContinue key={currentUser.id} user={currentUser} />
+            : <Navigate to="/login" replace state={{ returnToCanvas: true }} />
+        } />
 
         {/* 3. Student Dashboard */}
         <Route

@@ -50,6 +50,12 @@ services:
       GOOGLE_TOKEN_KEY: ${GOOGLE_TOKEN_KEY:-}
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      CANVAS_LTI_ISSUER: ${CANVAS_LTI_ISSUER:-}
+      CANVAS_LTI_AUTHORIZE_URL: ${CANVAS_LTI_AUTHORIZE_URL:-}
+      CANVAS_LTI_JWKS_URL: ${CANVAS_LTI_JWKS_URL:-}
+      CANVAS_LTI_CLIENT_ID: ${CANVAS_LTI_CLIENT_ID:-}
+      CANVAS_LTI_DEPLOYMENT_ID: ${CANVAS_LTI_DEPLOYMENT_ID:-}
+      CANVAS_LTI_COURSE_MAP: ${CANVAS_LTI_COURSE_MAP:-}
       # Links in emails (e.g. sign-in approval) point at the local site.
       APP_URL: http://localhost:5173
     depends_on:
