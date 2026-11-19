@@ -220,7 +220,7 @@ function formatDue(value) {
 // Each has its own icon colour; on the active page's pill the icon turns white.
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', icon: Home, color: '#2563eb' },
-  { id: 'spaces', label: 'Chat', icon: Users, color: '#c4b5fd' }, // the 'spaces' tab: course chats, groups, DMs
+  { id: 'spaces', label: 'Spaces', icon: Users, color: '#c4b5fd' }, // the 'spaces' tab: course chats, groups, DMs
   { id: 'assignments', label: 'Tasks', icon: CheckSquare, color: '#86efac' }, // the Assignments page
   { id: 'planner', label: 'Planner', icon: Calendar, color: '#93c5fd' },
   { id: 'ai', label: 'AI Tools', icon: Sparkles, color: '#5eead4' },
