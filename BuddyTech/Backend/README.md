@@ -59,7 +59,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 | Setting | Needed for | Notes |
 |---|---|---|
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | AI tools (`POST /api/ai/chat`) | Without the key, that route returns 503 "AI service is not configured yet". The model is optional. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_MS` | AI tools (`POST /api/ai/chat`) | Without the key, that route returns 503 "AI service is not configured yet". The model is optional. Gemini calls give up after `GEMINI_TIMEOUT_MS` (default 25000) and return 504. |
 | `GOOGLE_CLIENT_ID` | Sign in with Google, and Google Calendar sync | An OAuth "Web application" client from Google Cloud Console. Add your frontend address (e.g. `http://localhost:5173`) as an authorized JavaScript origin. Without it, the Google button is hidden and `POST /api/auth/google` returns 503. |
 | `GOOGLE_CLIENT_SECRET` | Google Calendar sync | From the same OAuth client. |
 | `GOOGLE_REDIRECT_URI` | Google Calendar sync | Must be `/api/auth/google/callback` on the address the browser uses, e.g. `http://localhost:5173/api/auth/google/callback`, and must also be listed as an authorized redirect URI on the OAuth client. |
@@ -173,6 +173,10 @@ npm run dev
 Open http://localhost:5173. Vite proxies every `/api/...` request (including the Socket.IO connection at `/api/socket.io`) to the backend on port 3000.
 
 Production build of the frontend: `npm run build` (output in `Frontend/dist`).
+
+### Tests
+
+From `BuddyTech/Backend`, `npm test` runs the automated tests in `test/` with Node's built-in test runner. They need no database or API key: `test/ai.test.js` replaces Gemini with a fake to check the AI route's validation, error handling, timeout, and rate limit.
 
 ## Project layout
 
@@ -292,6 +296,7 @@ Counts are kept in memory, so they reset when the backend restarts (except the h
 | 30 per user per hour | `POST /api/study-groups/:id/invites` |
 | 3 per user per 15 minutes | `POST /api/me/avatar` (rejected uploads don't count) |
 | 10 per user per 15 minutes | `POST /api/me/google-calendar/sync` |
+| 20 per user per 5 minutes | `POST /api/ai/chat` (every request counts; each one is a Gemini call) |
 
 The friend request and group invite limits skip failed attempts (400 / 404 / 409), so only requests that actually go through count.
 

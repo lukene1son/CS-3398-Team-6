@@ -1,10 +1,13 @@
 const express = require("express");
+const { aiLimiter } = require("../middleware/rateLimits");
 
 const router = express.Router();
 
 const ALLOWED_TOOLS = new Set(["summarize", "quiz", "explain"]);
 const MAX_PROMPT_CHARS = 12000;
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
+// How long to wait for Gemini before giving up (override with GEMINI_TIMEOUT_MS).
+const DEFAULT_TIMEOUT_MS = 25000;
 
 function instructionFor(tool) {
     switch (tool) {
@@ -43,7 +46,7 @@ function instructionFor(tool) {
     }
 }
 
-router.post("/chat", async (req, res) => {
+router.post("/chat", aiLimiter, async (req, res) => {
     const { tool, prompt } = req.body || {};
 
     if (!ALLOWED_TOOLS.has(tool)) {
@@ -73,10 +76,12 @@ router.post("/chat", async (req, res) => {
     const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
     const url =
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
 
     try {
         const response = await fetch(url, {
             method: "POST",
+            signal: AbortSignal.timeout(timeoutMs),
             headers: {
                 "Content-Type": "application/json",
                 "x-goog-api-key": apiKey
@@ -131,6 +136,12 @@ router.post("/chat", async (req, res) => {
 
         res.json({ reply });
     } catch (error) {
+        if (error.name === "TimeoutError" || error.name === "AbortError") {
+            console.error(`AI request timed out after ${timeoutMs} ms`);
+            return res.status(504).json({
+                error: "The AI took too long to respond. Please try again."
+            });
+        }
         console.error("AI request failed:", error);
         res.status(502).json({
             error: "Could not reach the AI service"

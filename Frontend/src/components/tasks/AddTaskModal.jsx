@@ -35,12 +35,13 @@ function cleanUrl(value) {
   }
 }
 
-export default function AddTaskModal({ courses, onClose, onCreated }) {
-  const [courseId, setCourseId] = useState(courses[0]?.id ?? null);
+export default function AddTaskModal({ courses, draft, onClose, onCreated }) {
+  const message = draft?.content?.trim().replace(/\s+/g, ' ') ?? '';
+  const [courseId, setCourseId] = useState(draft?.courseId ?? courses[0]?.id ?? null);
   const [audience, setAudience] = useState('me'); // 'me' | 'course'
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(() => message.slice(0, 255));
   const [due, setDue] = useState(dueIn(0));
-  const [summary, setSummary] = useState('');
+  const [summary, setSummary] = useState(() => message.slice(0, 5000));
   const [details, setDetails] = useState('');
   const [grading, setGrading] = useState('graded'); // 'graded' | 'participation'
   const [extraCredit, setExtraCredit] = useState(false);
@@ -55,7 +56,7 @@ export default function AddTaskModal({ courses, onClose, onCreated }) {
   const titleRef = useRef(null);
 
   const course = courses.find((c) => c.id === courseId);
-  const canPost = STAFF_ROLES.includes(course?.role);
+  const canPost = !draft?.source && STAFF_ROLES.includes(course?.role);
   const toCourse = canPost && audience === 'course';
 
   useEffect(() => { titleRef.current?.focus(); }, []);
@@ -105,7 +106,7 @@ export default function AddTaskModal({ courses, onClose, onCreated }) {
         course_id: course.id,
         title: title.trim(),
         description: summary.trim() || null,
-        details: toCourse ? details.trim() || null : null,
+        details: toCourse ? details.trim() || null : draft?.source ?? null,
         ...(toCourse && { grading, extra_credit: extraCredit }),
         due_date: `${due.replace('T', ' ')}:00`,
         personal: !toCourse,

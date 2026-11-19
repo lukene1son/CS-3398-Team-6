@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useEffectEvent, useRef, useCallback } from "react";
-import { getMyCourses, getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners, 
+import { getCourseChannels, getChannelMessages, sendChannelMessage, getSuggestedPartners,
 sendFriendRequest, getFriendRequests, respondToFriendRequest, cancelFriendRequest, getFriends, removeFriend,
 getConversations, getDirectMessages, sendDirectMessage, getDiscoverGroups, getMyStudyGroups, createStudyGroup,
 joinStudyGroup, leaveStudyGroup, getGroupMessages, sendGroupMessage, getGroupInvites, inviteToGroup, respondToGroupInvite,
@@ -30,6 +30,7 @@ const ON_PANEL_SHADOW = "0 1px 2px rgba(15, 23, 42, 0.06)";
 const partnerCardStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", background: "#fff", borderRadius: "10px", boxShadow: ON_PANEL_SHADOW };
 const primaryButtonStyle = { padding: "0.6rem 1rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
 const secondaryButtonStyle = { padding: "0.6rem 1rem", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "600", cursor: "pointer" };
+const COMPACT_CHAT_KEY = "buddytechCompactChat";
 const privateBadgeStyle = { marginLeft: "0.4rem", fontSize: "0.75rem", fontWeight: "500", color: "#64748b" };
 
 const GROUP_CHANNELS = ["general", "homework", "meetups"];
@@ -425,13 +426,18 @@ function formatTime(createdAt) {
  */
 export default function SpacesChat({
   user,
+  courses,
+  coursesError,
+  onTaskFromMessage,
   unread = {},              // from Dashboard: { "dm-7": { unread, viewed }, "group-3": ..., "channel-2": ... }
   groupChannelsUnread = {}, // from Dashboard: { [groupId]: { general: 2, homework: 1 } }
   coursesUnread = {},       // from Dashboard: { [courseId]: { unread, viewed } }, all its channels together
   openTarget = null,        // from Dashboard: a chat clicked in the bell, { type, id, channel?, courseId?, nonce }
 }) {
   const userId = user?.id;
-  const [courses, setCourses] = useState([]);
+  const [compactChat, setCompactChat] = useState(() => {
+    try { return localStorage.getItem(COMPACT_CHAT_KEY) === "true"; } catch { return false; }
+  });
   const [channelsByCourse, setChannelsByCourse] = useState({});
   const [messagesByChannel, setMessagesByChannel] = useState({});
   const [selectedCourseId, setSelectedCourseId] = useState(null);
@@ -439,7 +445,6 @@ export default function SpacesChat({
   const [inputText, setInputText] = useState("");
   const [pendingMessages, setPendingMessages] = useState([]);
   const pendingCount = useRef(0); // makes each tempId unique
-  const [status, setStatus] = useState("Connecting...");
   const [errors, setErrors] = useState({});       // { [source]: message }, one per loader so one can't wipe another's
   const [sendError, setSendError] = useState(null); // { target: chatTitle, text }, only shown in the chat it happened in
   // Which list the sidebar shows, and what the main area shows:
@@ -1210,7 +1215,7 @@ export default function SpacesChat({
   ];
   // Chat-tab banner: sidebar errors always, plus the errors for whatever chat is open.
   const visibleErrors = [
-    errors.courses,
+    coursesError,
     errors.channels,
     errors.conversations,
     errors.groups,
@@ -1227,29 +1232,6 @@ export default function SpacesChat({
     activeGroup ? membersByGroup[activeGroup.id] ?? [] :
     showingChannel && course ? membersByCourse[course.id] ?? [] :
     [];
-
-  // 1. Load the user's courses ("spaces")
-  useEffect(() => {
-    if (!userId) return;
-    let cancelled = false;
-    async function loadCourses() {
-      try {
-        const data = await getMyCourses();
-        if (cancelled) return;
-        setCourses(data);
-        setStatus("Connected to Backend");
-        setErrorFor("courses", "");
-      } catch (err) {
-        if (cancelled) return;
-        setStatus("Backend offline");
-        setErrorFor("courses", err.message);
-      }
-    }
-    loadCourses();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, setErrorFor]);
 
   // 2. Load channels whenever the selected course changes
   const courseId = course?.id;
@@ -1377,11 +1359,9 @@ export default function SpacesChat({
       try {
         await loadMessages();
         if (cancelled) return;
-        setStatus("Connected to Backend");
         setErrorFor("channel", "");
       } catch (err) {
         if (cancelled) return;
-        setStatus("Backend offline");
         setErrorFor("channel", err.message);
       }
     }
@@ -1760,7 +1740,7 @@ export default function SpacesChat({
 
         {/* Study Spaces: the open course's channels and your study groups in it */}
         {sidebarView === "spaces" && <>
-          {courses.length === 0 && status === "Connected to Backend" && (
+          {courses.length === 0 && coursesError === "" && (
             <p style={{ ...sidebarHintStyle, marginTop: "1rem" }}>You aren't in any courses yet.</p>
           )}
 
@@ -2113,11 +2093,23 @@ export default function SpacesChat({
               })()}
             </span>
           )}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", marginLeft: "auto", fontSize: "0.85rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={compactChat}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setCompactChat(checked);
+                try { localStorage.setItem(COMPACT_CHAT_KEY, String(checked)); } catch { /* storage unavailable */ }
+              }}
+            />
+            Compact view
+          </label>
           {activeGroup?.access === "member" && (
             <button
               onClick={handleLeaveGroup}
               disabled={leavingGroup}
-              style={{ ...secondaryButtonStyle, padding: "0.45rem 0.8rem", marginLeft: "auto" }}
+              style={{ ...secondaryButtonStyle, padding: "0.45rem 0.8rem" }}
             >
               {leavingGroup ? "Leaving..." : "Leave group"}
             </button>
@@ -2140,7 +2132,7 @@ export default function SpacesChat({
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
-          gap: "0.75rem"
+          gap: compactChat ? "0.35rem" : "0.75rem"
         }}>
            {canSend && shownMessages.length === 0 && <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
             {activeFriend ? `This is the beginning of your conversation with ${activeFriend.name}.` : "No messages yet. Say hi!"}
@@ -2165,7 +2157,7 @@ export default function SpacesChat({
                 // stand out more from the white chat background.
                 background: mine ? "#2563eb" : "#e2e8f0",
                 color: mine ? "#ffffff" : "#0f172a",
-                padding: "0.6rem 0.9rem",
+                padding: compactChat ? "0.3rem 0.65rem" : "0.6rem 0.9rem",
                 borderRadius: "10px"
               }}>
                 <div style={{
@@ -2203,6 +2195,21 @@ export default function SpacesChat({
                   fontSize: "0.95rem",
                   overflowWrap: "anywhere"
                 }}>{msg.content}</div>
+                {!msg.pending && courses.length > 0 && (activeFriend || activeGroup || channelId) && onTaskFromMessage && (
+                  <button
+                    type="button"
+                    style={{ marginTop: "0.3rem", padding: 0, border: 0, background: "none", color: "inherit", fontSize: "0.75rem", textDecoration: "underline", cursor: "pointer" }}
+                    onClick={() => onTaskFromMessage({
+                      content: msg.content,
+                      courseId: activeFriend ? undefined : activeGroup?.course_id ?? course?.id,
+                      source: activeFriend ? `chat:dm:${activeFriend.id}`
+                        : activeGroup ? `chat:group:${activeGroup.id}:${groupChannel}`
+                        : `chat:channel:${channelId}:${course.id}`,
+                    })}
+                  >
+                    Create task
+                  </button>
+                )}
               </div>
             </div>;
           })}

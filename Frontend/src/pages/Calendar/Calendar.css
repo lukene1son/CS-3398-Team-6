@@ -194,12 +194,11 @@
   overflow: hidden;
 }
 
-/* The month bar: just tall enough for the 34px arrows and Add task (8px above and below),
-   everything centred on one line. */
 .month-toolbar {
   padding: 8px 16px;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -216,7 +215,8 @@
   font-size: 18px;
 }
 
-.month-navigation button {
+.month-navigation button,
+.today-button {
   width: 34px;
   height: 34px;
   border: 1px solid #e2e8f0;
@@ -228,8 +228,24 @@
   cursor: pointer;
 }
 
-.month-navigation button:hover {
+.month-navigation button:hover,
+.today-button:hover {
   background: #f8fafc;
+}
+
+.month-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.today-button {
+  width: auto;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 /* Scrolling between months (Calendar.jsx, the month gesture). The month name and the grid
@@ -315,6 +331,13 @@
   font-size: 12px;
   font-weight: 600;
   color: #475569;
+}
+
+.day-number[aria-current="date"] {
+  padding: 0.15em 0.45em;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
 }
 
 /* Each event is in its class's colour: Calendar.jsx sets --course-color (courseColors.js).

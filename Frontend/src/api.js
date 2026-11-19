@@ -181,6 +181,14 @@ export function getSpaceDeleteStatus() {
   return request("/api/me/space-delete-status");
 }
 
+export function updateCourseColor(id, color) {
+  return request(`/api/me/courses/${id}/color`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ color }),
+  });
+}
+
 export function getMyAssignments() {
   return request("/api/me/assignments");
 }

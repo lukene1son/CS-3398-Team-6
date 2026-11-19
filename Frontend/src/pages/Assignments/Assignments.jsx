@@ -53,7 +53,14 @@ const GROUPS = [
   ['done', 'Done'],
 ];
 
-export default function Assignments({ tasks = [], courses = [], onCompleteTask, onReopenTask, onTaskCreated, onOpenCourseChat, focus }) {
+function readSourceChat(details) {
+  const match = /^chat:(dm|channel|group):(\d+)(?::(\w+))?$/.exec(details ?? '');
+  if (!match) return null;
+  const [, type, id, context] = match;
+  return { type, id: Number(id), courseId: type === 'channel' ? Number(context) : undefined, channel: type === 'group' ? context : undefined };
+}
+
+export default function Assignments({ tasks = [], courses = [], onCompleteTask, onReopenTask, onTaskCreated, onOpenCourseChat, onOpenSourceChat, focus }) {
   const [courseFilter, setCourseFilter] = useState('all'); // 'all' or a course id
   const [filter, setFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
@@ -194,6 +201,7 @@ export default function Assignments({ tasks = [], courses = [], onCompleteTask, 
   const fileRows = resources.filter((r) => r.type === 'file');
   const linkRows = resources.filter((r) => r.type === 'link');
   const personal = selected?.owner_user_id != null;
+  const sourceChat = personal ? readSourceChat(full?.details) : null;
   const selectedLate = selected && selected.status !== 'done' && selected.due && selected.due < now;
 
   return (
@@ -265,7 +273,11 @@ export default function Assignments({ tasks = [], courses = [], onCompleteTask, 
               <button type="button" className={selected.status === 'done' ? 'tp-btn-done is-done' : 'tp-btn-done'} onClick={() => toggle(selected)}>
                 <Check size={14} strokeWidth={3} />{selected.status === 'done' ? 'Done · Mark as not done' : 'Mark as done'}
               </button>
-              {onOpenCourseChat && (
+              {sourceChat && onOpenSourceChat ? (
+                <button type="button" className="tp-btn-ghost" onClick={() => onOpenSourceChat(sourceChat)}>
+                  <MessageSquare size={14} />Open source chat
+                </button>
+              ) : onOpenCourseChat && (
                 <button type="button" className="tp-btn-ghost" onClick={() => onOpenCourseChat(selected.course_id)}>
                   <MessageSquare size={14} />Open {selected.course_code} chat
                 </button>
