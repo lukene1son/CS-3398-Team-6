@@ -183,25 +183,6 @@ function readAssignmentFields(body, partial) {
     return { fields };
 }
 
-// Database errors return a clean 500 JSON response instead of an unhandled rejection
-app.get("/api/me", async (req, res) => {
-    try {
-        const [rows] = await pool.query(
-            `SELECT id, name, email, created_at, avatar_color,
-                    avatar_stored_name IS NOT NULL AS has_avatar
-             FROM users WHERE id = ?`,
-            [req.user.id]
-        );
-        if (rows.length === 0) {
-            return res.status(404).json({ error: "User not found" });
-        }
-        res.json({ ...rows[0], has_avatar: Boolean(rows[0].has_avatar) });
-    } catch (error) {
-        console.error("Error fetching profile:", error);
-        res.status(500).json({ error: "Failed to fetch user profile" });
-    }
-});
-
 // The assignment as the logged-in user sees it (with their status), or undefined.
 // Callers check access first.
 async function getAssignmentRow(userId, assignmentId) {
