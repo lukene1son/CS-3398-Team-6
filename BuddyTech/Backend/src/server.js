@@ -385,11 +385,17 @@ app.get("/api/channels/:id/messages", async (req, res) => {
 app.post("/api/channels/:id/messages", async (req, res) => {
     try {
         const user_id = req.user.id; // author is whoever is logged in, never the request body
-        const { content } = req.body || {};
+        const rawContent = (req.body || {}).content;
 
-        if (!content) {
+        if (typeof rawContent !== "string" || !rawContent.trim()) {
             return res.status(400).json({
                 error: "content is required"
+            });
+        }
+        const content = rawContent.trim();
+        if (content.length > 4000) {
+            return res.status(400).json({
+                error: "Message cannot exceed 4000 characters"
             });
         }
 
