@@ -1133,11 +1133,13 @@ export default function SpacesChat({
     ...conversations.map(c => friends.find(f => f.id === c.id)).filter(Boolean),
     ...friends.filter(f => !conversationById.has(f.id)),
   ].filter(f => matchesQuery(f.name));
-  // Suggested Partners: ones you've asked (still waiting), then suggestions.
+  // Suggested Partners: ones you've asked (still waiting) and suggestions, in one list by name,
+  // so a row stays put when its button flips between + (request) and ✓ (cancel the request).
   const mayKnowPeople = [
     ...outgoingRequests.map(r => fromRequest(r, "outgoing")),
     ...suggestedPartners.map(sp => ({ ...sp, kind: "suggested" })),
-  ].filter(x => matchesQuery(x.name));
+  ].filter(x => matchesQuery(x.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // If the chosen group/DM no longer exists (left the group, removed the friend),
   // these come out null and the Chat tab falls back to the course channel.

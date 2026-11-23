@@ -63,21 +63,58 @@ function decrypt(stored) {
 // ---- The OAuth "state" value ----
 // Signed with a DIFFERENT secret than login tokens. It travels in a URL, so it must
 // never be usable as a login token (and a login token must never pass as a state).
+//
+// It's also tied to the browser that pressed "Connect": /connect puts a random nonce
+// both in the state and in an HttpOnly cookie, and the callback only accepts a state
+// whose nonce matches the cookie. Without that, someone could send a victim a consent
+// link made for THEIR account (linking the victim's Google to it), or reuse a leaked
+// link of the victim's. The cookie is cleared by the callback, so each link works once.
+
+const STATE_MINUTES = 10;
+const STATE_COOKIE = "gcal_oauth_nonce";
+const CALLBACK_PATH = "/api/auth/google/callback"; // the cookie is only ever sent here
 
 function stateSecret() {
     return `${process.env.JWT_SECRET}:google-oauth-state`;
 }
 
-function makeState(userId) {
-    return jwt.sign({ id: userId }, stateSecret(), { expiresIn: "10m" });
+function makeState(userId, nonce) {
+    return jwt.sign({ id: userId, nonce }, stateSecret(), { algorithm: "HS256", expiresIn: `${STATE_MINUTES}m` });
 }
 
+// -> { id, nonce } or null
 function readState(state) {
     try {
-        return jwt.verify(String(state || ""), stateSecret()).id;
+        const payload = jwt.verify(String(state || ""), stateSecret(), { algorithms: ["HS256"] });
+        if (!Number.isInteger(payload.id) || typeof payload.nonce !== "string") return null;
+        return payload;
     } catch {
         return null;
     }
+}
+
+function stateCookieOptions(req) {
+    // req.secure is true behind Caddy's HTTPS (trust proxy is set in server.js).
+    return { httpOnly: true, sameSite: "lax", secure: req.secure, path: CALLBACK_PATH };
+}
+
+// Reads one cookie from the header (no cookie-parser dependency for a single value).
+function readCookie(req, name) {
+    for (const part of String(req.headers.cookie || "").split(";")) {
+        const eq = part.indexOf("=");
+        if (eq !== -1 && part.slice(0, eq).trim() === name) {
+            try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return null; }
+        }
+    }
+    return null;
+}
+
+// Constant-time comparison, so the check doesn't leak how much of the nonce matched.
+function sameNonce(a, b) {
+    if (typeof a !== "string" || typeof b !== "string") return false;
+    const x = Buffer.from(a);
+    const y = Buffer.from(b);
+    return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
 // ---- Talking to Google ----
@@ -307,6 +344,9 @@ router.get("/me/google-calendar", async (req, res) => {
 // POST /api/me/google-calendar/connect
 // Returns the Google consent page URL; the frontend sends the browser there.
 router.post("/me/google-calendar/connect", requireConfigured, (req, res) => {
+    const nonce = crypto.randomBytes(32).toString("base64url");
+    // Ties the consent link to this browser (see "The OAuth state value" above).
+    res.cookie(STATE_COOKIE, nonce, { ...stateCookieOptions(req), maxAge: STATE_MINUTES * 60 * 1000 });
     const params = new URLSearchParams({
         client_id: process.env.GOOGLE_CLIENT_ID,
         redirect_uri: process.env.GOOGLE_REDIRECT_URI,
@@ -314,7 +354,7 @@ router.post("/me/google-calendar/connect", requireConfigured, (req, res) => {
         scope: SCOPE,
         access_type: "offline", // ask for a refresh token
         prompt: "consent",      // ...and get one every time, not only on the first connect
-        state: makeState(req.user.id),
+        state: makeState(req.user.id, nonce),
     });
     res.json({ url: `${AUTH_URL}?${params}` });
 });
@@ -371,10 +411,17 @@ router.callback = async function googleCallback(req, res) {
     const back = (result) => res.redirect(`/dashboard?google_calendar=${result}`);
     try {
         if (!isConfigured()) return back("error");
-        if (req.query.error) return back("denied"); // the user clicked Cancel
 
-        const userId = readState(req.query.state);
-        if (!userId || typeof req.query.code !== "string") return back("error");
+        // The state must be ours, unexpired, AND started in this same browser.
+        const state = readState(req.query.state);
+        const fromThisBrowser = Boolean(state) && sameNonce(state.nonce, readCookie(req, STATE_COOKIE));
+        // Only a matching link uses up the nonce (so it can't be completed twice). A junk or
+        // foreign link must NOT clear it, or any site could break a connect that's in progress.
+        if (fromThisBrowser) res.clearCookie(STATE_COOKIE, stateCookieOptions(req));
+
+        if (req.query.error) return back("denied"); // the user clicked Cancel
+        if (!fromThisBrowser || typeof req.query.code !== "string") return back("error");
+        const userId = state.id;
 
         const exchanged = await tokenRequest({
             grant_type: "authorization_code",

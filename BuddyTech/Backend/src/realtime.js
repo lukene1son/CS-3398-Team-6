@@ -65,8 +65,32 @@ function initRealtime(httpServer, { canAccessChannel, getGroupAccess, verifySess
         const userId = socket.data.userId;
         socket.join(`user:${userId}`);
         socket.join(`session:${socket.data.sessionId}`);
-        // Their first open tab: they've just come online.
-        if (io.sockets.adapter.rooms.get(`user:${userId}`)?.size === 1) announcePresence(userId, true);
+
+        // Check the session again now that the socket is in its session room. A sign-out
+        // between io.use's check and the join above would have found the room empty, and
+        // this socket would have outlived its session. From here on, revokeSessions()
+        // reaches it through the room; anything revoked before now is caught here.
+        // (A database error keeps the socket, like requireAuth's 503: no sign-out on a hiccup.)
+        //
+        // "Came online" is only announced once this check passes, so a revoked socket never
+        // flashes "Active now". It's announced by the user's FIRST verified socket; counting
+        // verified ones (not just room size) means two tabs opening at once still announce once.
+        const announceIfFirst = () => {
+            if (!socket.connected) return; // closed while we were checking
+            socket.data.verified = true;
+            const room = io.sockets.adapter.rooms.get(`user:${userId}`) || new Set();
+            const verified = [...room].filter((id) => io.sockets.sockets.get(id)?.data.verified).length;
+            if (verified === 1) announcePresence(userId, true);
+        };
+        verifySession(socket.handshake.auth.token)
+            .then((session) => {
+                if (!session || session.sessionId !== socket.data.sessionId) return socket.disconnect(true);
+                announceIfFirst();
+            })
+            .catch((error) => {
+                console.error("Couldn't re-check socket session:", error.message);
+                announceIfFirst();
+            });
 
         // Auth is only checked at connection time, so close the socket when its token
         // expires. (Revoked sessions are closed right away by disconnectSessions.)

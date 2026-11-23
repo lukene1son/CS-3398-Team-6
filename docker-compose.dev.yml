@@ -24,7 +24,10 @@ services:
     volumes:
       - buddytech_mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h localhost --silent"]
+      # 127.0.0.1 (TCP), not localhost (socket): on the very first start MySQL runs a
+      # temporary setup server that only listens on the socket, and pinging that would
+      # report "healthy" before the backend can actually connect.
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 --silent"]
       interval: 5s
       timeout: 5s
       retries: 20
