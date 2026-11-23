@@ -183,6 +183,25 @@ function readAssignmentFields(body, partial) {
     return { fields };
 }
 
+// Database errors return a clean 500 JSON response instead of an unhandled rejection
+app.get("/api/me", async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, name, email, created_at, avatar_color,
+                    avatar_stored_name IS NOT NULL AS has_avatar
+             FROM users WHERE id = ?`,
+            [req.user.id]
+        );
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        res.json({ ...rows[0], has_avatar: Boolean(rows[0].has_avatar) });
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        res.status(500).json({ error: "Failed to fetch user profile" });
+    }
+});
+
 // The assignment as the logged-in user sees it (with their status), or undefined.
 // Callers check access first.
 async function getAssignmentRow(userId, assignmentId) {
@@ -224,16 +243,21 @@ async function checkAssignmentManager(userId, assignmentId, db = pool, lock = ""
 
 // GET /api/me  -> the logged-in user's profile (used to restore a session on page load)
 app.get("/api/me", async (req, res) => {
-    const [rows] = await pool.query(
-        `SELECT id, name, email, created_at, avatar_color,
-                avatar_stored_name IS NOT NULL AS has_avatar
-         FROM users WHERE id = ?`,
-        [req.user.id]
-    );
-    if (rows.length === 0) {
-        return res.status(404).json({ error: "User not found" });
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, name, email, created_at, avatar_color,
+                    avatar_stored_name IS NOT NULL AS has_avatar
+             FROM users WHERE id = ?`,
+            [req.user.id]
+        );
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        res.json({ ...rows[0], has_avatar: Boolean(rows[0].has_avatar) });
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        res.status(500).json({ error: "Failed to fetch user profile" });
     }
-    res.json({ ...rows[0], has_avatar: Boolean(rows[0].has_avatar) });
 });
 
 app.get("/test-db", async (req, res) => {
@@ -257,37 +281,39 @@ app.get("/test-db", async (req, res) => {
 
 app.get("/api/courses", async (req, res) => {
     try {
-        const [rows] = await pool.query("SELECT * FROM courses");
+        const [rows] = await pool.query(
+            `SELECT courses.id, courses.course_code, courses.course_name, courses.professor, courses.university
+             FROM courses
+             JOIN course_members ON course_members.course_id = courses.id
+             WHERE course_members.user_id = ?`,
+            [req.user.id]
+        );
         res.json(rows);
     } catch (error) {
         console.error("Error fetching courses:", error);
-
-        res.status(500).json({
-            error: "Failed to fetch courses"
-        });
+        res.status(500).json({ error: "Failed to fetch courses" });
     }
 });
 
 app.get("/api/courses/:id", async (req, res) => {
     try {
+        if (!(await isCourseMember(req.user.id, req.params.id))) {
+            return res.status(403).json({ error: "You are not in this course" });
+        }
         const [rows] = await pool.query(
-            "SELECT * FROM courses WHERE id = ?",
+            `SELECT id, course_code, course_name, professor, university, join_code
+             FROM courses WHERE id = ?`,
             [req.params.id]
         );
 
         if (rows.length === 0) {
-            return res.status(404).json({
-                error: "Course not found"
-            });
+            return res.status(404).json({ error: "Course not found" });
         }
 
         res.json(rows[0]);
     } catch (error) {
         console.error("Error fetching course:", error);
-
-        res.status(500).json({
-            error: "Failed to fetch course"
-        });
+        res.status(500).json({ error: "Failed to fetch course" });
     }
 });
 
