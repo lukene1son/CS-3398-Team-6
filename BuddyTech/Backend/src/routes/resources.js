@@ -50,7 +50,7 @@ const ALLOWED_FILE_TYPES = new Set([
 const CODE_EXTENSIONS = new Set([
     ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".cs", ".java", ".kt", ".scala",
     ".py", ".ipynb", ".r", ".rb", ".go", ".rs", ".swift", ".php", ".pl", ".lua", ".hs",
-    ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".html", ".css", ".scss",
+    ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".css", ".scss",
     ".json", ".xml", ".yml", ".yaml", ".toml", ".md", ".csv", ".sql", ".sh",
     ".asm", ".s", ".v", ".vhd", ".m",
 ]);
