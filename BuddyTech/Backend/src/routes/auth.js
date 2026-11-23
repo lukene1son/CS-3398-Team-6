@@ -23,9 +23,12 @@ router.use(authIpLimiter);
 // POST /api/auth/register  { email, password }
 router.post("/register", registerLimiter, async (req, res) => {
     const body = req.body || {};
-    const name = (body.name || "").trim();
-    const email = (body.email || "").trim().toLowerCase();
-    const password = body.password || "";
+    if (typeof body.name !== "string" || typeof body.email !== "string" || typeof body.password !== "string") {
+        return res.status(400).json({ error: "name, email, and password must be text" });
+    }
+    const name = body.name.trim();
+    const email = body.email.trim().toLowerCase();
+    const password = body.password;
 
     if (!name || !email || !password) {
         return res.status(400).json({ error: "name, email, and password are required" });
